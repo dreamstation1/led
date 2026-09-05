@@ -138,6 +138,21 @@ button:hover{background:#2a3039}
   font-size:11px;
   color:#98a5b5;
 }
+.route-stop-startbtn{
+  float:right;
+  margin-left:6px;
+  height:20px;
+  padding:0 7px;
+  border-radius:6px;
+  font-size:10px;
+  font-weight:700;
+  background:transparent;
+  color:#98a5b5;
+  border:1px solid #3a4250;
+  cursor:pointer;
+}
+.route-stop-startbtn:hover{color:#fff;border-color:#5a6478;}
+.route-stop-startbtn.chosen{background:#ff5a36;border-color:#ff5a36;color:#fff;}
 .route-stop-seq{
   display:inline-block;
   min-width:26px;
@@ -501,11 +516,22 @@ body.light-ui .route{color:#fff}
 .guide-status-sub{margin-top:6px;font-size:11.5px;color:var(--muted);}
 .guide-status-empty{font-size:12px;color:var(--muted);}
 
+.guide-speed{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);}
+.guide-speed-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.guide-speed-label{font-size:11.5px;color:var(--muted);white-space:nowrap;}
+.guide-speed-value{font-size:12.5px;font-weight:800;color:#ff5a36;min-width:38px;}
+#guideSpeedSlider{flex:1;min-width:110px;accent-color:#ff5a36;}
+.guide-speed-presets{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
+.guide-speed-preset{height:26px;padding:0 9px;border-radius:7px;font-size:11px;font-weight:700;background:var(--panel2);color:var(--text);border:1px solid var(--border);cursor:pointer;}
+.guide-speed-preset.on{background:#ff5a36;border-color:#ff5a36;color:#fff;}
+.guide-speed-preset:hover{filter:brightness(1.12)}
+
 .route-stop.next{background:rgba(255,90,54,.14);box-shadow:inset 3px 0 0 #ff5a36;}
 .route-stop.next .route-stop-dot{border-color:#ff5a36;}
 .route-stop.passed{opacity:.45;}
 
-.guide-user-icon{background:transparent;border:none;}
+.guide-user-icon{background:transparent;border:none;transition:transform .28s linear;}
+@media(prefers-reduced-motion:reduce){.guide-user-icon{transition:none}}
 .guide-user-dot{width:16px;height:16px;border-radius:50%;background:#33d17a;border:3px solid #fff;box-shadow:0 0 0 0 rgba(51,209,122,.55);animation:guidePulse 1.6s infinite;}
 @media(prefers-reduced-motion:reduce){.guide-user-dot{animation:none}}
 @keyframes guidePulse{
@@ -631,8 +657,9 @@ function setMapTheme(name){
 setMapTheme(localStorage.getItem('busMapTheme')||'standard');
 
 let selectedIdx=-1, routeLayer=null, routeHitLayer=null, currentRoute=null, userMarker=null, showStops=false;
-let currentGuideStops=[], guideActive=false, guideNextIndex=0, guideApproachAnnounced=false, guideWatchId=null, guideSimTimer=null, guideUserMarker=null, guideTtsOn=true;
+let currentGuideStops=[], guideActive=false, guideNextIndex=0, guideApproachAnnounced=false, guideWatchId=null, guideSimRaf=null, guideUserMarker=null, guideTtsOn=true;
 let currentRoutePath=[]; // actual road-following [lat,lng] points the simulation should walk along (falls back to straight stop-to-stop line until OSRM responds)
+let guideStartIdx=0; // route-order index (matches currentGuideStops) to start the guide/sim from - defaults to the first stop, changeable by picking a stop in the sidebar
 let routeLabelLayer=L.layerGroup().addTo(map);
 
 const StopCanvas=L.Layer.extend({
@@ -1115,7 +1142,9 @@ function renderRouteSidebar(r){
     item.innerHTML=`
       <div class="route-stop-line"><div class="route-stop-dot"></div></div>
       <div class="route-stop-content">
-        <div class="route-stop-name"><span class="route-stop-seq">${idx+1}</span>${esc(s.name)}<span class="route-stop-lines">${subwayHtmlForStop(s)}</span></div>
+        <div class="route-stop-name"><span class="route-stop-seq">${idx+1}</span>${esc(s.name)}<span class="route-stop-lines">${subwayHtmlForStop(s)}</span>
+          <button type="button" class="route-stop-startbtn${idx===guideStartIdx?' chosen':''}" data-guide-idx="${idx}" title="여기를 시뮬레이션/실시간 안내 출발점으로">${idx===guideStartIdx?'▶ 출발점':'출발점으로'}</button>
+        </div>
         <div class="route-stop-sub">ARS ${esc(s.ars||'-')} · NODE ${esc(s.node)}</div>
       </div>`;
 
@@ -1127,6 +1156,16 @@ function renderRouteSidebar(r){
         const active=document.querySelector('#routeStops .route-stop.active');
         if(active) active.scrollIntoView({block:'center',behavior:'smooth'});
       },80);
+    };
+    item.querySelector('.route-stop-startbtn').onclick=(e)=>{
+      e.stopPropagation();
+      guideStartIdx=idx;
+      status.textContent=`${s.name} · 다음 시뮬레이션/실시간 안내는 여기서부터 시작합니다`;
+      list.querySelectorAll('.route-stop-startbtn').forEach(b=>{
+        const on=Number(b.dataset.guideIdx)===guideStartIdx;
+        b.classList.toggle('chosen',on);
+        b.textContent=on?'▶ 출발점':'출발점으로';
+      });
     };
     list.appendChild(item);
   });
@@ -1151,6 +1190,7 @@ function showRoute(name){
 
   const pts=[];
   currentGuideStops=[];
+  guideStartIdx=0;
   r.nodes.forEach(node=>{
     const i=STOP_BY_NODE.get(String(node));
     if(i!=null){pts.push([STOPS[i].lat,STOPS[i].lng]);currentGuideStops.push(STOPS[i]);}
@@ -1429,9 +1469,14 @@ async function fetchRoadGeometry(pts){
 
 /* ---------------- live "next stop" guide (GPS + TTS) ---------------- */
 
-const GUIDE_ARRIVE_M=40, GUIDE_APPROACH_M=100;
+const GUIDE_ARRIVE_M=40;
+let guideApproachRadiusM=150; // "다음 정류소 접근" 안내를 재생할 거리(m). 기본 150, 안내 바의 입력칸에서 나중에 바꿀 수 있음
 const GUIDE_PASS_MARGIN_M=25; // if distance to the target stop was this close before and is now increasing again by this much, treat it as "already passed" even if it never dipped under GUIDE_ARRIVE_M (GPS drift / stop on the far side of the road)
 let guideMinDistToTarget=Infinity;
+const GUIDE_DWELL_MS=5000; // simulated dwell time at each stop, at 1x speed (scaled by simSpeedMultiplier - faster playback -> shorter stop)
+const SIM_BASE_SPEED_MPS=14; // ~50km/h at 1x
+const SIM_SPEED_PRESETS=[0.25,0.5,1,2,4,8];
+let simSpeedMultiplier=1; // read live by the running sim timer, so dragging the slider mid-run takes effect immediately
 
 function renderGuideBar(){
   const bar=document.getElementById('guideBar');
@@ -1447,13 +1492,66 @@ function renderGuideBar(){
       <button id="guideStopBtn" class="guide-btn ghost" ${guideActive?'':'disabled'}>중지</button>
       <button id="guideTtsBtn" class="guide-btn ghost">${guideTtsOn?'🔊 음성 켜짐':'🔇 음성 꺼짐'}</button>
     </div>
+    <div class="guide-speed">
+      <div class="guide-speed-row">
+        <span class="guide-speed-label">시뮬레이션 속도</span>
+        <input type="range" id="guideSpeedSlider" min="0.25" max="8" step="0.25" value="${simSpeedMultiplier}">
+        <span class="guide-speed-value" id="guideSpeedValue">${fmtSpeed(simSpeedMultiplier)}</span>
+      </div>
+      <div class="guide-speed-presets" id="guideSpeedPresets">
+        ${SIM_SPEED_PRESETS.map(v=>`<button type="button" class="guide-speed-preset ${v===simSpeedMultiplier?'on':''}" data-speed="${v}">${fmtSpeed(v)}</button>`).join('')}
+      </div>
+    </div>
+    <div class="guide-speed">
+      <div class="guide-speed-row">
+        <span class="guide-speed-label">다음정류소 안내 반경</span>
+        <input type="range" id="guideRadiusSlider" min="20" max="500" step="10" value="${guideApproachRadiusM}">
+        <span class="guide-speed-value" id="guideRadiusValue">${guideApproachRadiusM}m</span>
+      </div>
+    </div>
     <div class="guide-status" id="guideStatus" ${guideActive?'':'hidden'}></div>
   `;
   document.getElementById('guideStartBtn').onclick=startGuideLive;
   document.getElementById('guideSimBtn').onclick=startGuideSim;
   document.getElementById('guideStopBtn').onclick=stopGuide;
   document.getElementById('guideTtsBtn').onclick=()=>{guideTtsOn=!guideTtsOn;renderGuideBar();if(guideActive)updateGuideStatus();};
+
+  const speedSlider=document.getElementById('guideSpeedSlider');
+  const speedValue=document.getElementById('guideSpeedValue');
+  const presetsBox=document.getElementById('guideSpeedPresets');
+  speedSlider.oninput=e=>{
+    setSimSpeed(parseFloat(e.target.value));
+    speedValue.textContent=fmtSpeed(simSpeedMultiplier);
+    presetsBox.querySelectorAll('[data-speed]').forEach(b=>b.classList.toggle('on', parseFloat(b.dataset.speed)===simSpeedMultiplier));
+  };
+  presetsBox.querySelectorAll('[data-speed]').forEach(btn=>{
+    btn.onclick=()=>{
+      setSimSpeed(parseFloat(btn.dataset.speed));
+      speedSlider.value=simSpeedMultiplier;
+      speedValue.textContent=fmtSpeed(simSpeedMultiplier);
+      presetsBox.querySelectorAll('[data-speed]').forEach(b=>b.classList.toggle('on', b===btn));
+    };
+  });
+
+  const radiusSlider=document.getElementById('guideRadiusSlider');
+  const radiusValue=document.getElementById('guideRadiusValue');
+  radiusSlider.oninput=e=>{
+    guideApproachRadiusM=Math.max(20,Math.min(500,parseInt(e.target.value,10)||150));
+    radiusValue.textContent=guideApproachRadiusM+'m';
+  };
+
   updateGuideStatus();
+}
+
+function fmtSpeed(v){
+  const n=Math.round(v*100)/100;
+  return (Number.isInteger(n)?n:n.toFixed(2).replace(/0+$/,'').replace(/\.$/,''))+'x';
+}
+function setSimSpeed(v){
+  // Simulation timer reads simSpeedMultiplier live every tick, so this takes
+  // effect immediately even while a simulation is already running - no need
+  // to stop/restart it just to change speed.
+  simSpeedMultiplier=Math.max(0.1, Math.min(8, v||1));
 }
 
 /* Announcements are built from short clips, the same way a real bus does it:
@@ -1578,11 +1676,17 @@ function markGuideProgress(){
 }
 
 function updateGuideMarker(lat,lng){
-  if(guideUserMarker)map.removeLayer(guideUserMarker);
-  guideUserMarker=L.marker([lat,lng],{
-    icon:L.divIcon({className:'guide-user-icon',html:'<div class="guide-user-dot"></div>',iconSize:[18,18]}),
-    zIndexOffset:1000
-  }).addTo(map);
+  // Re-use the same marker and just move it (plus the CSS transition on
+  // .guide-user-icon) instead of destroying/recreating a DOM element on every
+  // update - that's what made the dot look like it was teleporting/jittering.
+  if(guideUserMarker){
+    guideUserMarker.setLatLng([lat,lng]);
+  }else{
+    guideUserMarker=L.marker([lat,lng],{
+      icon:L.divIcon({className:'guide-user-icon',html:'<div class="guide-user-dot"></div>',iconSize:[18,18]}),
+      zIndexOffset:1000
+    }).addTo(map);
+  }
 }
 
 function onGuidePosition(lat,lng){
@@ -1626,7 +1730,7 @@ function onGuidePosition(lat,lng){
       continue; // re-test the next stop in order against this same position fix
     }
 
-    if(d<=GUIDE_APPROACH_M && !guideApproachAnnounced){
+    if(d<=guideApproachRadiusM && !guideApproachAnnounced){
       announceApproach(target);
       guideApproachAnnounced=true;
     }
@@ -1641,12 +1745,12 @@ function startGuideLive(){
     return;
   }
   guideActive=true;
-  guideNextIndex=0;
+  guideNextIndex=Math.min(Math.max(guideStartIdx,0), currentGuideStops.length-1);
   guideApproachAnnounced=false;
   guideMinDistToTarget=Infinity;
   markGuideProgress();
   renderGuideBar();
-  status.textContent='실시간 위치 추적을 시작했습니다.';
+  status.textContent='실시간 위치 추적을 시작했습니다.'+(guideNextIndex>0?' · '+currentGuideStops[guideNextIndex].name+'부터':'');
   // maximumAge:0 forces a fresh GPS fix every time instead of reusing a cached
   // one, so the dot/announcements track genuinely live movement.
   guideWatchId=navigator.geolocation.watchPosition(
@@ -1675,6 +1779,19 @@ function pointAtDistanceM(path,distM){
   }
   return path[path.length-1];
 }
+function nearestArcLengthOnPath(path,lat,lng){
+  // Cumulative distance along `path` to whichever path vertex sits closest to
+  // (lat,lng) - used to know where a given stop "is" along the drawn route so
+  // the sim can start from it directly instead of always from position 0.
+  let bestDist=Infinity,bestArc=0,cum=0;
+  for(let i=0;i<path.length;i++){
+    const dd=hav(lat,lng,path[i][0],path[i][1]);
+    if(dd<bestDist){bestDist=dd;bestArc=cum;}
+    if(i<path.length-1)cum+=hav(path[i][0],path[i][1],path[i+1][0],path[i+1][1]);
+  }
+  return bestArc;
+}
+
 function startGuideSim(){
   if(!currentGuideStops || currentGuideStops.length<2)return;
   // Walk along the same road-following line drawn on the map (currentRoutePath),
@@ -1683,34 +1800,60 @@ function startGuideSim(){
   const path=(currentRoutePath && currentRoutePath.length>=2)
     ? currentRoutePath
     : currentGuideStops.map(s=>[s.lat,s.lng]);
+  const startIdx=Math.min(Math.max(guideStartIdx,0), currentGuideStops.length-1);
   guideActive=true;
-  guideNextIndex=0;
+  guideNextIndex=startIdx;
   guideApproachAnnounced=false;
   guideMinDistToTarget=Infinity;
   markGuideProgress();
   renderGuideBar();
-  status.textContent='시뮬레이션을 시작합니다.';
-  const TICK_MS=350;
-  const SIM_SPEED_MPS=14; // ~50km/h, roughly city-bus pace
+  status.textContent='시뮬레이션을 시작합니다'+(startIdx>0?' · '+currentGuideStops[startIdx].name+'에서 출발':'')+' (속도 '+fmtSpeed(simSpeedMultiplier)+')';
+
   const totalLen=pathLengthM(path);
-  let traveled=0;
-  guideSimTimer=setInterval(()=>{
-    if(!guideActive){clearInterval(guideSimTimer);guideSimTimer=null;return;}
-    traveled+=SIM_SPEED_MPS*(TICK_MS/1000);
+  let traveled=nearestArcLengthOnPath(path,currentGuideStops[startIdx].lat,currentGuideStops[startIdx].lng);
+  let dwellUntil=0;
+  let lastTs=null;
+
+  // requestAnimationFrame instead of a fixed setInterval tick: position/distance
+  // advance in proportion to real elapsed time every frame (~60/s) instead of
+  // in one lump every 350ms, so the dot glides and the distance counter ticks
+  // down smoothly instead of jumping in ~5m steps.
+  function tick(now){
+    if(!guideActive){guideSimRaf=null;return;}
+    if(lastTs==null)lastTs=now;
+    const dt=(now-lastTs)/1000;
+    lastTs=now;
+
+    if(now<dwellUntil){
+      guideSimRaf=requestAnimationFrame(tick);
+      return;
+    }
+
+    traveled+=SIM_BASE_SPEED_MPS*simSpeedMultiplier*dt;
     if(traveled>=totalLen){
       const last=path[path.length-1];
       onGuidePosition(last[0],last[1]);
-      clearInterval(guideSimTimer);guideSimTimer=null;
+      guideSimRaf=null;
       return;
     }
+
     const [lat,lng]=pointAtDistanceM(path,traveled);
+    const beforeIdx=guideNextIndex;
     onGuidePosition(lat,lng);
-  },TICK_MS);
+    if(guideActive && guideNextIndex>beforeIdx){
+      // Just arrived at (and announced) one or more stops - dwell here like a
+      // real bus stop before moving again. GUIDE_DWELL_MS is the 1x baseline;
+      // faster/slower playback shortens/lengthens the stop proportionally.
+      dwellUntil=now+(GUIDE_DWELL_MS/Math.max(0.1,simSpeedMultiplier));
+    }
+    guideSimRaf=requestAnimationFrame(tick);
+  }
+  guideSimRaf=requestAnimationFrame(tick);
 }
 
 function stopGuide(){
   if(guideWatchId!=null){navigator.geolocation.clearWatch(guideWatchId);guideWatchId=null;}
-  if(guideSimTimer){clearInterval(guideSimTimer);guideSimTimer=null;}
+  if(guideSimRaf!=null){cancelAnimationFrame(guideSimRaf);guideSimRaf=null;}
   if(guideUserMarker){map.removeLayer(guideUserMarker);guideUserMarker=null;}
   const wasActive=guideActive;
   guideActive=false;
