@@ -1858,12 +1858,14 @@ function setSimSpeed(v){
      audio/phrases/이번정류소.mp3
      audio/phrases/다음정류소.mp3
      audio/phrases/종점입니다.mp3
-     audio/phrases/이번정류소 (1).mp3   (space + parens, exact filename)
-     audio/phrases_en/this_stop_is.mp3
-     audio/stops/<정류소 이름>.mp3      (one per stop, played by its Korean name)
+     audio/phrases_en/thisstopis.mp3
+     audio/stops/<정류소 이름>.mp3       (one per stop, played by its Korean name)
+     audio/stops/<정류소 이름> (1).mp3   (SAME stop, played a second time near
+                                          the end of the announcement - space
+                                          + parens, exact filename)
 
    Order per stop: 이번정류소 -> <정류소 이름> -> 다음정류소(또는 종점입니다) ->
-   <다음 정류소 이름> -> this_stop_is -> 이번정류소 (1).
+   <다음 정류소 이름> -> thisstopis -> <정류소 이름> (1).
 
    Recording every one of 12,897 stop names is unrealistic, so a missing
    file is simply skipped (silence for that one segment, no TTS fallback,
@@ -2011,9 +2013,23 @@ function audioPaths(category,key){
   // .wav; some clips may be hand-converted to .mp3 later, so both
   // extensions are tried too. playClipAnyExt() races all of these in
   // parallel and just uses whichever one is actually there.
-  const flatBase=AUDIO_BASE+encodeURIComponent(key);
-  const catBase=AUDIO_BASE+category+'/'+encodeURIComponent(key);
-  return [flatBase+'.mp3', flatBase+'.wav', catBase+'.mp3', catBase+'.wav'];
+  //
+  // Also try a couple of harmless filename variants, because real-world
+  // saved filenames don't always match the "canonical" key exactly - e.g.
+  // "thisstopis.wav" (no underscores) got saved for what the code asked for
+  // as "this_stop_is", and "이번정류소(1).wav" (no space before the
+  // parenthesis) is an easy one-space typo away from "이번정류소 (1)". Trying
+  // every variant costs nothing (they're all raced in parallel and misses
+  // are cheap/cached), and means a small naming difference doesn't silently
+  // turn into a skipped announcement.
+  const keys=new Set([key, key.replace(/_/g,''), key.replace(/ \(/g,'(')]);
+  const paths=[];
+  keys.forEach(k=>{
+    const flatBase=AUDIO_BASE+encodeURIComponent(k);
+    const catBase=AUDIO_BASE+category+'/'+encodeURIComponent(k);
+    paths.push(flatBase+'.mp3', flatBase+'.wav', catBase+'.mp3', catBase+'.wav');
+  });
+  return paths;
 }
 
 /* Paths already known to 404 are remembered so we never pay the network-miss
@@ -2087,28 +2103,29 @@ async function playSegment(category,key){
   await playClipAnyExt(audioPaths(category,key));
 }
 
-async function announceApproach(stop){
-  await playSegment('phrases','다음정류소');
+// 전체 안내 순서 (200m 접근 시점에 한 번 재생됨 - 실제 도착 순간이 아니라
+// 접근 반경에 들어오는 그 시점에 바로 이 전체 시퀀스가 나감):
+//   이번정류소 -> <정류소 이름> -> 다음정류소(또는 종점입니다) ->
+//   <다음 정류소 이름> -> thisstopis -> <정류소 이름> (1)
+async function announceArrival(stop,next){
+  await playSegment('phrases','이번정류소');
   // audioName은 "(1번홈)" 같은 승강장 번호를 떼기 전 원래 정류소명 - 음성
   // 파일이 그 원래 이름 그대로 저장돼 있을 수 있어서, 화면 표시용으로 지운
   // stop.name 대신 이걸로 찾음(있으면).
-  await playSegment('stops',stop.audioName||stop.name);
-}
-
-async function announceArrival(stop,next){
-  await playSegment('phrases','이번정류소');
-  await playSegment('stops',stop.audioName||stop.name);
+  const stopAudioKey=stop.audioName||stop.name;
+  await playSegment('stops',stopAudioKey);
   if(next){
     await playSegment('phrases','다음정류소');
     await playSegment('stops',next.audioName||next.name);
   }else{
     await playSegment('phrases','종점입니다');
   }
-  await playSegment('phrases_en','this_stop_is');
-  // "이번정류소" 문구가 이 안내 안에서 두 번째로 나오는 자리라, 오디오 자르는
-  // 도구가 같은 이름 파일이 겹칠 때 자동으로 뒤에 붙이는 표기 그대로
-  // "이번정류소 (1)" 파일을 씀(공백+괄호까지 그대로 파일명).
-  await playSegment('phrases','이번정류소 (1)');
+  await playSegment('phrases_en','thisstopis');
+  // 정류소 이름이 이 안내 안에서 두 번째로 나오는 자리 - 같은 "<정류소 이름>"
+  // 문구를 또 재생하는 거고, 고정 문구가 아님. 오디오 자르는 도구가 같은
+  // 이름 파일이 겹칠 때 자동으로 뒤에 붙이는 표기 그대로 "<정류소 이름> (1)"
+  // 파일을 씀(stops/ 폴더, 공백+괄호까지 그대로 파일명).
+  await playSegment('stops',stopAudioKey+' (1)');
 }
 
 function updateGuideStatus(){
@@ -2185,15 +2202,13 @@ function onGuidePosition(lat,lng){
 
     if(arrivedExactly||passedAlready){
       const next=currentGuideStops[guideNextIndex+1]||null;
-      announceArrival(target,next);
-      // The physical sign normally already got its absolute-index command
-      // back when we first entered the approach radius (below), which is
-      // when a real bus sign switches over - not after the fact. This is
-      // only a fallback for when that never happened (sim started already
-      // inside arrival range, or a GPS jump landed straight past both radii
-      // at once). ledSetIndex is idempotent (always names the exact stop),
-      // so sending it again here even if the approach one already fired is
-      // harmless - unlike the old relative 'T', this can never double-advance.
+      // The full announcement + LED update normally already fired below when
+      // we first entered the approach radius (200m) - that's the moment this
+      // is supposed to happen at, per spec. This is only a fallback for when
+      // that never happened (sim/live started already inside arrival range,
+      // or a GPS jump landed straight past both radii at once), so it
+      // doesn't play twice back to back for the same stop.
+      if(!guideApproachAnnounced)announceArrival(target,next);
       if(ledConnected && !guideApproachAnnounced)ledSetIndex(guideNextIndex);
       guideNextIndex+=1;
       guideApproachAnnounced=false;
@@ -2208,7 +2223,11 @@ function onGuidePosition(lat,lng){
     }
 
     if(d<=guideApproachRadiusM && !guideApproachAnnounced){
-      announceApproach(target);
+      // 200m 접근 반경에 들어오는 이 시점에 전체 안내 시퀀스가 나감(도착
+      // 순간이 아니라 여기서 바로) - 이번정류소/다음정류소/thisstopis/
+      // 이번정류소(1) 전부 여기서 재생됨.
+      const next=currentGuideStops[guideNextIndex+1]||null;
+      announceArrival(target,next);
       guideApproachAnnounced=true;
       // Tell the sign directly which absolute stop to show right as we
       // cross the approach radius - this is the "접근 반경(기본 200m) 근처일때
@@ -2246,7 +2265,11 @@ function startGuideLive(){
   // chained with .then() rather than fired separately, so the index command
   // can never reach the wire before the route data it depends on (that
   // exact ordering race is what silently dropped the index before).
-  if(ledConnected)ledUploadRoute().then(()=>{ if(ledConnected)ledSetIndex(liveStartIdx); });
+  // Just upload the route silently - don't show or announce anything yet.
+  // The sign only ever lights up / speaks once we're actually within the
+  // approach radius (200m) of guideNextIndex (liveStartIdx+1), same as every
+  // later stop on the route; the start stop itself gets no special display.
+  if(ledConnected)ledUploadRoute();
   status.textContent='실시간 위치 추적을 시작했습니다.'+(liveStartIdx>0?' · '+currentGuideStops[liveStartIdx].name+'부터':'');
   // maximumAge:0 forces a fresh GPS fix every time instead of reusing a cached
   // one, so the dot/announcements track genuinely live movement.
@@ -2341,7 +2364,11 @@ function startGuideSim(){
   // Same reason as startGuideLive(): upload the (unsliced) route, then only
   // once that's actually on the wire, explicitly jump the sign to the
   // chosen start stop.
-  if(ledConnected)ledUploadRoute().then(()=>{ if(ledConnected)ledSetIndex(startIdx); });
+  // Same reason as startGuideLive(): just upload the route silently, no
+  // display or announcement yet - the sign only lights up / speaks once the
+  // sim actually gets within the approach radius (200m) of guideNextIndex
+  // (startIdx+1), same as every later stop.
+  if(ledConnected)ledUploadRoute();
   status.textContent='시뮬레이션을 시작합니다'+(startIdx>0?' · '+currentGuideStops[startIdx].name+'에서 출발':'')+' (속도 '+fmtSpeed(simSpeedMultiplier)+')';
 
   const totalLen=pathLengthM(path);
