@@ -1795,7 +1795,6 @@ function renderGuideBar(){
       <div class="guide-speed-presets" id="ledStyleButtons">
         ${['1111','2222','3333','4444'].map(v=>`<button type="button" class="guide-speed-preset ${v===ledStyle?'on':''}" data-ledstyle="${v}">${v}</button>`).join('')}
       </div>
-      <div class="hint" style="margin-top:6px;">USB는 데스크톱 Chrome/Edge에서만 돼요(아이폰 등 iOS는 애플이 막아놔서 USB 연결 자체가 불가능). 아이폰처럼 USB가 안 되면, 전광판이 부팅할 때 화면에 몇 초간 뜨는 IP 주소를 위에 입력하고 "와이파이로 연결"을 눌러주세요(전광판이랑 폰이 같은 와이파이여야 함). 연결되면 노선을 고를 때 자동으로 전송되고, 다음 정류소 접근 반경(위 슬라이더, 기본 200m) 안에 들어오는 순간 전광판도 다음 정류소로 자동 전환돼요.</div>
     </div>
     <div class="guide-status" id="guideStatus" ${guideActive?'':'hidden'}></div>
   `;
@@ -1852,30 +1851,31 @@ function setSimSpeed(v){
 }
 
 /* Announcements are built from short clips, the same way a real bus does it:
-   a handful of fixed phrase clips ("이번 정류소는", "다음 정류소는", "This stop is", ...)
-   plus one clip per stop name, played back to back. Recording every one of
-   12,897 stop names is unrealistic, so this only PREFERS a real audio file
-   and falls back to on-the-fly speech synthesis per segment when the file
-   is missing (which, with no audio/ folder at all, is always - so the app
-   works out of the box and quietly upgrades itself as files get added).
+   a handful of fixed phrase clips plus one clip per stop name, played back
+   to back. Each clip is a complete recording as-is (no "입니다" etc. glued
+   on separately) - the files below are the ONLY ones the app plays:
 
-   Folder layout to drop real recordings into (next to this html file):
-     audio/phrases/이번정류소.mp3        audio/phrases_en/this_stop_is.mp3
-     audio/phrases/다음정류소.mp3        audio/phrases_en/the_next_stop_is.mp3
-     audio/phrases/입니다.mp3            audio/phrases_en/last_stop.mp3
+     audio/phrases/이번정류소.mp3
+     audio/phrases/다음정류소.mp3
      audio/phrases/종점입니다.mp3
-     audio/stops/<정류소 이름>.mp3       audio/stops_en/<English name>.mp3
-   Any file you don't have yet is simply skipped for that one segment (no
-   TTS fallback anymore, by request) - you can add stop-name recordings
-   gradually, starting with the ones you ride most, without breaking
-   anything; a missing clip just makes that phrase silent instead of falling
-   back to a synthesized voice.
+     audio/phrases/이번정류소 (1).mp3   (space + parens, exact filename)
+     audio/phrases_en/this_stop_is.mp3
+     audio/stops/<정류소 이름>.mp3      (one per stop, played by its Korean name)
 
-   No official English stop names exist in the source data, so STOP_NAME_EN
-   is empty by default; fill it in (node id -> English name) to get proper
-   English audio filenames instead of the auto-romanized Korean name. */
+   Order per stop: 이번정류소 -> <정류소 이름> -> 다음정류소(또는 종점입니다) ->
+   <다음 정류소 이름> -> this_stop_is -> 이번정류소 (1).
+
+   Recording every one of 12,897 stop names is unrealistic, so a missing
+   file is simply skipped (silence for that one segment, no TTS fallback,
+   no hang) - add stop-name recordings gradually as you ride those routes.
+   Folder goes next to this html file; audio/stops/ can also be flattened
+   straight into audio/ if you'd rather not use subfolders (see audioPaths
+   below - it tries both layouts).
+
+   STOP_NAME_EN / englishNameFor() below are only for the LED sign's English
+   line, not for audio - no English stop-name clips are played. */
 const AUDIO_BASE='audio/';
-const STOP_NAME_EN={}; // e.g. {"101000226":"Gwanghwamun"} - overrides the auto-romanized name below when you have a real official one
+const STOP_NAME_EN={}; // e.g. {"101000226":"Gwanghwamun"} - overrides the auto-romanized name below when you have a real official one, used for the LED sign's English line only
 
 /* Revised-Romanization-style Hangul -> Latin conversion, used only as a
    fallback so the English announcement is an actual pronounceable place name
@@ -2004,10 +2004,16 @@ async function englishNameFor(stop){
 }
 
 function audioPaths(category,key){
-  // audio_cutter.html exports .wav; some clips may be hand-converted to .mp3 later.
-  // Try both so either extension works without renaming anything.
-  const base=AUDIO_BASE+category+'/'+encodeURIComponent(key);
-  return [base+'.mp3', base+'.wav'];
+  // Try the file straight under audio/ (everything dumped in one folder,
+  // no phrases/stops/... subfolders needed) AND under audio/<category>/ (the
+  // sorted layout) - whichever one actually exists wins, so either way of
+  // organizing the files works with no renaming. audio_cutter.html exports
+  // .wav; some clips may be hand-converted to .mp3 later, so both
+  // extensions are tried too. playClipAnyExt() races all of these in
+  // parallel and just uses whichever one is actually there.
+  const flatBase=AUDIO_BASE+encodeURIComponent(key);
+  const catBase=AUDIO_BASE+category+'/'+encodeURIComponent(key);
+  return [flatBase+'.mp3', flatBase+'.wav', catBase+'.mp3', catBase+'.wav'];
 }
 
 /* Paths already known to 404 are remembered so we never pay the network-miss
@@ -2027,9 +2033,10 @@ function playClip(src){
     try{
       a=new Audio(src);
       // Don't let a missing/slow file stall the announcement for seconds -
-      // if it hasn't started playing shortly, treat it as missing and fall
-      // back to TTS immediately instead of waiting on a browser 'error' event
-      // that can be very slow (or never fire) on some setups.
+      // if it hasn't started playing shortly, treat it as missing and skip
+      // it (move straight on to the next segment) instead of waiting on a
+      // browser 'error' event that can be very slow (or never fire) on some
+      // setups.
       const timer=setTimeout(()=>finish(false),300);
       a.addEventListener('playing',()=>clearTimeout(timer));
       a.addEventListener('ended',()=>{clearTimeout(timer);finish(true);});
@@ -2086,22 +2093,18 @@ async function announceApproach(stop){
   // 파일이 그 원래 이름 그대로 저장돼 있을 수 있어서, 화면 표시용으로 지운
   // stop.name 대신 이걸로 찾음(있으면).
   await playSegment('stops',stop.audioName||stop.name);
-  await playSegment('phrases','입니다');
 }
 
 async function announceArrival(stop,next){
   await playSegment('phrases','이번정류소');
   await playSegment('stops',stop.audioName||stop.name);
-  await playSegment('phrases','입니다');
   if(next){
     await playSegment('phrases','다음정류소');
     await playSegment('stops',next.audioName||next.name);
-    await playSegment('phrases','입니다');
   }else{
     await playSegment('phrases','종점입니다');
   }
   await playSegment('phrases_en','this_stop_is');
-  await playSegment('stops_en',await englishNameFor(stop));
   // "이번정류소" 문구가 이 안내 안에서 두 번째로 나오는 자리라, 오디오 자르는
   // 도구가 같은 이름 파일이 겹칠 때 자동으로 뒤에 붙이는 표기 그대로
   // "이번정류소 (1)" 파일을 씀(공백+괄호까지 그대로 파일명).
