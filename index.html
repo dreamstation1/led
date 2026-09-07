@@ -1525,14 +1525,28 @@ status.textContent=`버스 API 없이 파일 데이터 사용 · 정류소 ${STO
 async function fetchRoadGeometry(pts){
   if(!pts || pts.length<2)return null;
   let sample=pts;
-  const MAX_PTS=100;
+  // Every stop used to get downsampled down to at most 100 via-points on long
+  // routes - OSRM then only had to find the shortest path between two
+  // sampled points that could be several REAL stops apart, and "shortest for
+  // a car" between two such points can detour onto a highway/bridge and back
+  // even though the true stop-by-stop path never needed to cross it. Keeping
+  // (almost) every real stop as its own explicit via-point forces the route
+  // through each one, so no leg is ever longer than one real stop-to-stop
+  // hop - that's what actually prevents the "건너지 않아도 되는 다리를
+  // 건넜다가 돌아오는" detours, not any routing parameter. 500 comfortably
+  // covers even Seoul's longest routes without hitting OSRM's/URL's limits.
+  const MAX_PTS=500;
   if(sample.length>MAX_PTS){
     const step=Math.ceil(sample.length/MAX_PTS);
     sample=pts.filter((_,i)=>i%step===0);
     if(sample[sample.length-1]!==pts[pts.length-1])sample.push(pts[pts.length-1]);
   }
   const coordStr=sample.map(([lat,lng])=>`${lng},${lat}`).join(';');
-  const url=`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+  // continue_straight=true: don't let the route double back (U-turn) right at
+  // a via-point even if that's technically a hair shorter - this is exactly
+  // the "지나쳤다가 다시 돌아오는" shape, and forcing straight-through at
+  // every stop stops OSRM from ever proposing it.
+  const url=`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson&continue_straight=true`;
   const res=await fetch(url);
   if(!res.ok)throw new Error('OSRM HTTP '+res.status);
   const data=await res.json();
@@ -1652,7 +1666,23 @@ async function ledReadLoop(){
   }catch(e){}
   ledReadLoopActive=false;
 }
-async function ledSendLine(line){
+// Every send is funneled one-at-a-time through this queue instead of going
+// straight to the wire. Callers (esp. onGuidePosition's "catch up through
+// several already-passed stops" loop) can fire off several ledSetIndex/
+// ledSendLine calls back-to-back without awaiting in between - sending those
+// concurrently used to race each other against the sign's tiny single-
+// connection WiFi HTTP server (or the single USB serial link) and some would
+// silently get dropped, which is exactly the "가끔가다가 전광판 중간에
+// 빼먹는" symptom. Chaining them through one promise means each command
+// only starts once the previous one has actually finished (sent or failed),
+// so nothing overlaps - callers don't need to change how they call this.
+let ledSendChain=Promise.resolve();
+function ledSendLine(line){
+  const result=ledSendChain.then(()=>ledSendLineRaw(line));
+  ledSendChain=result.catch(()=>{}); // keep the chain alive even if this send failed
+  return result;
+}
+async function ledSendLineRaw(line){
   if(!ledConnected)return false;
   if(ledMode==='wifi'){
     try{
@@ -2377,6 +2407,11 @@ function startGuideSim(){
   let dwellUntil=0;
   let lastTs=null;
 
+  // 실제 버스처럼: 정차 뒤에는 0에서 서서히 가속, 정차 전에는 서서히
+  // 감속(순간이동/뚝 멈춤 아님). 정류소 사이 랜덤 신호등/교차로 정지는 뺌
+  // (요청에 따라) - 이제 실제 정류소에서만 서고, 그마저도 부드럽게 서고 뜸.
+  let currentSpeedMps=0;
+
   // requestAnimationFrame instead of a fixed setInterval tick: position/distance
   // advance in proportion to real elapsed time every frame (~60/s) instead of
   // in one lump every 350ms, so the dot glides and the distance counter ticks
@@ -2388,11 +2423,30 @@ function startGuideSim(){
     lastTs=now;
 
     if(now<dwellUntil){
+      currentSpeedMps=0;
       guideSimRaf=requestAnimationFrame(tick);
       return;
     }
 
-    traveled+=SIM_BASE_SPEED_MPS*simSpeedMultiplier*dt;
+    // simSpeedMultiplier는 "재생 속도" 배율이라 순항속도뿐 아니라 가속/감속도
+    // 같이 배율만큼 줄여야 빨리감기 느낌이 일관됨.
+    const cruiseMps=SIM_BASE_SPEED_MPS*simSpeedMultiplier;
+    const accelMps2=1.6*simSpeedMultiplier;
+    const decelMps2=2.2*simSpeedMultiplier;
+
+    const nextStopArc=stopArcs[Math.min(guideNextIndex,stopArcs.length-1)]??totalLen;
+    // 다음 정류소를 향해 미리 감속(제동거리 계산) - 도착 직전에 뚝 멈추지
+    // 않고 서서히 줄임.
+    const distToStop=nextStopArc-traveled;
+    const stopDist=(currentSpeedMps*currentSpeedMps)/(2*Math.max(0.01,decelMps2));
+
+    if(distToStop<=Math.max(stopDist,4)){
+      currentSpeedMps=Math.max(0,currentSpeedMps-decelMps2*dt);
+    }else if(currentSpeedMps<cruiseMps){
+      currentSpeedMps=Math.min(cruiseMps,currentSpeedMps+accelMps2*dt);
+    }
+
+    traveled+=currentSpeedMps*dt;
     if(traveled>=totalLen){
       const last=path[path.length-1];
       onGuidePosition(last[0],last[1]);
@@ -2408,6 +2462,7 @@ function startGuideSim(){
       // real bus stop before moving again. GUIDE_DWELL_MS is the 1x baseline;
       // faster/slower playback shortens/lengthens the stop proportionally.
       dwellUntil=now+(GUIDE_DWELL_MS/Math.max(0.1,simSpeedMultiplier));
+      currentSpeedMps=0;
     }
     guideSimRaf=requestAnimationFrame(tick);
   }
