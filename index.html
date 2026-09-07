@@ -298,6 +298,7 @@ body.light-ui .route{color:#fff}
 
 .search-wrap{position:relative;flex:1;min-width:190px}
 .search-wrap input{width:100%}
+#routeSearchWrap{max-width:190px}
 #searchResults,#routeSearchResults{
   position:absolute;
   top:42px;
@@ -521,6 +522,14 @@ body.light-ui .route{color:#fff}
 
 @media(max-width:700px){#top{padding:8px}.title{width:100%}input{min-width:0}}
 
+@media(max-width:700px){
+  .row{row-gap:8px}
+  .search-wrap,#routeSearchWrap{flex:1 1 100%;max-width:100%;min-width:0}
+  #routeSearchResults{left:0;right:0;width:auto}
+  #searchResults,#routeSearchResults{max-height:260px}
+  .row button{flex:0 0 auto;font-size:13px;padding:0 8px}
+}
+
 #guideBar{margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
 .guide-controls{display:flex;gap:6px;flex-wrap:wrap;}
 .guide-btn{height:32px;padding:0 11px;border-radius:8px;font-size:12px;font-weight:750;background:var(--panel2);color:var(--text);border:1px solid var(--border);cursor:pointer;}
@@ -573,7 +582,7 @@ body.light-ui .route{color:#fff}
       <div id="searchResults"></div>
     </div>
     <button id="stopBtn">정류소 찾기</button>
-    <div class="search-wrap" style="max-width:190px">
+    <div class="search-wrap" id="routeSearchWrap">
       <input id="routeQ" autocomplete="off" placeholder="노선번호">
       <div id="routeSearchResults"></div>
     </div>
