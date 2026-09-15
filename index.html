@@ -210,6 +210,51 @@ button:hover{background:#2a3039}
 }
 .route-stop-startbtn:hover{color:#fff;border-color:#5a6478;}
 .route-stop-startbtn.chosen{background:#ff5a36;border-color:#ff5a36;color:#fff;}
+/* 버스 카드가 있는 줄만 flex 자식으로 끼워 넣었더니, 그 줄만 선/점이
+   오른쪽으로 밀리고 카드 없는 줄은 안 밀려서 세로선이 지그재그로
+   꺾여 보이는 문제가 있었다(사용자 스크린샷으로 지적받음) - 카드를
+   position:absolute로 빼서 레이아웃 흐름에서 아예 제외하고, 버스
+   위치 기능이 켜져 있는 동안은 모든 줄에 똑같이 왼쪽 여백을
+   넉넉히 잡아둬서(#routeStops.showing-bus-cards) 카드가 있든 없든
+   선/점 위치가 항상 똑같은 자리에 오게 했다.
+*/
+#routeStops.showing-bus-cards .route-stop{padding-left:64px}
+.route-stop-buscard{
+  position:absolute;
+  left:6px;
+  top:50%;
+  transform:translateY(-50%);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:2px;
+  background:#1c2229;
+  border:1px solid #3a4250;
+  border-radius:8px;
+  padding:4px 6px;
+  font-size:9px;
+  font-weight:800;
+  white-space:nowrap;
+}
+.rsbc-type{color:#98a5b5;}
+.rsbc-crowd{padding:1px 6px;border-radius:999px;}
+.rsbc-crowd.crowd-low{background:rgba(51,209,122,.18);color:#33d17a;}
+.rsbc-crowd.crowd-mid{background:rgba(255,176,32,.18);color:#ffb020;}
+.rsbc-crowd.crowd-high{background:rgba(255,59,48,.18);color:#ff3b30;}
+.route-stop-dot.bus-here{
+  width:18px;height:18px;left:0;top:4px;
+  border-radius:5px;
+  /* 일반 점은 파란 테두리가 세로선이랑 같은 색이라 선이 끊기지 않고
+     이어지는 것처럼 보이는데, 이 버스 아이콘은 배경이 어두운 색이라
+     선이 그 지점에서 뚝 끊어져 보였음(사용자가 스크린샷으로 지적한 것) -
+     테두리를 세로선과 같은 파란색으로 맞춰서 계속 이어지게 보이게 함. */
+  background:#2f70e5;
+  border:2px solid #dbe7ff;
+  display:flex;align-items:center;justify-content:center;
+  font-size:11px;
+  line-height:1;
+  box-shadow:0 1px 4px rgba(0,0,0,.4);
+}
 .route-stop-seq{
   display:inline-block;
   min-width:26px;
@@ -290,6 +335,8 @@ button:hover{background:#2a3039}
 .switch input:checked + span{background:#2f70e5}
 .switch input:checked + span:before{transform:translateX(20px)}
 .popup-route{cursor:pointer}
+.route-arrival{color:#8fb8ff;font-weight:700;}
+body.light-ui .route-arrival{color:#2a5db0;}
 .popup-route:hover{background:#35496a}
 
 
@@ -798,6 +845,16 @@ STOPS.forEach(s=>{
   s.audioName=s.name;
   s.name=String(s.name||'').replace(/\(\d+번홈\)\s*$/,'').trim();
 });
+// 실제 현장 명칭이 바뀌었는데 원본 데이터엔 옛 이름 그대로 남아있는 정류소
+// 보정 - 화면에 뜨는 이름(s.name)만 바꾸고 s.audioName은 그대로 둬서, 혹시
+// 음성 파일이 옛 이름으로 저장돼 있어도 안내에는 영향 없음. 키는 공백을
+// 지운 형태라 원본에 공백이 있든 없든 매칭된다. 양방향 정류소 둘 다
+// 이름이 같아서 이 한 줄로 둘 다 바뀐다.
+const STOP_NAME_OVERRIDE={'화곡동유림아파트':'유림노르웨이숲.까치산지구대'};
+STOPS.forEach(s=>{
+  const noSpace=s.name.replace(/\s+/g,'');
+  if(STOP_NAME_OVERRIDE[noSpace])s.name=STOP_NAME_OVERRIDE[noSpace];
+});
 // Registering from file:// (no server) always rejects - that's expected and
 // fine, the app works the same either way, this only adds the offline-cache/
 // "add to home screen" install behavior once it's actually hosted over
@@ -1041,14 +1098,27 @@ function mergeCanonicalLines(lines){
 }
 function subwayForStop(s){
   const raw=String(s.name||'');
+  // 정류소명이 "신목동역.서울지방식품의약품안전청"처럼 점으로 두 지명을
+  // 이어붙인 경우가 흔해서, 전체 문자열이 아니라 점으로 나눈 각 부분부터
+  // 정확히 일치하는 역을 찾는다 - "신목동역" 부분이 "신목동"(9호선)과
+  // 정확히 일치하므로 그것만 쓰고, "목동역"이 전체 문자열 안에 부분
+  // 문자열로 들어있다는 이유로 목동역(5호선)까지 같이 섞이는 걸 막는다.
+  const parts=raw.split('.').map(p=>normText(p.trim())).filter(Boolean);
+  for(const np of parts){
+    for(const [station,lines] of Object.entries(SUBWAY_META)){
+      const key=normText(station);
+      const stationWithYeok=normText(station+'역');
+      if(np===key || np===stationWithYeok)return mergeCanonicalLines(lines);
+    }
+  }
+  // 부분 단위로도 정확히 일치하는 역이 없을 때만 전체 문자열 기준 느슨한
+  // 포함/접두/접미 매칭으로 넘어간다.
   const normalized=normText(raw);
   const matches=[];
   for(const [station,lines] of Object.entries(SUBWAY_META)){
-    const key=normText(station);
     // Require station-style wording to avoid false matches such as "이대목동병원".
     const stationWithYeok=normText(station+'역');
     if(normalized.includes(stationWithYeok) ||
-       normalized===key ||
        normalized.startsWith(stationWithYeok) ||
        normalized.endsWith(stationWithYeok)){
       matches.push(...lines);
@@ -1233,6 +1303,64 @@ function renderSelectedPanel(idx){
     };
   });
 }
+/* ---------------- 정류소 도착예정정보 (같은 프록시, ws.bus.go.kr) ---------------- */
+// 정류소를 고르면(지도 팝업/사이드바 모두) 그 정류소에 서는 노선 칩마다
+// "3분 후 도착" 같은 실제 도착예정시간을 붙인다 - 버스 위치 기능과 같은
+// 프록시를 쓰지만 별도 상위 API(getStationByUid)라 호출 횟수도 따로 센다.
+const STOP_ARRIVAL_DAILY_CAP=3000;
+function stopArrivalCallKey(){ return 'stopArrivalCalls_'+new Date().toISOString().slice(0,10); }
+function stopArrivalCallsToday(){ return parseInt(localStorage.getItem(stopArrivalCallKey())||'0',10); }
+function stopArrivalRecordCall(){ localStorage.setItem(stopArrivalCallKey(), String(stopArrivalCallsToday()+1)); }
+async function fetchStopArrivals(arsId){
+  if(!busPosProxyUrl || !arsId)return [];
+  if(stopArrivalCallsToday()>=STOP_ARRIVAL_DAILY_CAP)return [];
+  stopArrivalRecordCall();
+  const res=await fetch(`${busPosProxyUrl}?mode=arrival&arsId=${encodeURIComponent(arsId)}&resultType=json`);
+  if(!res.ok)return [];
+  const data=await res.json();
+  return (data && data.msgBody && data.msgBody.itemList) || [];
+}
+// arrmsg1/arrmsg2는 API가 이미 "3분 후 도착[2번째 전]" 같은 자연스러운
+// 한국어 문구로 내려주는 값 - 직접 초를 계산해 문구를 새로 만드는 것보다
+// 이걸 그대로 쓰는 게 정확하고(막차 지남/운행종료 등 예외 문구도 이미
+// 처리돼 있음) 실제 버스 앱들이 보여주는 문구와도 일치한다.
+function annotateArrivalTimes(arsId){
+  fetchStopArrivals(arsId).then(items=>{
+    if(!items.length)return;
+    const byRoute={};
+    items.forEach(it=>{ byRoute[it.rtNm]=it; });
+    document.querySelectorAll('.popup-route[data-route], .route[data-r]').forEach(el=>{
+      const name=el.dataset.route||el.dataset.r;
+      const it=byRoute[name];
+      let badge=el.querySelector('.route-arrival');
+      if(!it){ if(badge)badge.remove(); return; }
+      const msg=(it.arrmsg1||'').trim();
+      // 운행종료는 굳이 칩마다 안 붙임 - 칩 자체가 그 노선이 있다는 뜻이라 중복 정보
+      if(!msg || msg==='운행종료'){ if(badge)badge.remove(); return; }
+      if(!badge){
+        badge=document.createElement('span');
+        badge.className='route-arrival';
+        el.appendChild(badge);
+      }
+      badge.textContent=' · '+msg; // 기존 배지가 있으면 새 도착정보로 덮어씀(주기적 갱신용)
+    });
+  }).catch(()=>{});
+}
+// 30초마다 자동 갱신 - 버스 위치(15초)보다 조금 느슨하게 잡은 건 도착정보가
+// 위치 GPS보다 몇 초 단위로 급박하게 바뀌는 값은 아니라서. 같은 정류소를
+// 계속 선택해두고 있어도 하루 3,000회 한도에 전혀 안 걸림(30초 간격이면
+// 하루 종일 켜놔도 3,000회에 한참 못 미침).
+const STOP_ARRIVAL_POLL_MS=30000;
+let stopArrivalTimer=null;
+function startStopArrivalPolling(arsId){
+  stopStopArrivalPolling();
+  if(!arsId)return;
+  annotateArrivalTimes(arsId);
+  stopArrivalTimer=setInterval(()=>annotateArrivalTimes(arsId),STOP_ARRIVAL_POLL_MS);
+}
+function stopStopArrivalPolling(){
+  if(stopArrivalTimer){clearInterval(stopArrivalTimer);stopArrivalTimer=null;}
+}
 function selectStop(idx,fly=false){
   selectedIdx=idx;const s=STOPS[idx];
   if(fly)map.setView([s.lat,s.lng],18);
@@ -1245,6 +1373,7 @@ function selectStop(idx,fly=false){
     .openOn(map);
   document.getElementById('status').textContent=`선택: ${s.name} · 정차노선 ${s.routes.length}개`;
   updateUrlState({stop:s.node});
+  startStopArrivalPolling(s.ars);
 }
 
 map.on('click',e=>{
@@ -1399,10 +1528,18 @@ function busTypeLabel(code){
   return {'0':'일반','1':'저상','2':'굴절'}[code] || '';
 }
 // nextStId는 우리 STOPS 데이터의 node와 같은 체계라 바로 이름을 찾을 수
-// 있다(둘 다 서울시 정류소 표준 ID) - 못 찾으면 ID 그대로 보여준다.
-function stopNameByNode(nodeId){
+// 있다(둘 다 서울시 정류소 표준 ID). "목동 근처인데 당산역이라고 뜬다"처럼
+// 실제 GPS 위치랑 안 맞는 이름이 나온 적이 있었음 - 버스 API가 정류소
+// 통과 시점 언저리에서 순간적으로 낡은/건너뛴 nextStId를 보낼 때가 있는
+// 걸로 보여서, 버스의 실제 gps 좌표랑 후보 정류소 좌표가 3km 넘게
+// 떨어져 있으면 아예 이름을 안 보여주고 null을 돌려준다(틀린 이름을
+// 자신 있게 보여주는 것보다 안전).
+function stopNameByNode(nodeId,busLat,busLng){
   const i=STOP_BY_NODE.get(String(nodeId));
-  return i!=null?STOPS[i].name:('정류소 '+nodeId);
+  if(i==null)return '정류소 '+nodeId;
+  const s=STOPS[i];
+  if(Number.isFinite(busLat) && Number.isFinite(busLng) && hav(busLat,busLng,s.lat,s.lng)>3000)return null;
+  return s.name;
 }
 // API는 "다음 정류소" ID/도착예정시간만 주고 "지금 어느 구간인지"는 안 줘서,
 // 지금 보고 있는 노선의 정류소 순서(currentRoute.nodes)에서 다음정류소
@@ -1421,7 +1558,8 @@ function prevStopNameFor(nextStId){
   return null;
 }
 function busStatusText(it){
-  const target=it.nextStId?stopNameByNode(it.nextStId):null;
+  const busLat=parseFloat(it.gpsY), busLng=parseFloat(it.gpsX);
+  const target=it.nextStId?stopNameByNode(it.nextStId,busLat,busLng):null;
   if(it.stopFlag==='1'){
     return target?`${target} 정류소에 정차 중`:'정류소에 정차 중';
   }
@@ -1464,6 +1602,15 @@ async function fetchBusPositions(routeId){
 // 정류소 눌렀을 때 뜨는 것과 똑같은 방식(L.popup, .bus-popup 스타일) -
 // 옆에 작은 글씨로 따로 떠 있던 이전 버전 대신, 버스 위치에 딱 붙는
 // 말풍선 박스로 통일했다.
+// "674번 버스이고 74사7116호이다 -> 674번 7116호"로 네이버 검색 - 노선
+// 번호 + 차량번호 뒷자리만 뽑아서 검색어를 만든다(앞의 "서울74사" 같은
+// 지역/용도 기호는 검색에 별 의미가 없어서 뺌).
+function naverSearchUrlForBus(routeName,plainNo){
+  const digits=String(plainNo||'').match(/(\d+)\s*$/);
+  const plateNum=digits?digits[1]:'';
+  const q=`${routeName||''}번 ${plateNum}호`.trim();
+  return 'https://search.naver.com/search.naver?query='+encodeURIComponent(q);
+}
 function busPopupHtml(it){
   const typeLabel=busTypeLabel(it.busType);
   return `<div class="popup-name">🚌 ${esc(it.plainNo||'버스')}</div>
@@ -1473,7 +1620,8 @@ function busPopupHtml(it){
     ${it.isFullFlag==='1'?'<span class="bpsel-badge crowd-high">만차</span>':''}
     ${it.islastyn==='1'?'<span class="bpsel-badge">막차</span>':''}
   </div>
-  <div class="popup-meta" style="margin-top:6px">${esc(busStatusText(it))}</div>`;
+  <div class="popup-meta" style="margin-top:6px">${esc(busStatusText(it))}</div>
+  <a class="popup-route" style="display:inline-block;margin-top:8px;text-decoration:none" href="${naverSearchUrlForBus(currentRoute&&currentRoute.name,it.plainNo)}" target="_blank" rel="noopener">🔍 네이버에서 이 버스 검색</a>`;
 }
 let selectedBusVehId=null, busPopup=null;
 function openOrUpdateBusPopup(it){
@@ -1491,18 +1639,68 @@ function openOrUpdateBusPopup(it){
   // 않도록 flyTo가 아니라 panTo(이미 보이는 범위면 아예 움직이지 않음)로.
   if(!map.getBounds().contains([lat,lng]))map.panTo([lat,lng],{animate:true});
 }
+// 노선 정류소 목록(사이드바)에도 버스가 지금 어디쯤 있는지 작은 🚌로
+// 표시 - 각 버스의 GPS와 가장 가까운 정류소 행 옆에 붙인다. 목록은
+// renderRouteSidebar가 다시 그릴 때마다(정류소 클릭 등) 통째로 새로
+// 그려지므로 그때 지운 아이콘은 다음 버스 위치 폴링(최대 15초)이 오면
+// 다시 붙는다 - 매번 동기화해줄 필요는 없다고 보고 넘어감.
+function clearStopListBusIcons(){
+  document.querySelectorAll('#routeStops .route-stop-buscard').forEach(el=>el.remove());
+  document.querySelectorAll('#routeStops .route-stop-dot.bus-here').forEach(el=>{
+    el.classList.remove('bus-here');
+    el.textContent='';
+  });
+}
+// 실시간 노선도 앱들이 흔히 하는 방식대로: 버스 위치에 해당하는 정류소의
+// 점을 작은 버스 아이콘(네모)으로 바꾸고, 그 줄 맨 앞(선 왼쪽)에 저상/
+// 혼잡도 카드를 붙인다 - 이전엔 정류소 이름 옆에 작은 이모지 하나만
+// 덧붙이던 걸 요청에 따라 이렇게 바꿨다.
+function updateStopListBusIcons(items){
+  clearStopListBusIcons();
+  if(!items || !items.length || !currentGuideStops.length)return;
+  items.forEach(it=>{
+    const lat=parseFloat(it.gpsY), lng=parseFloat(it.gpsX);
+    if(!Number.isFinite(lat) || !Number.isFinite(lng))return;
+    let bestStop=null,bestDist=Infinity;
+    currentGuideStops.forEach(s=>{
+      const d=hav(lat,lng,s.lat,s.lng);
+      if(d<bestDist){bestDist=d;bestStop=s;}
+    });
+    if(!bestStop || bestDist>400)return; // 너무 멀면(구간 사이 등) 아무 줄에도 안 붙임
+    const si=STOPS.indexOf(bestStop);
+    const row=document.querySelector(`#routeStops .route-stop[data-stop-index="${si}"]`);
+    if(!row || row.querySelector('.route-stop-buscard'))return; // 이미 그 줄에 하나 붙어 있으면 여러 대라도 겹쳐 안 붙임(심플하게)
+    const dot=row.querySelector('.route-stop-dot');
+    if(dot){ dot.classList.add('bus-here'); dot.textContent='🚌'; }
+    const typeLabel=busTypeLabel(it.busType);
+    const card=document.createElement('div');
+    card.className='route-stop-buscard';
+    card.title=(it.plainNo||'버스')+' · '+busStatusText(it);
+    card.innerHTML=`${typeLabel?`<div class="rsbc-type">${esc(typeLabel)}</div>`:''}<div class="rsbc-crowd ${congestionBadgeClass(it.congetion)}">${esc(congestionLabel(it.congetion))}</div>`;
+    row.appendChild(card); // position:absolute라 flex 순서와 무관 - 어디에 붙여도 같은 자리에 뜸
+  });
+}
 function renderBusPositions(items){
   clearBusMarkers();
+  updateStopListBusIcons(items);
   items.forEach(it=>{
     const lat=parseFloat(it.gpsY), lng=parseFloat(it.gpsX);
     if(!Number.isFinite(lat) || !Number.isFinite(lng))return;
     const isSelected=selectedBusVehId && it.vehId===selectedBusVehId;
     const typeLabel=busTypeLabel(it.busType);
+    // iconAnchor를 안 주면 Leaflet이 iconSize 절반으로 대충 잡는데, 선택
+    // 여부에 따라 iconSize가 30↔38로 바뀌면서(원 정중앙에 이모지가 있는
+    // 게 아니라) 그 자동 계산이 실제 원 중심이랑 미묘하게 안 맞아서
+    // 확대할수록(=오차가 실제 도로/정류소 위치와 비교돼 눈에 띄게 커짐)
+    // 버스가 진짜 위치에서 벗어나 보이는 원인이었다 - 정확히 원 중심
+    // [size/2, size/2]로 고정해서 확대/축소해도 항상 같은 지점을 가리키게.
+    const iconSize=isSelected?38:30;
     const marker=L.marker([lat,lng],{
       icon:L.divIcon({
         className:'bus-pos-icon '+congestionClass(it.congetion)+(isSelected?' selected':''),
         html:'🚌'+(typeLabel?`<span class="bus-pos-type-badge">${typeLabel}</span>`:''),
-        iconSize:isSelected?[38,38]:[30,30]
+        iconSize:[iconSize,iconSize],
+        iconAnchor:[iconSize/2,iconSize/2]
       }),
       zIndexOffset:isSelected?1000:900
     }).addTo(map);
@@ -1529,6 +1727,11 @@ function updateBusPosToggleUI(){
   if(!btn)return;
   btn.classList.toggle('on',busPosOn);
   btn.textContent=busPosOn?'🚌 실시간 위치 끄기':'🚌 실시간 위치 보기';
+  // 버스 위치가 켜져 있는 동안은 모든 정류소 줄에 똑같이 왼쪽 여백을 둬서
+  // (어느 줄에 버스 카드가 실제로 붙든 안 붙든) 세로선이 절대 지그재그로
+  // 안 꺾이게 한다 - 켜고 끌 때 한 번만 자연스럽게 리플로우됨.
+  const list=document.getElementById('routeStops');
+  if(list)list.classList.toggle('showing-bus-cards',busPosOn);
   if(!busPosOn){ selectedBusVehId=null; if(busPopup){map.closePopup(busPopup);busPopup=null;} }
 }
 async function busPosTick(){
@@ -1551,6 +1754,7 @@ function startBusPosPolling(){
 function stopBusPosPolling(){
   if(busPosTimer){clearInterval(busPosTimer);busPosTimer=null;}
   clearBusMarkers();
+  clearStopListBusIcons();
   selectedBusVehId=null;
   if(busPopup){map.closePopup(busPopup);busPopup=null;}
   const statusEl=document.getElementById('busPosStatus');
@@ -1731,6 +1935,7 @@ function resetHome(){
   stopGuide();
   busPosOn=false;
   stopBusPosPolling();
+  stopStopArrivalPolling();
   selectedIdx=-1;
   currentRoute=null;
   currentRouteFilter='전체';
@@ -1779,6 +1984,7 @@ document.getElementById('homeTitle').onclick=resetHome;
 allBtn.onclick=()=>{
   busPosOn=false;
   stopBusPosPolling();
+  stopStopArrivalPolling();
   if(routeLayer){map.removeLayer(routeLayer);routeLayer=null}
   if(routeHitLayer){map.removeLayer(routeHitLayer);routeHitLayer=null}
   currentRoute=null;
@@ -2804,6 +3010,17 @@ function audioPaths(category,key){
   // are cheap/cached), and means a small naming difference doesn't silently
   // turn into a skipped announcement.
   const keys=new Set([key, key.replace(/_/g,''), key.replace(/ \(/g,'(')]);
+  // "영등포구청.우리은행"처럼 한 자리에 있는 지명 두 개를 점으로 이어붙인
+  // 정류소명은, 녹음이 대표 지명 하나("영등포구청")만 있는 경우가 많아서
+  // 점 앞부분만으로도 한 번 더 시도한다(요청에 따른 임시 조치 - 나중에
+  // 전체 이름 그대로 녹음하면 그 파일이 먼저 매칭돼 이 폴백은 자동으로
+  // 안 쓰이게 됨). " (1)" 같은 뒤쪽 접미사는 떼었다가 다시 붙인다.
+  if(category==='stops' && key.includes('.')){
+    const suffix=(key.match(/ \(1\)$/)||[''])[0];
+    const base=suffix?key.slice(0,-suffix.length):key;
+    const firstPart=base.split('.')[0].trim();
+    if(firstPart && firstPart!==base)keys.add(firstPart+suffix);
+  }
   const paths=[];
   keys.forEach(k=>{
     const flatBase=AUDIO_BASE+encodeURIComponent(k);
