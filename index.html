@@ -869,6 +869,16 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){
   });
 }
 
+// iOS Safari는 특정 상황(개인정보 보호 강화 모드, 저장공간 제한 등)에서
+// localStorage 접근 자체가 예외를 던진다 - try/catch 없이 스크립트 맨
+// 위쪽에서 그 예외가 나면 이 파일 전체가 하나의 <script>라 그 아래 있는
+// 코드가 통째로 실행이 안 되고, 그래서 "아이폰에서 최근에 추가한 기능들이
+// 죄다 안 뜬다"는 증상으로 나타났다 - 아이폰에서만 재현되고 데스크톱/
+// 안드로이드 크롬에서는 멀쩡했던 이유가 이거였음. localStorage를 쓰는
+// 모든 곳을 이 두 함수로 통일해서, 저장이 막혀있어도(그 기기에서 설정을
+// 기억 못 하는 것 말고는) 앱 자체는 항상 끝까지 실행되게 한다.
+function lsGet(key){ try{ return localStorage.getItem(key); }catch(e){ return null; } }
+function lsSet(key,value){ try{ localStorage.setItem(key,value); }catch(e){} }
 const STOP_BY_NODE=new Map(STOPS.map((s,i)=>[String(s.node),i]));
 const ROUTE_BY_NAME=new Map(ROUTES.map(r=>[String(r.name),r]));
 
@@ -899,23 +909,23 @@ function setMapTheme(name){
   name=MAP_TILES[name]?name:'standard';
   if(currentTileLayer)map.removeLayer(currentTileLayer);
   currentTileLayer=MAP_TILES[name].addTo(map);
-  localStorage.setItem('busMapTheme',name);
+  lsSet('busMapTheme',name);
   const sel=document.getElementById('mapThemeSelect');
   if(sel)sel.value=name;
 }
-setMapTheme(localStorage.getItem('busMapTheme')||'standard');
+setMapTheme(lsGet('busMapTheme')||'standard');
 
 let selectedIdx=-1, routeLayer=null, routeHitLayer=null, currentRoute=null, userMarker=null, showStops=false;
 let currentGuideStops=[], guideActive=false, guideNextIndex=0, guideApproachAnnounced=false, guideWatchId=null, guideSimRaf=null, guideUserMarker=null, guideTtsOn=true;
-let trafficLightOn=localStorage.getItem('trafficLightOn')==='1';
+let trafficLightOn=lsGet('trafficLightOn')==='1';
 // 속도/음량/전광판 같은 세부 설정을 기본 접힌 상태로 시작 - 이게 펼쳐진 채로
 // 있으면 특히 휴대폰 화면에서 노선 정류소 목록이 다 밀려 내려가 안 보이게
 // 됐던 문제라, 기본값을 "접힘"으로 바꿨다. 한 번이라도 펼친 적이 있으면
 // (localStorage에 '0'이 저장됨) 그 상태를 기억한다.
-let guideOptionsCollapsed=localStorage.getItem('guideOptionsCollapsed')!=='0';
+let guideOptionsCollapsed=lsGet('guideOptionsCollapsed')!=='0';
 // 매번 설정에 직접 붙여넣지 않아도 되게 배포해둔 프록시 주소를 기본값으로
 // 박아둠 - 설정에서 다른 값을 넣으면 그게 우선(localStorage가 있으면 그걸 씀).
-let busPosProxyUrl=localStorage.getItem('busPosProxyUrl')||'https://super-mud-117e.oseungjae0417.workers.dev';
+let busPosProxyUrl=lsGet('busPosProxyUrl')||'https://super-mud-117e.oseungjae0417.workers.dev';
 let guideLastLat=null, guideLastLng=null, guideHeadingDeg=null;
 let currentRoutePath=[]; // actual road-following [lat,lng] points the simulation should walk along (falls back to straight stop-to-stop line until OSRM responds)
 let guideStartIdx=0; // route-order index (matches currentGuideStops) to start the guide/sim from - defaults to the first stop, changeable by picking a stop in the sidebar
@@ -1137,7 +1147,7 @@ function subwayHtmlForStop(s){
 }
 async function loadSubwayMeta(){
   try{
-    const cached=localStorage.getItem('subwayStationMetaV1');
+    const cached=lsGet('subwayStationMetaV1');
     if(cached){
       SUBWAY_META=JSON.parse(cached);
       refreshVisibleStationInfo();
@@ -1158,7 +1168,7 @@ async function loadSubwayMeta(){
       if(station)data[station]=rawLines;
     });
     SUBWAY_META=data;
-    try{localStorage.setItem('subwayStationMetaV1',JSON.stringify(data));}catch(e){}
+    try{lsSet('subwayStationMetaV1',JSON.stringify(data));}catch(e){}
     refreshVisibleStationInfo();
   }catch(e){
     console.warn('지하철 메타데이터 로드 실패',e);
@@ -1183,14 +1193,14 @@ const ROUTE_FILTERS=['전체','간선','지선','마을','광역','심야','순�
 let currentRouteFilter='전체';
 
 function favoriteSet(){
-  try{return new Set(JSON.parse(localStorage.getItem('busFavStops')||'[]').map(String));}
+  try{return new Set(JSON.parse(lsGet('busFavStops')||'[]').map(String));}
   catch(e){return new Set();}
 }
 function isFavorite(node){return favoriteSet().has(String(node))}
 function toggleFavorite(node){
   const set=favoriteSet(),key=String(node);
   if(set.has(key))set.delete(key);else set.add(key);
-  localStorage.setItem('busFavStops',JSON.stringify([...set]));
+  lsSet('busFavStops',JSON.stringify([...set]));
   renderFavorites();
   if(selectedIdx>=0 && String(STOPS[selectedIdx].node)===key)renderSelectedPanel(selectedIdx);
 }
@@ -1313,8 +1323,8 @@ function renderSelectedPanel(idx){
 // 프록시를 쓰지만 별도 상위 API(getStationByUid)라 호출 횟수도 따로 센다.
 const STOP_ARRIVAL_DAILY_CAP=3000;
 function stopArrivalCallKey(){ return 'stopArrivalCalls_'+new Date().toISOString().slice(0,10); }
-function stopArrivalCallsToday(){ return parseInt(localStorage.getItem(stopArrivalCallKey())||'0',10); }
-function stopArrivalRecordCall(){ localStorage.setItem(stopArrivalCallKey(), String(stopArrivalCallsToday()+1)); }
+function stopArrivalCallsToday(){ return parseInt(lsGet(stopArrivalCallKey())||'0',10); }
+function stopArrivalRecordCall(){ lsSet(stopArrivalCallKey(), String(stopArrivalCallsToday()+1)); }
 async function fetchStopArrivals(arsId){
   if(!busPosProxyUrl || !arsId)return [];
   if(stopArrivalCallsToday()>=STOP_ARRIVAL_DAILY_CAP)return [];
@@ -1502,8 +1512,8 @@ const BUS_POS_POLL_MS=15000;
 const BUS_POS_DAILY_CAP=9500;
 let busPosOn=false, busPosTimer=null, busMarkers=[];
 function busPosCallKey(){ return 'busPosCalls_'+new Date().toISOString().slice(0,10); }
-function busPosCallsToday(){ return parseInt(localStorage.getItem(busPosCallKey())||'0',10); }
-function busPosRecordCall(){ localStorage.setItem(busPosCallKey(), String(busPosCallsToday()+1)); }
+function busPosCallsToday(){ return parseInt(lsGet(busPosCallKey())||'0',10); }
+function busPosRecordCall(){ lsSet(busPosCallKey(), String(busPosCallsToday()+1)); }
 // 공식 문서(api.bus.go.kr) 기준 코드값 - congetion(혼잡도)만 실제로 표에
 // 적혀 있었고 나머지(busType/stopFlag)는 이 API를 쓰는 개발자들 사이에
 // 널리 알려진 표준 코드를 따랐다.
@@ -2059,17 +2069,17 @@ document.addEventListener('click',e=>{
 
 document.getElementById('showStopsToggle').onchange=e=>{
   showStops=e.target.checked;
-  localStorage.setItem('showBusStops',showStops?'1':'0');
+  lsSet('showBusStops',showStops?'1':'0');
   stopCanvas._reset();
   document.getElementById('status').textContent=
     showStops?'정류소 표시 ON · 확대 15 이상에서 🚌 정류소명이 표시됨':'정류소 표시 OFF';
 };
-showStops=localStorage.getItem('showBusStops')==='1';
+showStops=lsGet('showBusStops')==='1';
 document.getElementById('showStopsToggle').checked=showStops;
 
 document.getElementById('trafficLightToggle').onchange=e=>{
   trafficLightOn=e.target.checked;
-  localStorage.setItem('trafficLightOn',trafficLightOn?'1':'0');
+  lsSet('trafficLightOn',trafficLightOn?'1':'0');
   if(trafficLightOn && guideActive)startTrafficLightPolling();
   else stopTrafficLightPolling();
 };
@@ -2078,7 +2088,7 @@ document.getElementById('trafficLightToggle').checked=trafficLightOn;
 document.getElementById('busPosProxyInput').value=busPosProxyUrl;
 document.getElementById('busPosProxyInput').onchange=e=>{
   busPosProxyUrl=e.target.value.trim().replace(/\/$/,'');
-  localStorage.setItem('busPosProxyUrl',busPosProxyUrl);
+  lsSet('busPosProxyUrl',busPosProxyUrl);
 };
 stopCanvas._reset();
 
@@ -2087,10 +2097,10 @@ document.getElementById('mapThemeSelect').onchange=e=>setMapTheme(e.target.value
 function setUiTheme(name){
   document.body.classList.toggle('light-ui',name==='light');
   document.getElementById('uiThemeSelect').value=name;
-  localStorage.setItem('busUiTheme',name);
+  lsSet('busUiTheme',name);
 }
 document.getElementById('uiThemeSelect').onchange=e=>setUiTheme(e.target.value);
-setUiTheme(localStorage.getItem('busUiTheme')||'dark');
+setUiTheme(lsGet('busUiTheme')||'dark');
 
 document.getElementById('shareBtn').onclick=async()=>{
   updateUrlState({});
@@ -2123,7 +2133,7 @@ function setTopDetailsCollapsed(collapsed){
   panel.classList.toggle('collapsed',collapsed);
   document.getElementById('top').classList.toggle('compact',collapsed);
   btn.textContent=collapsed?'정류소 정보 펼치기 ▼':'정류소 정보 접기 ▲';
-  localStorage.setItem('topDetailsCollapsed',collapsed?'1':'0');
+  lsSet('topDetailsCollapsed',collapsed?'1':'0');
   setTimeout(()=>map.invalidateSize(),230);
 }
 
@@ -2131,7 +2141,7 @@ document.getElementById('topDetailsToggle').onclick=()=>{
   setTopDetailsCollapsed(!topDetailsCollapsed);
 };
 
-topDetailsCollapsed=localStorage.getItem('topDetailsCollapsed')==='1';
+topDetailsCollapsed=lsGet('topDetailsCollapsed')==='1';
 setTopDetailsCollapsed(topDetailsCollapsed);
 
 // When a stop is selected, keep the panel open if the user explicitly clicks a stop/search result.
@@ -2786,7 +2796,7 @@ function renderGuideBar(){
   `;
   document.getElementById('guideOptionsToggle').onclick=()=>{
     guideOptionsCollapsed=!guideOptionsCollapsed;
-    localStorage.setItem('guideOptionsCollapsed',guideOptionsCollapsed?'1':'0');
+    lsSet('guideOptionsCollapsed',guideOptionsCollapsed?'1':'0');
     document.getElementById('guideOptions').classList.toggle('collapsed',guideOptionsCollapsed);
     document.getElementById('guideOptionsToggle').textContent=guideOptionsCollapsed?'속도/음량/전광판 설정 ▾':'속도/음량/전광판 설정 ▴';
   };
@@ -3060,17 +3070,17 @@ const audioMissCache=new Set();
 // (SpeechSynthesisUtterance.volume/.rate) so one pair of sliders in the
 // guide bar controls both, whichever one ends up speaking a given segment.
 // Persisted the same way the other settings (theme, favorites, ...) are.
-let guideVolume=parseFloat(localStorage.getItem('guideVolume'));
+let guideVolume=parseFloat(lsGet('guideVolume'));
 if(!(guideVolume>=0 && guideVolume<=1))guideVolume=1;
-let guideRate=parseFloat(localStorage.getItem('guideRate'));
+let guideRate=parseFloat(lsGet('guideRate'));
 if(!(guideRate>=0.5 && guideRate<=2))guideRate=1;
 function setGuideVolume(v){
   guideVolume=Math.max(0,Math.min(1,v));
-  localStorage.setItem('guideVolume',guideVolume);
+  lsSet('guideVolume',guideVolume);
 }
 function setGuideRate(v){
   guideRate=Math.max(0.5,Math.min(2,v));
-  localStorage.setItem('guideRate',guideRate);
+  lsSet('guideRate',guideRate);
 }
 
 function playClip(src){
