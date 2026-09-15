@@ -235,7 +235,11 @@ button:hover{background:#2a3039}
   font-size:9px;
   font-weight:800;
   white-space:nowrap;
+  cursor:pointer;
 }
+.route-stop-buscard:hover{border-color:#5a6478;}
+.route-stop-buscard.selected{border-color:#ff5a36;box-shadow:0 0 0 2px rgba(255,90,54,.3);}
+.rsbc-plate{color:#fff;font-size:10.5px;}
 .rsbc-type{color:#98a5b5;}
 .rsbc-crowd{padding:1px 6px;border-radius:999px;}
 .rsbc-crowd.crowd-low{background:rgba(51,209,122,.18);color:#33d17a;}
@@ -1673,10 +1677,26 @@ function updateStopListBusIcons(items){
     const dot=row.querySelector('.route-stop-dot');
     if(dot){ dot.classList.add('bus-here'); dot.textContent='🚌'; }
     const typeLabel=busTypeLabel(it.busType);
+    // 차량번호 전체("서울74사1234")는 카드가 좁아서 안 들어가니 뒷자리
+    // 4자리만 - 실제로 버스를 구분할 때 쓰는 부분이라 이걸로 충분함.
+    const plateMatch=String(it.plainNo||'').match(/(\d{4})\s*$/);
+    const plateShort=plateMatch?plateMatch[1]:'';
     const card=document.createElement('div');
-    card.className='route-stop-buscard';
-    card.title=(it.plainNo||'버스')+' · '+busStatusText(it);
-    card.innerHTML=`${typeLabel?`<div class="rsbc-type">${esc(typeLabel)}</div>`:''}<div class="rsbc-crowd ${congestionBadgeClass(it.congetion)}">${esc(congestionLabel(it.congetion))}</div>`;
+    card.className='route-stop-buscard'+(selectedBusVehId===it.vehId?' selected':'');
+    card.title=(it.plainNo||'버스')+' · '+busStatusText(it)+' (눌러서 이 버스 위치로 이동)';
+    card.innerHTML=`
+      ${plateShort?`<div class="rsbc-plate">${esc(plateShort)}</div>`:''}
+      ${typeLabel?`<div class="rsbc-type">${esc(typeLabel)}</div>`:''}
+      <div class="rsbc-crowd ${congestionBadgeClass(it.congetion)}">${esc(congestionLabel(it.congetion))}</div>`;
+    // 눌렀을 때 지도에서 버스 마커를 직접 클릭한 것과 똑같이: 그 위치로
+    // 이동하고, 같은 정보 팝업을 띄우고, 선택 표시(강조 테두리)까지 맞춘다.
+    card.onclick=(e)=>{
+      e.stopPropagation();
+      selectedBusVehId=it.vehId;
+      map.setView([lat,lng],Math.max(map.getZoom(),17),{animate:true});
+      openOrUpdateBusPopup(it);
+      renderBusPositions(items);
+    };
     row.appendChild(card); // position:absolute라 flex 순서와 무관 - 어디에 붙여도 같은 자리에 뜸
   });
 }
