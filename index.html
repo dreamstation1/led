@@ -235,7 +235,7 @@ button:hover{background:#2a3039}
   position:absolute;
   top:54px;
   right:10px;
-  z-index:1300;
+  z-index:1600;
   width:230px;
   padding:12px;
   border-radius:12px;
@@ -373,7 +373,7 @@ body.light-ui .route{color:#fff}
   position:absolute;
   top:54px;
   right:58px;
-  z-index:1300;
+  z-index:1600;
   width:min(330px,90vw);
   max-height:430px;
   overflow:auto;
@@ -592,6 +592,31 @@ body.light-ui .route{color:#fff}
   #routeReopenTab{padding-top:calc(14px + env(safe-area-inset-top));padding-bottom:calc(14px + env(safe-area-inset-bottom))}
 }
 
+#busPosRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;}
+#busPosToggle.on,#busPosLowToggle.on{background:#ff5a36;border-color:#ff5a36;color:#fff;}
+.bpsel-badges{display:flex;gap:5px;flex-wrap:wrap;}
+.bpsel-badge{font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;background:#20252c;border:1px solid #3a4250;}
+.bpsel-badge.crowd-low{color:#33d17a;border-color:#33d17a;}
+.bpsel-badge.crowd-mid{color:#ffb020;border-color:#ffb020;}
+.bpsel-badge.crowd-high{color:#ff3b30;border-color:#ff3b30;}
+/* 버스 마커: 이모지 하나만 있던 걸 원 배경 + 혼잡도 색 테두리 + 저상/굴절
+   배지로 바꿔서 지도에서 훨씬 잘 보이고, 굳이 눌러보지 않아도 혼잡도가
+   색으로 바로 구분된다(여유 초록/보통 주황/혼잡 빨강). */
+.bus-pos-icon{
+  width:30px;height:30px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:16px;background:#20252c;border:3px solid #666;
+  box-shadow:0 2px 6px rgba(0,0,0,.55);cursor:pointer;position:relative;
+}
+.bus-pos-icon.congestion-low{border-color:#33d17a;}
+.bus-pos-icon.congestion-mid{border-color:#ffb020;}
+.bus-pos-icon.congestion-high{border-color:#ff3b30;}
+.bus-pos-icon.selected{width:38px;height:38px;font-size:19px;box-shadow:0 0 0 4px rgba(255,90,54,.4),0 2px 8px rgba(0,0,0,.6);}
+.bus-pos-type-badge{
+  position:absolute;bottom:-3px;right:-5px;font-size:8.5px;font-weight:900;
+  background:#101216;color:#fff;border:1px solid #444;border-radius:5px;
+  padding:0 3px;line-height:1.3;
+}
 #guideBar{margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
 .guide-controls{display:flex;gap:6px;flex-wrap:wrap;}
 .guide-btn{height:32px;padding:0 11px;border-radius:8px;font-size:12px;font-weight:750;background:var(--panel2);color:var(--text);border:1px solid var(--border);cursor:pointer;}
@@ -673,15 +698,10 @@ body.light-ui .route{color:#fff}
     <button id="settingsBtn" title="설정">⚙</button>
   </div>
   <div id="status">데이터 준비 중…</div>
-  <div id="topDetailsWrap">
-    <div id="topDetailsBar">
-      <button id="topDetailsToggle" title="정류소 정보 접기/펼치기">정류소 정보 접기 ▲</button>
-    </div>
-    <div id="topDetails">
-      <div id="favoritesPanel">
-        <div class="panel-head">★ 즐겨찾기 정류소</div>
-        <div id="favoritesList"></div>
-      </div>
+  <div id="favoritesPanel">
+    <div class="panel-head">★ 즐겨찾기 정류소</div>
+    <div id="favoritesList"></div>
+  </div>
 
   <div id="settingsPanel">
     <div class="setting-block">
@@ -709,6 +729,11 @@ body.light-ui .route{color:#fff}
       </div>
     </div>
     <div class="setting-block">
+      <div class="setting-title">버스 실시간 위치 프록시 주소</div>
+      <div class="setting-desc">서울 버스 위치 API(ws.bus.go.kr)는 http만 지원해서 https로 서비스되는 이 페이지에서 바로 못 부릅니다 - Cloudflare Workers 등으로 만든 https 프록시 주소를 여기에 넣어야 노선 화면의 "🚌 실시간 위치 보기"가 동작해요.</div>
+      <input type="text" id="busPosProxyInput" class="setting-select" placeholder="https://your-worker.workers.dev">
+    </div>
+    <div class="setting-block">
       <div class="setting-title">지도 테마</div>
       <select id="mapThemeSelect" class="setting-select">
         <option value="standard">기본 지도</option>
@@ -724,6 +749,12 @@ body.light-ui .route{color:#fff}
       </select>
     </div>
   </div>
+
+  <div id="topDetailsWrap">
+    <div id="topDetailsBar">
+      <button id="topDetailsToggle" title="정류소 정보 접기/펼치기">정류소 정보 접기 ▲</button>
+    </div>
+    <div id="topDetails">
       <div id="selected"></div>
       <div id="nearby"></div>
     </div>
@@ -739,6 +770,11 @@ body.light-ui .route{color:#fff}
         <div id="routeMeta"></div>
       </div>
       <button id="routeClose" aria-label="닫기">×</button>
+    </div>
+    <div id="busPosRow">
+      <button id="busPosToggle" class="guide-btn ghost">🚌 실시간 위치 보기</button>
+      <button id="busPosLowToggle" class="guide-btn ghost" title="저상버스만 표시">🦽 저상버스만</button>
+      <span id="busPosStatus" class="guide-led-status"></span>
     </div>
     <div id="guideBar"></div>
   </div>
@@ -816,6 +852,9 @@ let trafficLightOn=localStorage.getItem('trafficLightOn')==='1';
 // 됐던 문제라, 기본값을 "접힘"으로 바꿨다. 한 번이라도 펼친 적이 있으면
 // (localStorage에 '0'이 저장됨) 그 상태를 기억한다.
 let guideOptionsCollapsed=localStorage.getItem('guideOptionsCollapsed')!=='0';
+// 매번 설정에 직접 붙여넣지 않아도 되게 배포해둔 프록시 주소를 기본값으로
+// 박아둠 - 설정에서 다른 값을 넣으면 그게 우선(localStorage가 있으면 그걸 씀).
+let busPosProxyUrl=localStorage.getItem('busPosProxyUrl')||'https://super-mud-117e.oseungjae0417.workers.dev';
 let guideLastLat=null, guideLastLng=null, guideHeadingDeg=null;
 let currentRoutePath=[]; // actual road-following [lat,lng] points the simulation should walk along (falls back to straight stop-to-stop line until OSRM responds)
 let guideStartIdx=0; // route-order index (matches currentGuideStops) to start the guide/sim from - defaults to the first stop, changeable by picking a stop in the sidebar
@@ -1318,6 +1357,206 @@ function renderRouteSearchResults(rs,forceOpen=true){
   if(forceOpen)box.style.display='block';
 }
 
+/* ---------------- real-time bus position (Seoul TOPIS via user's own proxy) ---------------- */
+// ws.bus.go.kr는 http만 지원해서 https로 서비스되는 페이지에서 바로 못
+// 부른다(혼합 콘텐츠 차단, CORS 문제가 아니라 우회 불가) - 그래서 설정에
+// 사용자가 직접 둔 https 프록시(Cloudflare Workers 등) 주소를 통해서만
+// 호출한다. 프록시가 없으면 이 기능은 그냥 조용히 비활성 상태로 남는다.
+const BUS_POS_POLL_MS=15000;
+// 신청서에 나온 하루 10,000회 한도 바로 밑까지 - 안 쓴 만큼 다음날로
+// 이월되는 것도 아니라서 아껴 쓸 이유가 없고, 딱 10,000으로 두면 응답
+// 지연 등으로 자정 직전 몇 번이 한도 밖으로 튈 수 있어 살짝만 여유를 둠.
+const BUS_POS_DAILY_CAP=9500;
+let busPosOn=false, busPosTimer=null, busMarkers=[];
+function busPosCallKey(){ return 'busPosCalls_'+new Date().toISOString().slice(0,10); }
+function busPosCallsToday(){ return parseInt(localStorage.getItem(busPosCallKey())||'0',10); }
+function busPosRecordCall(){ localStorage.setItem(busPosCallKey(), String(busPosCallsToday()+1)); }
+// 공식 문서(api.bus.go.kr) 기준 코드값 - congetion(혼잡도)만 실제로 표에
+// 적혀 있었고 나머지(busType/stopFlag)는 이 API를 쓰는 개발자들 사이에
+// 널리 알려진 표준 코드를 따랐다.
+function congestionLabel(code){
+  return {'0':'정보없음','3':'여유','4':'보통','5':'혼잡','6':'매우혼잡'}[code] || (code?('코드 '+code):'정보없음');
+}
+// 혼잡도 3단계 색 분류 - 여유는 초록, 보통은 주황(노랑~주황 사이), 혼잡/
+// 매우혼잡은 빨강. 정보 없음(빈 값/0)은 회색으로 남겨서 "모른다"와
+// "여유롭다"를 구분되게 한다.
+function congestionClass(code){
+  if(code==='5'||code==='6')return 'congestion-high';
+  if(code==='4')return 'congestion-mid';
+  if(code==='3')return 'congestion-low';
+  return '';
+}
+function congestionBadgeClass(code){
+  if(code==='5'||code==='6')return 'crowd-high';
+  if(code==='4')return 'crowd-mid';
+  if(code==='3')return 'crowd-low';
+  return '';
+}
+// busType은 "차량유형" 하나뿐이고 전기/CNG 같은 연료 구분은 이 API에
+// 애초에 없다(전기버스 표시는 요청하신 것 중 이 API로는 낼 수 없는
+// 부분 - 저상/굴절만 정확히 낼 수 있음).
+function busTypeLabel(code){
+  return {'0':'일반','1':'저상','2':'굴절'}[code] || '';
+}
+// nextStId는 우리 STOPS 데이터의 node와 같은 체계라 바로 이름을 찾을 수
+// 있다(둘 다 서울시 정류소 표준 ID) - 못 찾으면 ID 그대로 보여준다.
+function stopNameByNode(nodeId){
+  const i=STOP_BY_NODE.get(String(nodeId));
+  return i!=null?STOPS[i].name:('정류소 '+nodeId);
+}
+// API는 "다음 정류소" ID/도착예정시간만 주고 "지금 어느 구간인지"는 안 줘서,
+// 지금 보고 있는 노선의 정류소 순서(currentRoute.nodes)에서 다음정류소
+// 바로 앞자리를 찾아 "방금 지나온 정류소"로 쓴다 - 중간에 STOPS에 없는
+// node가 껴 있을 수 있어 뒤로 훑으면서 실제로 존재하는 정류소가 나올
+// 때까지 건너뛴다.
+function prevStopNameFor(nextStId){
+  if(!currentRoute || !nextStId)return null;
+  const nodes=currentRoute.nodes;
+  const idx=nodes.findIndex(n=>String(n)===String(nextStId));
+  if(idx<=0)return null;
+  for(let i=idx-1;i>=0;i--){
+    const si=STOP_BY_NODE.get(String(nodes[i]));
+    if(si!=null)return STOPS[si].name;
+  }
+  return null;
+}
+function busStatusText(it){
+  const target=it.nextStId?stopNameByNode(it.nextStId):null;
+  if(it.stopFlag==='1'){
+    return target?`${target} 정류소에 정차 중`:'정류소에 정차 중';
+  }
+  const secs=parseInt(it.nextStTm,10);
+  const eta=Number.isFinite(secs)?(secs<60?`약 ${secs}초 후 도착`:`약 ${Math.round(secs/60)}분 후 도착`):'';
+  const prev=it.nextStId?prevStopNameFor(it.nextStId):null;
+  if(prev && target)return `${prev} → ${target} 이동 중${eta?' · '+eta:''}`;
+  if(target)return `${target} 방면으로 접근 중${eta?' · '+eta:''}`;
+  return '운행 중';
+}
+function clearBusMarkers(){
+  busMarkers.forEach(m=>map.removeLayer(m));
+  busMarkers=[];
+}
+// 공식 활용가이드(서울특별시_버스위치정보조회_서비스_활용가이드) 20p 오류코드
+// 표 그대로 - "버스 0대"로만 뜨면 그냥 그 시간에 버스가 없는 건지, 노선ID가
+// 틀린 건지, 막차가 끊긴 건지 구분이 안 가서 헷갈리니 실제 오류 메시지를
+// 그대로 보여준다.
+const BUS_API_ERROR_MSG={
+  '1':'시스템 오류가 발생했습니다','2':'잘못된 요청입니다(쿼리 변수 확인 필요)',
+  '3':'정류소를 찾을 수 없습니다','4':'노선을 찾을 수 없습니다',
+  '5':'잘못된 위치로 요청했습니다','6':'실시간 정보를 읽을 수 없습니다 - 잠시 후 다시 시도해주세요',
+  '7':'경로 검색 결과가 없습니다','8':'현재 운행이 종료된 노선입니다(막차 이후)'
+};
+let busPosLowOnly=false;
+async function fetchBusPositions(routeId){
+  if(!busPosProxyUrl)throw new Error('설정에서 프록시 주소를 먼저 넣어주세요');
+  if(busPosCallsToday()>=BUS_POS_DAILY_CAP)throw new Error('오늘 호출 한도 도달 - 내일 다시 시도해주세요');
+  busPosRecordCall();
+  const lowParam=busPosLowOnly?'&low=1':'';
+  const res=await fetch(`${busPosProxyUrl}?busRouteId=${encodeURIComponent(routeId)}&resultType=json${lowParam}`);
+  if(!res.ok)throw new Error('프록시 응답 오류 ('+res.status+')');
+  const data=await res.json();
+  const headerCd=data && data.msgHeader && data.msgHeader.headerCd;
+  if(headerCd!=null && String(headerCd)!=='0'){
+    throw new Error(BUS_API_ERROR_MSG[String(headerCd)] || (data.msgHeader.headerMsg||'오류 코드 '+headerCd));
+  }
+  return (data && data.msgBody && data.msgBody.itemList) || [];
+}
+// 정류소 눌렀을 때 뜨는 것과 똑같은 방식(L.popup, .bus-popup 스타일) -
+// 옆에 작은 글씨로 따로 떠 있던 이전 버전 대신, 버스 위치에 딱 붙는
+// 말풍선 박스로 통일했다.
+function busPopupHtml(it){
+  const typeLabel=busTypeLabel(it.busType);
+  return `<div class="popup-name">🚌 ${esc(it.plainNo||'버스')}</div>
+  <div class="popup-lines bpsel-badges">
+    ${typeLabel?`<span class="bpsel-badge">${esc(typeLabel)}</span>`:''}
+    <span class="bpsel-badge ${congestionBadgeClass(it.congetion)}">혼잡도 ${esc(congestionLabel(it.congetion))}</span>
+    ${it.isFullFlag==='1'?'<span class="bpsel-badge crowd-high">만차</span>':''}
+    ${it.islastyn==='1'?'<span class="bpsel-badge">막차</span>':''}
+  </div>
+  <div class="popup-meta" style="margin-top:6px">${esc(busStatusText(it))}</div>`;
+}
+let selectedBusVehId=null, busPopup=null;
+function openOrUpdateBusPopup(it){
+  const lat=parseFloat(it.gpsY), lng=parseFloat(it.gpsX);
+  if(!Number.isFinite(lat) || !Number.isFinite(lng))return;
+  if(busPopup && map.hasLayer(busPopup)){
+    busPopup.setLatLng([lat,lng]).setContent(busPopupHtml(it));
+  }else{
+    busPopup=L.popup({className:'bus-popup',maxWidth:280,closeOnClick:false})
+      .setLatLng([lat,lng]).setContent(busPopupHtml(it)).openOn(map);
+    busPopup.on('remove',()=>{ selectedBusVehId=null; busPopup=null; });
+  }
+  // 선택한 버스를 계속 화면에 두고 "그것만 주시"할 수 있도록 매 갱신마다
+  // 부드럽게 따라가되, 사용자가 지도를 보고 있는 도중 시야가 홱 튀지
+  // 않도록 flyTo가 아니라 panTo(이미 보이는 범위면 아예 움직이지 않음)로.
+  if(!map.getBounds().contains([lat,lng]))map.panTo([lat,lng],{animate:true});
+}
+function renderBusPositions(items){
+  clearBusMarkers();
+  items.forEach(it=>{
+    const lat=parseFloat(it.gpsY), lng=parseFloat(it.gpsX);
+    if(!Number.isFinite(lat) || !Number.isFinite(lng))return;
+    const isSelected=selectedBusVehId && it.vehId===selectedBusVehId;
+    const typeLabel=busTypeLabel(it.busType);
+    const marker=L.marker([lat,lng],{
+      icon:L.divIcon({
+        className:'bus-pos-icon '+congestionClass(it.congetion)+(isSelected?' selected':''),
+        html:'🚌'+(typeLabel?`<span class="bus-pos-type-badge">${typeLabel}</span>`:''),
+        iconSize:isSelected?[38,38]:[30,30]
+      }),
+      zIndexOffset:isSelected?1000:900
+    }).addTo(map);
+    marker.bindTooltip(`${esc(it.plainNo||'버스')}${typeLabel?' · '+typeLabel:''} · 혼잡도 ${esc(congestionLabel(it.congetion))}`,{direction:'top'});
+    marker.on('click',()=>{
+      const wasSame=selectedBusVehId===it.vehId;
+      if(wasSame){
+        selectedBusVehId=null;
+        if(busPopup)map.closePopup(busPopup);
+      }else{
+        selectedBusVehId=it.vehId;
+        openOrUpdateBusPopup(it);
+      }
+      renderBusPositions(items); // 선택 표시(테두리 강조) 갱신을 위해 다시 그림
+    });
+    busMarkers.push(marker);
+  });
+  const selectedItem=items.find(it=>it.vehId===selectedBusVehId);
+  if(selectedItem)openOrUpdateBusPopup(selectedItem);
+  else if(busPopup){ map.closePopup(busPopup); busPopup=null; }
+}
+function updateBusPosToggleUI(){
+  const btn=document.getElementById('busPosToggle');
+  if(!btn)return;
+  btn.classList.toggle('on',busPosOn);
+  btn.textContent=busPosOn?'🚌 실시간 위치 끄기':'🚌 실시간 위치 보기';
+  if(!busPosOn){ selectedBusVehId=null; if(busPopup){map.closePopup(busPopup);busPopup=null;} }
+}
+async function busPosTick(){
+  if(!busPosOn || !currentRoute)return;
+  const statusEl=document.getElementById('busPosStatus');
+  try{
+    const items=await fetchBusPositions(currentRoute.id);
+    renderBusPositions(items);
+    if(statusEl)statusEl.textContent=`버스 ${items.length}대 표시 중 · 오늘 ${busPosCallsToday()}/${BUS_POS_DAILY_CAP}회 호출`;
+  }catch(e){
+    if(statusEl)statusEl.textContent='위치 조회 실패: '+e.message;
+    if(String(e.message).includes('한도')){ busPosOn=false; updateBusPosToggleUI(); stopBusPosPolling(); }
+  }
+}
+function startBusPosPolling(){
+  if(busPosTimer)return;
+  busPosTick();
+  busPosTimer=setInterval(busPosTick,BUS_POS_POLL_MS);
+}
+function stopBusPosPolling(){
+  if(busPosTimer){clearInterval(busPosTimer);busPosTimer=null;}
+  clearBusMarkers();
+  selectedBusVehId=null;
+  if(busPopup){map.closePopup(busPopup);busPopup=null;}
+  const statusEl=document.getElementById('busPosStatus');
+  if(statusEl)statusEl.textContent='';
+}
+
 function renderRouteSidebar(r){
   const side=document.getElementById('routeSidebar');
   const list=document.getElementById('routeStops');
@@ -1394,6 +1633,9 @@ function renderRouteSidebar(r){
 function showRoute(name){
   const r=ROUTE_BY_NAME.get(String(name));if(!r)return;
   currentRoute=r;
+  busPosOn=false;
+  stopBusPosPolling();
+  updateBusPosToggleUI();
 
   if(routeLayer)map.removeLayer(routeLayer);
   if(routeHitLayer)map.removeLayer(routeHitLayer);
@@ -1487,6 +1729,8 @@ routeQ.addEventListener('keydown',e=>{
 
 function resetHome(){
   stopGuide();
+  busPosOn=false;
+  stopBusPosPolling();
   selectedIdx=-1;
   currentRoute=null;
   currentRouteFilter='전체';
@@ -1533,6 +1777,8 @@ function resetHome(){
 document.getElementById('homeTitle').onclick=resetHome;
 
 allBtn.onclick=()=>{
+  busPosOn=false;
+  stopBusPosPolling();
   if(routeLayer){map.removeLayer(routeLayer);routeLayer=null}
   if(routeHitLayer){map.removeLayer(routeHitLayer);routeHitLayer=null}
   currentRoute=null;
@@ -1560,6 +1806,11 @@ document.getElementById('settingsBtn').onclick=(e)=>{
   e.stopPropagation();
   document.getElementById('settingsPanel').classList.toggle('open');
   document.getElementById('favoritesPanel').classList.remove('open');
+  // 검색 결과 드롭다운이 열려있으면 (예전엔 z-index가 이쪽보다 높아서
+  // 설정을 눌러도 그 뒤에 가려 보이던 문제) 같이 닫아서 확실히 맨 위로
+  // 보이게 한다.
+  searchResults.style.display='none';
+  routeSearchResults.style.display='none';
 };
 document.getElementById('settingsPanel').onclick=e=>e.stopPropagation();
 
@@ -1568,6 +1819,8 @@ document.getElementById('favBtn').onclick=e=>{
   renderFavorites();
   document.getElementById('favoritesPanel').classList.toggle('open');
   document.getElementById('settingsPanel').classList.remove('open');
+  searchResults.style.display='none';
+  routeSearchResults.style.display='none';
 };
 document.getElementById('favoritesPanel').onclick=e=>e.stopPropagation();
 
@@ -1595,6 +1848,12 @@ document.getElementById('trafficLightToggle').onchange=e=>{
   else stopTrafficLightPolling();
 };
 document.getElementById('trafficLightToggle').checked=trafficLightOn;
+
+document.getElementById('busPosProxyInput').value=busPosProxyUrl;
+document.getElementById('busPosProxyInput').onchange=e=>{
+  busPosProxyUrl=e.target.value.trim().replace(/\/$/,'');
+  localStorage.setItem('busPosProxyUrl',busPosProxyUrl);
+};
 stopCanvas._reset();
 
 document.getElementById('mapThemeSelect').onchange=e=>setMapTheme(e.target.value);
@@ -1656,6 +1915,20 @@ selectStop=function(idx,fly=false){
   originalSelectStop(idx,fly);
 };
 
+
+document.getElementById('busPosToggle').onclick=()=>{
+  busPosOn=!busPosOn;
+  updateBusPosToggleUI();
+  if(busPosOn)startBusPosPolling(); else stopBusPosPolling();
+};
+document.getElementById('busPosLowToggle').onclick=()=>{
+  busPosLowOnly=!busPosLowOnly;
+  document.getElementById('busPosLowToggle').classList.toggle('on',busPosLowOnly);
+  // 교통약자용 별도 API(getLowBusPosByRtid)로 바뀌는 거라, 이미 켜져 있던
+  // 목록에도 바로 반영되게 즉시 한 번 다시 불러온다 (다음 폴링까지
+  // 최대 15초를 기다리지 않게).
+  if(busPosOn){ clearBusMarkers(); busPosTick(); }
+};
 
 document.getElementById('routeClose').onclick=()=>{
   // Closing the panel is just a UI toggle now - it used to also stop the
@@ -2665,18 +2938,34 @@ function speakText(text,lang){
 // spoken as-is (translated for the one English one); "stops" keys are a stop
 // name, optionally with the " (1)" second-mention suffix the audio-cutter
 // tool appends, which TTS has no use for.
+// 문구 키 그대로("이번정류소", "다음정류소") 읽으면 조사/서술어 없는 명사
+// 하나만 뚝 읽어서 반말/명령조처럼 들린다는 지적이 있었음 - 실제 안내
+// 방송처럼 "이번 정류소는", "다음 정류소는"으로 붙여 읽고, 정류소 이름
+// 쪽(아래 playSegment)에서 "~입니다"로 마무리해서 두 세그먼트가 이어
+// 들었을 때 "이번 정류소는 OO입니다"처럼 완전한 문장이 되게 한다.
+const KOREAN_PHRASE_TTS={'이번정류소':'이번 정류소는','다음정류소':'다음 정류소는','종점입니다':'종점입니다'};
 function ttsFallbackFor(category,key){
   if(category==='phrases_en')return {text:key==='thisstopis'?'This stop is':key,lang:'en-US'};
-  if(category==='stops')return {text:key.replace(/ \(1\)$/,''),lang:'ko-KR'};
-  return {text:key,lang:'ko-KR'};
+  if(category==='stops')return {text:key.replace(/ \(1\)$/,'')+'입니다',lang:'ko-KR'};
+  return {text:KOREAN_PHRASE_TTS[key]||key,lang:'ko-KR'};
 }
 async function playSegment(category,key){
   if(!guideTtsOn)return; // guideTtsOn doubles as the overall mute switch for the announcements
   const played=await playClipAnyExt(audioPaths(category,key));
-  if(!played){
-    const {text,lang}=ttsFallbackFor(category,key);
-    await speakText(text,lang);
+  if(played)return;
+  // "(1)" 붙은 stops 세그먼트는 thisstopis(영어 안내) 바로 뒤에 정류소
+  // 이름이 다시 나오는 자리 - 녹음 파일이 없어 TTS로 대신할 땐 한국어
+  // 이름을 영어 목소리로 그대로 읽게 두면 알아들을 수 없는 발음이 나오니,
+  // 전광판 영어 줄에 쓰는 것과 같은 실제 번역/로마자 표기
+  // (translateStationName)를 재사용해서 진짜 영어 이름으로 읽는다.
+  if(category==='stops' && / \(1\)$/.test(key)){
+    const name=key.replace(/ \(1\)$/,'');
+    const enName=await translateStationName(name);
+    await speakText(enName,'en-US');
+    return;
   }
+  const {text,lang}=ttsFallbackFor(category,key);
+  await speakText(text,lang);
 }
 
 // 전체 안내 순서 (200m 접근 시점에 한 번 재생됨 - 실제 도착 순간이 아니라
