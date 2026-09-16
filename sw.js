@@ -4,7 +4,7 @@
 // handful of local files are cached - map tiles, the OSRM routing calls, and
 // the Google Translate lookups are all left to the network as normal, never
 // intercepted here, so nothing about live map/route data changes.
-const CACHE_NAME='bus-map-shell-v1';
+const CACHE_NAME='bus-map-shell-v3';
 const SHELL_FILES=['./','./index.html','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 
 self.addEventListener('install',event=>{
@@ -26,6 +26,18 @@ self.addEventListener('activate',event=>{
 self.addEventListener('fetch',event=>{
   const req=event.request;
   if(req.method!=='GET' || new URL(req.url).origin!==location.origin)return;
+  if(req.mode==='navigate'){
+    event.respondWith(
+      fetch(req).then(res=>{
+        if(res && res.ok){
+          const copy=res.clone();
+          event.waitUntil(caches.open(CACHE_NAME).then(cache=>cache.put(req,copy)));
+        }
+        return res;
+      }).catch(()=>caches.match(req))
+    );
+    return;
+  }
   event.respondWith(
     caches.match(req).then(cached=>{
       const network=fetch(req).then(res=>{
