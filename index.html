@@ -59,6 +59,25 @@ button:hover{background:#2a3039}
 .chip{flex:0 0 auto;max-width:280px;padding:6px 9px;border-radius:999px;background:#1c2229;border:1px solid #333b46;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
 .chip span{color:#929fad;margin-left:5px}
 #map{width:100%;height:100%;min-height:0}
+#plannerPanel{display:none;position:absolute;top:8px;left:8px;z-index:1250;width:min(410px,calc(100% - 16px));max-height:calc(100% - 16px);overflow:auto;background:#171b21;border:1px solid #39424e;border-radius:14px;box-shadow:0 8px 28px #0008;padding:12px}
+#plannerPanel.open{display:block}
+.planner-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:850}
+.planner-head button{width:32px;height:32px;padding:0}
+.planner-field{position:relative;margin-top:9px}
+.planner-field input{width:100%}
+.planner-suggestions{display:none;position:absolute;top:39px;left:0;right:0;z-index:2;max-height:200px;overflow:auto;background:#242b34;border:1px solid #495462;border-radius:8px}
+.planner-suggestions button{display:block;width:100%;height:auto;min-height:39px;text-align:left;border:0;border-radius:0;background:transparent;font-weight:500}
+.planner-suggestions button:hover{background:#35404d}
+.planner-controls{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.planner-controls button{height:33px;font-size:12px;padding:0 8px}
+.planner-controls button.on{background:#ff5a36;border-color:#ff5a36}
+#plannerSearch{width:100%;margin-top:9px;background:#ff5a36;border-color:#ff5a36}
+#plannerNote{font-size:11px;color:#aeb9c7;line-height:1.4;margin-top:7px}
+#plannerResults{margin-top:8px}
+.planner-result{width:100%;height:auto;text-align:left;display:block;margin-top:7px;padding:10px;line-height:1.45;background:#20262e}
+.planner-result.selected{border-color:#ff5a36;background:#302720}
+.planner-result strong{font-size:14px}
+.planner-result small{display:block;color:#aeb9c7;margin-top:4px;font-weight:500}
 .bus-popup .leaflet-popup-content-wrapper,.bus-popup .leaflet-popup-tip{background:#191e25;color:#fff}
 .popup-name{font-size:15px;font-weight:850;margin-bottom:4px}
 .popup-meta{font-size:12px;color:#b8c2ce;line-height:1.5}
@@ -744,6 +763,7 @@ body.light-ui .route{color:#fff}
     <button id="routeBtn">노선 보기</button>
     <button id="allBtn">전체 보기</button>
     <button id="locBtn">내 위치</button>
+    <button id="plannerBtn" title="출발·도착 정류소 경로 찾기">길찾기</button>
     <button id="favBtn" title="즐겨찾기">★</button>
     <button id="shareBtn" title="현재 상태 링크 복사">🔗</button>
     <button id="settingsBtn" title="설정">⚙</button>
@@ -813,6 +833,16 @@ body.light-ui .route{color:#fff}
 </div>
 <div id="mapWrap">
 <div id="map"></div>
+<section id="plannerPanel" aria-label="버스 길찾기">
+  <div class="planner-head"><span>버스 길찾기</span><button id="plannerClose" aria-label="닫기">×</button></div>
+  <div class="planner-field"><input id="plannerFrom" autocomplete="off" placeholder="출발 정류소명 / ARS 번호"><div id="plannerFromSuggestions" class="planner-suggestions"></div></div>
+  <div class="planner-field"><input id="plannerVia" autocomplete="off" placeholder="경유 정류소 (선택 · 멀리 돌아가는 경로)"><div id="plannerViaSuggestions" class="planner-suggestions"></div></div>
+  <div class="planner-field"><input id="plannerTo" autocomplete="off" placeholder="도착 정류소명 / ARS 번호"><div id="plannerToSuggestions" class="planner-suggestions"></div></div>
+  <button id="plannerSearch">경로 찾기</button>
+  <div class="planner-controls" id="plannerSort"></div>
+  <div id="plannerNote">버스 노선 순서로 직행·환승 경로를 찾습니다.</div>
+  <div id="plannerResults"></div>
+</section>
 <aside id="routeSidebar">
   <div id="routeHead">
     <div id="routeHeadTop">
@@ -3573,5 +3603,6 @@ function stopGuide(){
 }
 
 </script>
+<script src="planner.js"></script>
 </body>
 </html>
