@@ -657,7 +657,7 @@ body.light-ui .route{color:#fff}
   width:30px;height:30px;border-radius:50%;
   display:flex;align-items:center;justify-content:center;
   font-size:16px;background:#20252c;border:3px solid #666;
-  box-shadow:0 2px 6px rgba(0,0,0,.55);cursor:pointer;position:relative;
+  box-shadow:0 2px 6px rgba(0,0,0,.55);cursor:pointer;
 }
 .bus-pos-icon.congestion-low{border-color:#33d17a;}
 .bus-pos-icon.congestion-mid{border-color:#ffb020;}
@@ -1579,23 +1579,18 @@ function prevStopNameFor(nextStId){
 }
 function busStatusText(it){
   const busLat=parseFloat(it.gpsY), busLng=parseFloat(it.gpsX);
-  const target=it.nextStId?stopNameByNode(it.nextStId,busLat,busLng):null;
+  const nodes=currentRoute?.nodes||[];
+  const ord=parseInt(it.sectOrd,10);
+  const fromNode=Number.isInteger(ord) && ord>=1?nodes[ord-1]:null;
+  const toNode=Number.isInteger(ord) && ord>=1?nodes[ord]:null;
+  const from=fromNode?stopNameByNode(fromNode,busLat,busLng):null;
+  const to=toNode?stopNameByNode(toNode,busLat,busLng):null;
   if(it.stopFlag==='1'){
-    let nearest=null, nearestDist=Infinity;
-    if(Number.isFinite(busLat) && Number.isFinite(busLng)){
-      for(const s of currentGuideStops){
-        const d=hav(busLat,busLng,s.lat,s.lng);
-        if(d<nearestDist){nearest=s;nearestDist=d;}
-      }
-    }
-    const stoppedAt=nearestDist<=120?nearest.name:null;
-    return stoppedAt?`${stoppedAt} 정류소에 정차 중`:'정류소에 정차 중';
+    return from?`${from} 정류소에 정차 중`:'정류소에 정차 중';
   }
-  const secs=parseInt(it.nextStTm,10);
-  const eta=Number.isFinite(secs) && secs>=0?(secs<30?'곧 도착':secs<60?`약 ${secs}초 후 도착`:`약 ${Math.round(secs/60)}분 후 도착`):'';
-  const prev=it.nextStId?prevStopNameFor(it.nextStId):null;
-  if(prev && target)return `${prev} → ${target} 이동 중${eta?' · '+eta:''}`;
-  if(target)return `${target} 방면으로 접근 중${eta?' · '+eta:''}`;
+  if(from && to)return `${from} → ${to} 이동 중`;
+  if(from)return `${from} 출발 후 이동 중`;
+  if(to)return `${to} 방면으로 이동 중`;
   return '운행 중';
 }
 function clearBusMarkers(){
@@ -1894,13 +1889,11 @@ function showRoute(name){
     if(i!=null){pts.push([STOPS[i].lat,STOPS[i].lng]);currentGuideStops.push(STOPS[i]);}
   });
   stopGuide();
-  currentRoutePath=pts.slice(); // straight line until the road-following geometry arrives below
+  currentRoutePath=pts.slice();
   if(ledConnected)ledUploadRoute();
 
-  // Route itself: vivid orange-red so it is clearly different from blue stop dots.
-  // Draw the straight point-to-point line immediately, then upgrade it to a
-  // road-following shape once the routing service responds (falls back to
-  // the straight line if that request fails or is blocked).
+  // Use the recorded stop order. Generic car routing can invent bridge
+  // crossings and detours that this bus does not take.
   routeLayer=L.polyline(pts,{
     color:'#ff5a36',
     weight:7,
@@ -1909,16 +1902,6 @@ function showRoute(name){
     lineJoin:'round',
     interactive:true
   }).addTo(map);
-
-  const thisRouteToken=r;
-  fetchRoadGeometry(pts).then(roadPts=>{
-    if(currentRoute!==thisRouteToken || !roadPts || roadPts.length<2)return;
-    routeLayer.setLatLngs(roadPts);
-    if(routeHitLayer)routeHitLayer.setLatLngs(roadPts);
-    currentRoutePath=roadPts; // let the sim (and any future live-position matching) follow the real road shape too
-  }).catch(err=>{
-    console.warn('도로 경로 불러오기 실패, 정류소를 직선으로 이은 경로를 표시합니다.',err);
-  });
 
   // Invisible wide hit area so tapping the route is easy on mobile/tablet.
   routeHitLayer=L.polyline(pts,{
