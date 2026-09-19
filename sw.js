@@ -1,6 +1,6 @@
 // Cache the complete local app, including the published TOPIS route shapes.
 // Live API requests and map tiles keep their normal network behavior.
-const CACHE_NAME='bus-map-shell-v16-20260919';
+const CACHE_NAME='bus-map-shell-v18-20260919';
 const SHELL_FILES=['./','./index.html','./planner.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(file=>new URL(file,self.registration.scope).href));
 
