@@ -1268,7 +1268,7 @@ function refreshVisibleStationInfo(){
 }
 
 function routeCategory(name){
-  const n=String(name||'').trim();
+  const n=String(name||'').trim().split(' · ')[0];
   if(/^N\d+/i.test(n))return '심야';
   if(/^[가-힣]+(?:\d{1,2}(?:-\d+)?)$/.test(n))return '마을';
   if(/^9\d{3}/.test(n)||/^M\d+/i.test(n))return '광역';
@@ -1737,7 +1737,9 @@ async function fetchBusPositions(routeId){
   if(busPosCallsToday()>=BUS_POS_DAILY_CAP)throw new Error('오늘 호출 한도 도달 - 내일 다시 시도해주세요');
   busPosRecordCall();
   const lowParam=busPosLowOnly?'&low=1':'';
-  const apiRouteId=String(routeId).startsWith('G')?String(routeId).slice(1):String(routeId);
+  const routeMeta=ROUTES.find(r=>String(r.id)===String(routeId));
+  const rawRouteId=routeMeta?.routeId||routeId;
+  const apiRouteId=String(rawRouteId).startsWith('G')?String(rawRouteId).slice(1):String(rawRouteId);
   const endpoint=`${busPosProxyUrl}?busRouteId=${encodeURIComponent(apiRouteId)}&resultType=json${lowParam}`;
   let res,lastError;
   // The proxy occasionally drops an idle connection. Retry the same read once
@@ -2020,7 +2022,7 @@ function shortBusNumber(it){
 }
 function isLowFloorItem(it){return String(it?.busType||'')==='1';}
 function reserveItemsForRoute(r,items){
-  const name=String(r?.name||'').replace(/^경기\s+/,'');
+  const name=String(r?.name||'').replace(/^경기\s+/,'').split(' · ')[0];
   let wanted=RESERVE_BUS_NUMBERS[name]||[];
   if(name==='5620')return (items||[]).filter(it=>!isLowFloorItem(it));
   if(!wanted.length)return [];
