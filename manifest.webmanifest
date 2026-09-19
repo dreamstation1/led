@@ -1,0 +1,14 @@
+{
+  "name": "서울 버스 정류소 지도",
+  "short_name": "버스지도",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#101216",
+  "theme_color": "#101216",
+  "icons": [
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ]
+}
