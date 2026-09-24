@@ -1,12 +1,12 @@
-// App shell. v31 loads route/signal fixes, true gapless announcements, and browse-mode traffic lights.
-const CACHE_NAME='bus-map-shell-v31-20260924-map-signals';
+// App shell. v32 shows actual live signal phases directly on map markers.
+const CACHE_NAME='bus-map-shell-v32-20260924-live-map-phases';
 const SHELL_FILES=['./','./index.html','./planner.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(file=>new URL(file,self.registration.scope).href));
-const PAGE_PATCH='<script src="./mobile-patch.js?v=31"></script><script src="./gapless-patch.js?v=31"></script><script src="./traffic-map-patch.js?v=31"></script>';
+const PAGE_PATCH='<script src="./mobile-patch.js?v=32"></script><script src="./gapless-patch.js?v=32"></script><script src="./traffic-map-patch.js?v=32"></script>';
 
 async function patchedHtmlResponse(response){
   let text=await response.text();
-  if(!text.includes('traffic-map-patch.js?v=31')){
+  if(!text.includes('traffic-map-patch.js?v=32')){
     if(/<\/body>/i.test(text))text=text.replace(/<\/body>/i,PAGE_PATCH+'</body>');
     else text+=PAGE_PATCH;
   }
