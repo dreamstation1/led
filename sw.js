@@ -1,13 +1,13 @@
-// App shell v44: restore native recorded WAV playback on iPhone/iPad/PC.
-const CACHE_NAME='bus-map-shell-v44-20260924-audio-signals';
+// App shell v45: restore native recorded WAV playback on iPhone/iPad/PC.
+const CACHE_NAME='bus-map-shell-v45-20260924-stable-baseline';
 const SHELL_FILES=['./','./index.html','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./ios-touch-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(f=>new URL(f,self.registration.scope).href));
 const PATCH_URLS=new Set(['request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','ios-touch-patch.js'].map(f=>new URL('./'+f,self.registration.scope).href));
-const PAGE_PATCH='<script src="./request-guard.js?v=43"></script><script src="./mobile-patch.js?v=43"></script><script src="./gapless-patch.js?v=43"></script><script src="./traffic-map-patch.js?v=43"></script><script src="./ios-touch-patch.js?v=43"></script>';
+const PAGE_PATCH='<script src="./request-guard.js?v=45"></script><script src="./mobile-patch.js?v=45"></script><script src="./gapless-patch.js?v=45"></script><script src="./traffic-map-patch.js?v=45"></script><script src="./ios-touch-patch.js?v=45"></script>';
 async function patchedHtmlResponse(response){
  let text=await response.text();
  text=text.replace(/<script src="\.\/(?:request-guard|mobile-patch|gapless-patch|traffic-map-patch|ios-touch-patch)\.js\?v=\d+"><\/script>/g,'');
- if(!text.includes('gapless-patch.js?v=43'))text=/<\/body>/i.test(text)?text.replace(/<\/body>/i,PAGE_PATCH+'</body>'):text+PAGE_PATCH;
+ if(!text.includes('gapless-patch.js?v=45'))text=/<\/body>/i.test(text)?text.replace(/<\/body>/i,PAGE_PATCH+'</body>'):text+PAGE_PATCH;
  const h=new Headers(response.headers);h.set('content-type','text/html; charset=utf-8');h.delete('content-length');
  return new Response(text,{status:response.status,statusText:response.statusText,headers:h});
 }
