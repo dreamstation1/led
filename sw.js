@@ -1,14 +1,44 @@
 // App shell + mobile audio/simulation compatibility patch.
-const CACHE_NAME='bus-map-shell-v27-20260924-gapless-audio';
+const CACHE_NAME='bus-map-shell-v28-20260924-adaptive-announcement';
 const SHELL_FILES=['./','./index.html','./planner.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(file=>new URL(file,self.registration.scope).href));
 
 const PLANNER_PATCH=String.raw`
-
-/* 2026-09-24: simulation follow / freeze guard */
 (function(){
   if(typeof window==='undefined')return;
   let lastSimPanAt=0;
+
+  function adaptiveFraction(segmentM){
+    if(segmentM<=200)return 0.5;
+    if(segmentM>=1000)return 2/3;
+    return 0.5+((segmentM-200)/800)*(1/6);
+  }
+
+  function adaptiveRemainingRadius(segmentM){
+    return Math.max(20,segmentM*(1-adaptiveFraction(segmentM)));
+  }
+
+  // Live GPS also uses an automatic distance-dependent trigger.
+  try{
+    const baseOnGuidePosition=onGuidePosition;
+    onGuidePosition=function(lat,lng){
+      let savedRadius=guideApproachRadiusM;
+      try{
+        if(guideActive && guideWatchId!=null && guideNextIndex>0 && guideNextIndex<currentGuideStops.length){
+          const prev=currentGuideStops[guideNextIndex-1];
+          const target=currentGuideStops[guideNextIndex];
+          if(prev&&target){
+            const segmentM=hav(prev.lat,prev.lng,target.lat,target.lng);
+            guideApproachRadiusM=adaptiveRemainingRadius(segmentM);
+          }
+        }
+        return baseOnGuidePosition(lat,lng);
+      }finally{
+        guideApproachRadiusM=savedRadius;
+      }
+    };
+  }catch(e){}
+
   try{
     const oldUpdateGuideMarker=updateGuideMarker;
     updateGuideMarker=function(lat,lng){
@@ -23,6 +53,33 @@ const PLANNER_PATCH=String.raw`
     };
   }catch(e){}
 
+  function simPositionWithoutFixedRadius(lat,lng){
+    const saved=guideApproachRadiusM;
+    try{
+      guideApproachRadiusM=0;
+      onGuidePosition(lat,lng);
+    }finally{
+      guideApproachRadiusM=saved;
+    }
+  }
+
+  function maybeAdaptiveSimAnnouncement(traveled,stopArcs){
+    if(!guideActive || guideApproachAnnounced)return;
+    const idx=guideNextIndex;
+    if(idx<=0 || idx>=currentGuideStops.length)return;
+    const startArc=stopArcs[idx-1]??0;
+    const endArc=stopArcs[idx]??startArc;
+    const segmentM=Math.max(0,endArc-startArc);
+    if(segmentM<=0)return;
+    const triggerArc=startArc+segmentM*adaptiveFraction(segmentM);
+    if(traveled<triggerArc)return;
+    const target=currentGuideStops[idx];
+    const next=currentGuideStops[idx+1]||null;
+    announceArrival(target,next);
+    guideApproachAnnounced=true;
+    try{if(ledConnected)ledSetIndex(idx);}catch(e){}
+  }
+
   try{
     startGuideSim=function(){
       if(!currentGuideStops || currentGuideStops.length<2)return;
@@ -32,6 +89,7 @@ const PLANNER_PATCH=String.raw`
       }
       if(guideWatchId!=null){try{navigator.geolocation.clearWatch(guideWatchId);}catch(e){} guideWatchId=null;}
       if(guideSimRaf!=null){cancelAnimationFrame(guideSimRaf);guideSimRaf=null;}
+
       guideActive=true;
       const startIdx=Math.min(Math.max(guideStartIdx||0,0),currentGuideStops.length-2);
       guideNextIndex=startIdx+1;
@@ -40,13 +98,16 @@ const PLANNER_PATCH=String.raw`
       guideLastLat=guideLastLng=guideHeadingDeg=null;
       markGuideProgress();renderGuideBar();updateGuideStatus();
       try{if(ledConnected)ledUploadRoute();}catch(e){}
+
       const path=currentRoutePath;
       const totalLen=pathLengthM(path);
       const stopArcs=stopArcLengthsAlongPath(path,currentGuideStops);
       let traveled=Math.max(0,Math.min(totalLen,stopArcs[startIdx]||0));
       let lastTs=null,dwellUntil=0;
+
       const initial=pointAtDistanceM(path,traveled);
-      onGuidePosition(initial[0],initial[1]);
+      simPositionWithoutFixedRadius(initial[0],initial[1]);
+
       function tick(now){
         if(!guideActive){guideSimRaf=null;return;}
         if(lastTs==null)lastTs=now;
@@ -54,16 +115,27 @@ const PLANNER_PATCH=String.raw`
         if(!Number.isFinite(dt)||dt<0)dt=0;
         dt=Math.min(dt,0.25);
         if(now<dwellUntil){guideSimRaf=requestAnimationFrame(tick);return;}
+
         const speed=(typeof SIM_BASE_SPEED_MPS==='number'?SIM_BASE_SPEED_MPS:14)*Math.max(0.1,simSpeedMultiplier||1);
         const beforeIdx=guideNextIndex;
         traveled=Math.min(totalLen,traveled+speed*dt);
+
+        // Short segments (<=200m): announce halfway.
+        // Long segments (>=1km): announce around 2/3 of the way.
+        // 200m..1km transitions smoothly between those two points.
+        maybeAdaptiveSimAnnouncement(traveled,stopArcs);
+
         const pos=pointAtDistanceM(path,traveled);
-        onGuidePosition(pos[0],pos[1]);
+        simPositionWithoutFixedRadius(pos[0],pos[1]);
+
         if(guideActive && guideNextIndex>beforeIdx && guideNextIndex<currentGuideStops.length){
           dwellUntil=now+(GUIDE_DWELL_MS/Math.max(0.1,simSpeedMultiplier||1));
         }
         if(traveled>=totalLen-0.01){
-          const last=path[path.length-1];onGuidePosition(last[0],last[1]);guideSimRaf=null;return;
+          const last=path[path.length-1];
+          simPositionWithoutFixedRadius(last[0],last[1]);
+          guideSimRaf=null;
+          return;
         }
         guideSimRaf=requestAnimationFrame(tick);
       }
@@ -73,17 +145,14 @@ const PLANNER_PATCH=String.raw`
 })();
 `;
 
-// This is injected at the END of index.html so the page's original audio
-// functions cannot overwrite the mobile fix afterwards.
 const PAGE_PATCH=String.raw`<script>
 (function(){
-  if(window.__gaplessAudioV27)return;
-  window.__gaplessAudioV27=true;
+  if(window.__gaplessAudioV28)return;
+  window.__gaplessAudioV28=true;
 
   const BufferCache=new Map();
   const LoadCache=new Map();
   let ctx=null;
-  let unlocked=false;
   let prefetchTimer=null;
 
   function getCtx(){
@@ -98,8 +167,6 @@ const PAGE_PATCH=String.raw`<script>
   function primeAudio(){
     const c=getCtx();
     if(c && c.state==='suspended')c.resume().catch(function(){});
-    unlocked=true;
-    // Warm up iOS speech so a WAV -> TTS fallback starts with minimum delay.
     try{
       if('speechSynthesis' in window){
         const u=new SpeechSynthesisUtterance(' ');
@@ -108,7 +175,6 @@ const PAGE_PATCH=String.raw`<script>
         setTimeout(function(){try{speechSynthesis.cancel();}catch(e){}},0);
       }
     }catch(e){}
-    // Fixed guide clips are used repeatedly. Decode them once up front.
     preloadOne('audio/thisstopis.wav');
     preloadOne('audio/KBS.wav');
   }
@@ -119,7 +185,6 @@ const PAGE_PATCH=String.raw`<script>
   window.unlockAudioForMobile=primeAudio;
 
   async function decodeArrayBuffer(c,ab){
-    // Safari still supports the callback form more reliably on some versions.
     return await new Promise(function(resolve,reject){
       let settled=false;
       function ok(b){if(!settled){settled=true;resolve(b);}}
@@ -145,11 +210,8 @@ const PAGE_PATCH=String.raw`<script>
         const buf=await decodeArrayBuffer(c,ab);
         BufferCache.set(src,buf);
         return buf;
-      }catch(e){
-        return null;
-      }finally{
-        LoadCache.delete(src);
-      }
+      }catch(e){return null;}
+      finally{LoadCache.delete(src);}
     })();
     LoadCache.set(src,p);
     return p;
@@ -170,14 +232,11 @@ const PAGE_PATCH=String.raw`<script>
         let done=false;
         const timer=setTimeout(function(){if(!done){done=true;try{src.stop();}catch(e){}resolve(false);}},120000);
         src.onended=function(){if(done)return;done=true;clearTimeout(timer);resolve(true);};
-        // A tiny scheduled lead is more stable than HTMLAudio.play() on iOS.
         src.start(c.currentTime+0.005);
       }catch(e){resolve(false);}
     });
   }
 
-  // Load/decode BEFORE playback. Once cached, transitions between files start
-  // immediately after the previous buffer ends instead of waiting on <audio>.
   window.playClip=async function(src){
     const buf=await preloadOne(src);
     if(!buf){try{window.audioMissCache&&window.audioMissCache.add(src);}catch(e){} return false;}
@@ -186,7 +245,6 @@ const PAGE_PATCH=String.raw`<script>
 
   window.playClipAnyExt=async function(paths){
     if(!Array.isArray(paths)||!paths.length)return false;
-    // Start every candidate load at once. We still honor original priority.
     const loads=paths.map(preloadOne);
     for(let i=0;i<paths.length;i++){
       const buf=await loads[i];
@@ -207,7 +265,6 @@ const PAGE_PATCH=String.raw`<script>
           if(Array.isArray(p))out.push.apply(out,p);
         }
       }catch(e){}
-      // Also warm the direct filenames used by this repository.
       out.push('audio/'+name+'.wav');
       out.push('audio/'+name+' (1).wav');
     });
@@ -224,16 +281,12 @@ const PAGE_PATCH=String.raw`<script>
     }catch(e){}
   }
 
-  // Keep the next 3 stops decoded while the green simulation dot is moving.
-  // This is what removes the iPhone file -> file loading pause.
   try{
     const originalOnGuidePosition=window.onGuidePosition;
     if(typeof originalOnGuidePosition==='function'){
       window.onGuidePosition=function(){
         const r=originalOnGuidePosition.apply(this,arguments);
-        if(!prefetchTimer){
-          prefetchTimer=setTimeout(function(){prefetchTimer=null;preloadUpcoming();},50);
-        }
+        if(!prefetchTimer)prefetchTimer=setTimeout(function(){prefetchTimer=null;preloadUpcoming();},50);
         return r;
       };
     }
@@ -246,8 +299,6 @@ const PAGE_PATCH=String.raw`<script>
     }
   }catch(e){}
 
-  // Prime fixed clips even before simulation; actual playback still requires
-  // the user's first tap on iPhone, which primeAudio handles.
   setTimeout(function(){preloadOne('audio/thisstopis.wav');preloadOne('audio/KBS.wav');preloadUpcoming();},300);
 })();
 </script>`;
@@ -262,7 +313,7 @@ async function patchedPlannerResponse(response){
 
 async function patchedHtmlResponse(response){
   let text=await response.text();
-  if(text.includes('__gaplessAudioV27'))return new Response(text,{status:response.status,statusText:response.statusText,headers:response.headers});
+  if(text.includes('__gaplessAudioV28'))return new Response(text,{status:response.status,statusText:response.statusText,headers:response.headers});
   if(/<\/body>/i.test(text))text=text.replace(/<\/body>/i,PAGE_PATCH+'</body>');
   else text+=PAGE_PATCH;
   const headers=new Headers(response.headers);
