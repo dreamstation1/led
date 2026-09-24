@@ -1,12 +1,12 @@
-// App shell. v34 restores native iPhone file audio and uses compact live traffic-signal pills.
-const CACHE_NAME='bus-map-shell-v34-20260924-native-audio-signal-pill';
+// App shell. v35 fixes the iPhone location control hit target with a direct overlay.
+const CACHE_NAME='bus-map-shell-v35-20260924-ios-location-hitbox';
 const SHELL_FILES=['./','./index.html','./planner.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./ios-touch-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(file=>new URL(file,self.registration.scope).href));
-const PAGE_PATCH='<script src="./mobile-patch.js?v=34"></script><script src="./gapless-patch.js?v=34"></script><script src="./traffic-map-patch.js?v=34"></script><script src="./ios-touch-patch.js?v=34"></script>';
+const PAGE_PATCH='<script src="./mobile-patch.js?v=35"></script><script src="./gapless-patch.js?v=35"></script><script src="./traffic-map-patch.js?v=35"></script><script src="./ios-touch-patch.js?v=35"></script>';
 
 async function patchedHtmlResponse(response){
   let text=await response.text();
-  if(!text.includes('gapless-patch.js?v=34')){
+  if(!text.includes('ios-touch-patch.js?v=35')){
     if(/<\/body>/i.test(text))text=text.replace(/<\/body>/i,PAGE_PATCH+'</body>');
     else text+=PAGE_PATCH;
   }
@@ -19,11 +19,9 @@ async function patchedHtmlResponse(response){
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE_NAME).then(cache=>cache.addAll(SHELL_FILES)).then(()=>self.skipWaiting()));
 });
-
 self.addEventListener('activate',event=>{
   event.waitUntil(caches.keys().then(names=>Promise.all(names.filter(n=>n.startsWith('bus-map-shell-')&&n!==CACHE_NAME).map(n=>caches.delete(n)))).then(()=>self.clients.claim()));
 });
-
 self.addEventListener('fetch',event=>{
   const req=event.request;
   if(req.method!=='GET'||new URL(req.url).origin!==location.origin)return;
