@@ -1,12 +1,12 @@
 (function(){
-  if(window.__requestGuardV39)return;
-  window.__requestGuardV39=true;
+  if(window.__requestGuardV40)return;
+  window.__requestGuardV40=true;
 
   const realFetch=window.fetch.bind(window);
   const missUntil=new Map();
   const inflight=new Map();
   const MISS_TTL=6*60*60*1000;
-  let pagesCooldownUntil=0;
+  const RATE_TTL=15*1000;
 
   function info(input){
     try{
@@ -20,24 +20,36 @@
     const x=info(input);
     if(!x)return realFetch(input,init);
 
-    // The repository stores announcement audio as flat /audio/*.wav files.
-    // Never hit GitHub Pages for old MP3/category-folder candidates.
+    // Repository audio is stored as flat /audio/*.wav. Skip only known-dead candidates.
     if(/\.mp3(?:$|\?)/i.test(x.path)||/\/audio\/(?:phrases|phrases_en|stops)\//i.test(x.path)){
       return new Response('',{status:404,statusText:'Skipped nonexistent audio candidate'});
     }
-    if(pagesCooldownUntil>Date.now())return new Response('',{status:429,statusText:'Local Pages cooldown'});
-    if((missUntil.get(x.key)||0)>Date.now())return new Response('',{status:404,statusText:'Cached missing audio'});
 
-    if(inflight.has(x.key)){const r=await inflight.get(x.key);return r.clone();}
+    const until=missUntil.get(x.key)||0;
+    if(until>Date.now()){
+      const shortRate=(until-Date.now())<=RATE_TTL+1000;
+      return new Response('',{status:shortRate?429:404,statusText:shortRate?'Short local retry delay':'Cached missing audio'});
+    }
+
+    if(inflight.has(x.key)){
+      const r=await inflight.get(x.key);
+      return r.clone();
+    }
+
     const p=(async()=>{
       try{
         const r=await realFetch(input,init);
-        if(r.status===429){pagesCooldownUntil=Date.now()+10*60*1000;missUntil.set(x.key,Date.now()+MISS_TTL);}
+        // Important: never turn one 429 into a 10-minute global audio blackout.
+        // Retry the specific file shortly, while true missing files stay cached longer.
+        if(r.status===429)missUntil.set(x.key,Date.now()+RATE_TTL);
         else if(r.status===404||r.status===403)missUntil.set(x.key,Date.now()+MISS_TTL);
+        else if(r.ok)missUntil.delete(x.key);
         return r;
       }finally{setTimeout(()=>inflight.delete(x.key),0);}
     })();
+
     inflight.set(x.key,p);
-    const r=await p;return r.clone();
+    const r=await p;
+    return r.clone();
   };
 })();
