@@ -82,44 +82,7 @@
     };
   }catch(e){console.error('simulation patch failed',e);}
 
-  /* ---------- gapless iPhone audio ---------- */
-  const BufferCache=new Map(),LoadCache=new Map();
-  let audioCtx=null,prefetchTimer=null;
-  function getCtx(){
-    if(audioCtx)return audioCtx;
-    const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return null;
-    audioCtx=new AC();window.__guideAudioContext=audioCtx;return audioCtx;
-  }
-  async function decodeArrayBuffer(c,ab){
-    return await new Promise(function(resolve,reject){let settled=false;const ok=b=>{if(!settled){settled=true;resolve(b);}},bad=e=>{if(!settled){settled=true;reject(e);}};try{const p=c.decodeAudioData(ab.slice(0),ok,bad);if(p&&p.then)p.then(ok,bad);}catch(e){bad(e);}});
-  }
-  function preloadOne(src){
-    if(!src)return Promise.resolve(null);if(BufferCache.has(src))return Promise.resolve(BufferCache.get(src));if(LoadCache.has(src))return LoadCache.get(src);
-    const p=(async()=>{try{const c=getCtx();if(!c)return null;const res=await fetch(src,{cache:'force-cache'});if(!res.ok)return null;const buf=await decodeArrayBuffer(c,await res.arrayBuffer());BufferCache.set(src,buf);return buf;}catch(e){return null;}finally{LoadCache.delete(src);}})();
-    LoadCache.set(src,p);return p;
-  }
-  function primeAudio(){
-    const c=getCtx();if(c&&c.state==='suspended')c.resume().catch(()=>{});
-    try{if('speechSynthesis' in window){const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u);setTimeout(()=>{try{speechSynthesis.cancel();}catch(e){}},0);}}catch(e){}
-    preloadOne('audio/thisstopis.wav');preloadOne('audio/KBS.wav');
-  }
-  document.addEventListener('pointerdown',primeAudio,{capture:true,passive:true});
-  document.addEventListener('touchstart',primeAudio,{capture:true,passive:true});
-  document.addEventListener('click',primeAudio,{capture:true,passive:true});
-  window.unlockAudioForMobile=primeAudio;
-  function playBuffer(buf){
-    return new Promise(async resolve=>{const c=getCtx();if(!c||!buf){resolve(false);return;}try{if(c.state==='suspended')await c.resume();}catch(e){}try{const src=c.createBufferSource(),gain=c.createGain();src.buffer=buf;src.playbackRate.value=(typeof guideRate==='number'?guideRate:1);gain.gain.value=(typeof guideVolume==='number'?guideVolume:1);src.connect(gain);gain.connect(c.destination);let done=false;const timer=setTimeout(()=>{if(!done){done=true;try{src.stop();}catch(e){}resolve(false);}},120000);src.onended=()=>{if(done)return;done=true;clearTimeout(timer);resolve(true);};src.start(c.currentTime+0.005);}catch(e){resolve(false);}});
-  }
-  try{playClip=async function(src){const buf=await preloadOne(src);if(!buf){try{audioMissCache.add(src);}catch(e){}return false;}return await playBuffer(buf);};}catch(e){}
-  try{playClipAnyExt=async function(paths){if(!Array.isArray(paths)||!paths.length)return false;const loads=paths.map(preloadOne);for(let i=0;i<loads.length;i++){const buf=await loads[i];if(buf)return await playBuffer(buf);}return false;};}catch(e){}
-  function possibleAudioPathsForStop(stop){
-    const out=[];if(!stop)return out;const names=[];['name','nameEn','enName','englishName','engName'].forEach(k=>{if(stop[k])names.push(stop[k]);});
-    names.forEach(name=>{try{if(typeof audioPaths==='function'){const p=audioPaths(name);if(Array.isArray(p))out.push(...p);}}catch(e){}out.push('audio/'+name+'.wav','audio/'+name+' (1).wav');});return [...new Set(out)];
-  }
-  function preloadUpcoming(){try{if(!Array.isArray(currentGuideStops))return;const i=Math.max(0,Number(guideNextIndex)||0);for(let n=i;n<Math.min(currentGuideStops.length,i+3);n++)possibleAudioPathsForStop(currentGuideStops[n]).forEach(preloadOne);}catch(e){}}
-  try{const oldPos=onGuidePosition;onGuidePosition=function(){const r=oldPos.apply(this,arguments);if(!prefetchTimer)prefetchTimer=setTimeout(()=>{prefetchTimer=null;preloadUpcoming();},50);return r;};}catch(e){}
-  try{const oldSim=startGuideSim;startGuideSim=function(){primeAudio();preloadUpcoming();return oldSim.apply(this,arguments);};}catch(e){}
-  setTimeout(()=>{preloadOne('audio/thisstopis.wav');preloadOne('audio/KBS.wav');preloadUpcoming();},300);
+  /* ---------- audio handled only by gapless-patch.js ---------- */
 
   /* ---------- route-aware live traffic lights ---------- */
   let routeSignalLayer=null,routeSignals=[],routeSignature='',nextSignal=null;
