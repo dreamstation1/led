@@ -1,68 +1,67 @@
 (function(){
-  if(window.__gaplessQueueV40)return;
-  window.__gaplessQueueV40=true;
+  if(window.__gaplessQueueV41)return;
+  window.__gaplessQueueV41=true;
 
-  const BufferCache=new Map();
+  const BlobCache=new Map();
   const LoadCache=new Map();
-  let ctx=null;
-  let unlockStarted=false;
+  const AUDIO_OVERLAP_MS=45;
+  const TTS_PRETRIGGER_MS=100;
 
-  function getCtx(){
-    if(ctx)return ctx;
-    const AC=window.AudioContext||window.webkitAudioContext;
-    if(!AC)return null;
-    try{ctx=new AC({latencyHint:'interactive'});}catch(e){try{ctx=new AC();}catch(_){return null;}}
-    window.__guideAudioContext=ctx;
-    return ctx;
-  }
-
-  function pathsFor(category,key){
+  function exactPaths(category,key){
+    const s=String(key||'').trim();
+    const out=[];
+    // Repository recordings are flat files under /audio. Always try the exact WAV first.
+    out.push('audio/'+s+'.wav');
+    // Keep legacy candidates only after the exact flat WAV.
     try{
       if(typeof audioPaths==='function'){
         const p=audioPaths(category,key);
-        if(Array.isArray(p)&&p.length)return p;
+        if(Array.isArray(p))out.push(...p);
       }
     }catch(e){}
-    const s=String(key||'');
-    return ['audio/'+s+'.wav','audio/'+s+'.mp3','audio/'+category+'/'+s+'.wav','audio/'+category+'/'+s+'.mp3'];
+    return [...new Set(out)].filter(p=>/\.wav(?:$|\?)/i.test(p));
   }
 
-  function decode(c,ab){
-    return new Promise((resolve,reject)=>{
-      let done=false;
-      const ok=b=>{if(done)return;done=true;resolve(b);};
-      const bad=e=>{if(done)return;done=true;reject(e);};
-      try{
-        const p=c.decodeAudioData(ab.slice(0),ok,bad);
-        if(p&&p.then)p.then(ok,bad);
-      }catch(e){bad(e);}
-    });
-  }
-
-  async function loadBuffer(src){
-    if(BufferCache.has(src))return BufferCache.get(src);
+  async function loadBlobUrl(src){
+    if(BlobCache.has(src))return BlobCache.get(src);
     if(LoadCache.has(src))return LoadCache.get(src);
     const p=(async()=>{
       try{
-        const c=getCtx();if(!c)return null;
         const r=await fetch(src,{cache:'force-cache'});
         if(!r.ok)return null;
-        const b=await decode(c,await r.arrayBuffer());
-        BufferCache.set(src,b);
-        return b;
+        const blob=await r.blob();
+        if(!blob||!blob.size)return null;
+        const url=URL.createObjectURL(blob);
+        BlobCache.set(src,url);
+        return url;
       }catch(e){return null;}
       finally{LoadCache.delete(src);}
     })();
-    LoadCache.set(src,p);
-    return p;
+    LoadCache.set(src,p);return p;
   }
 
-  async function firstBuffer(paths){
-    if(!Array.isArray(paths)||!paths.length)return null;
-    // Try in order. Flat WAV is first, so iPhone/iPad do not waste requests on dead candidates.
-    for(const p of paths){
-      const b=await loadBuffer(p);
-      if(b)return {path:p,buffer:b};
+  function prepareAudio(url){
+    return new Promise(resolve=>{
+      const a=new Audio();
+      a.preload='auto';a.playsInline=true;
+      a.setAttribute('playsinline','');a.setAttribute('webkit-playsinline','');
+      a.src=url;
+      let done=false;
+      const finish=ok=>{if(done)return;done=true;clearTimeout(timer);resolve(ok?a:null);};
+      const timer=setTimeout(()=>finish(a.readyState>=1),5000);
+      a.addEventListener('loadedmetadata',()=>finish(true),{once:true});
+      a.addEventListener('canplay',()=>finish(true),{once:true});
+      a.addEventListener('error',()=>finish(false),{once:true});
+      try{a.load();}catch(e){finish(false);}
+    });
+  }
+
+  async function firstAudio(category,key){
+    for(const path of exactPaths(category,key)){
+      const url=await loadBlobUrl(path);
+      if(!url)continue;
+      const audio=await prepareAudio(url);
+      if(audio)return {path,audio};
     }
     return null;
   }
@@ -79,36 +78,10 @@
   }
 
   async function resolveSegment(category,key){
-    const found=await firstBuffer(pathsFor(category,key));
-    if(found)return {kind:'audio',buffer:found.buffer,category,key};
+    const found=await firstAudio(category,key);
+    if(found)return {kind:'audio',audio:found.audio,path:found.path,category,key};
     const t=await ttsInfo(category,key);
     return {kind:'tts',text:t.text,lang:t.lang,category,key};
-  }
-
-  async function ensureRunning(){
-    const c=getCtx();if(!c)return null;
-    try{if(c.state==='suspended')await c.resume();}catch(e){}
-    return c;
-  }
-
-  function playBuffer(buffer,when=0){
-    return new Promise(async resolve=>{
-      const c=await ensureRunning();if(!c||!buffer){resolve(false);return;}
-      try{
-        const src=c.createBufferSource();
-        const gain=c.createGain();
-        const rate=Math.max(.1,typeof guideRate==='number'?guideRate:1);
-        src.buffer=buffer;src.playbackRate.value=rate;
-        gain.gain.value=typeof guideVolume==='number'?guideVolume:1;
-        src.connect(gain);gain.connect(c.destination);
-        let done=false;
-        const finish=ok=>{if(done)return;done=true;clearTimeout(timer);resolve(ok);};
-        src.onended=()=>finish(true);
-        const dur=Math.max(.1,buffer.duration/rate);
-        const timer=setTimeout(()=>finish(false),(dur+5)*1000);
-        src.start(c.currentTime+Math.max(0,when));
-      }catch(e){resolve(false);}
-    });
   }
 
   async function sayTts(seg){
@@ -116,53 +89,62 @@
     return false;
   }
 
+  async function playAudio(a){
+    return await new Promise(resolve=>{
+      let done=false;
+      const finish=ok=>{if(done)return;done=true;clearTimeout(timer);resolve(ok);};
+      a.currentTime=0;
+      a.playbackRate=Math.max(.1,typeof guideRate==='number'?guideRate:1);
+      a.volume=typeof guideVolume==='number'?guideVolume:1;
+      a.addEventListener('ended',()=>finish(true),{once:true});
+      a.addEventListener('error',()=>finish(false),{once:true});
+      const timer=setTimeout(()=>finish(false),120000);
+      try{const p=a.play();if(p&&p.catch)p.catch(()=>finish(false));}catch(e){finish(false);}
+    });
+  }
+
   async function playResolvedSequence(items){
-    for(const seg of items){
-      if(seg.kind==='audio')await playBuffer(seg.buffer);
-      else await sayTts(seg);
+    for(let i=0;i<items.length;i++){
+      const seg=items[i];
+      if(seg.kind==='audio'){
+        const next=items[i+1];
+        if(next&&next.kind==='audio'&&Number.isFinite(seg.audio.duration)){
+          const wait=Math.max(0,(seg.audio.duration/Math.max(.1,seg.audio.playbackRate||1))*1000-AUDIO_OVERLAP_MS);
+          let nextStarted=false;
+          const timer=setTimeout(()=>{nextStarted=true;playAudio(next.audio);},wait);
+          await playAudio(seg.audio);clearTimeout(timer);
+          if(nextStarted)i++;
+        }else if(next&&next.kind==='tts'&&Number.isFinite(seg.audio.duration)){
+          let p=null;
+          const wait=Math.max(0,(seg.audio.duration/Math.max(.1,seg.audio.playbackRate||1))*1000-TTS_PRETRIGGER_MS);
+          const timer=setTimeout(()=>{p=sayTts(next);},wait);
+          await playAudio(seg.audio);clearTimeout(timer);
+          if(!p)p=sayTts(next);await p;i++;
+        }else await playAudio(seg.audio);
+      }else await sayTts(seg);
     }
   }
 
-  function warmSegment(category,key){
-    try{
-      const p=pathsFor(category,key);
-      if(Array.isArray(p)&&p.length)loadBuffer(p[0]);
-    }catch(e){}
-  }
-  function warmFixed(){
-    warmSegment('phrases','이번정류소');
-    warmSegment('phrases','다음정류소');
-    warmSegment('phrases','종점입니다');
-    warmSegment('phrases_en','thisstopis');
-  }
+  function warm(category,key){exactPaths(category,key).slice(0,1).forEach(loadBlobUrl);}
+  function warmFixed(){warm('phrases','이번정류소');warm('phrases','다음정류소');warm('phrases','종점입니다');warm('phrases_en','thisstopis');}
   function warmUpcoming(){
     try{
       if(!Array.isArray(currentGuideStops))return;
       const idx=Math.max(0,Number(guideNextIndex)||0);
       for(let i=Math.max(0,idx-1);i<Math.min(currentGuideStops.length,idx+3);i++){
         const s=currentGuideStops[i],k=s.audioName||s.name;
-        warmSegment('stops',k);
-        warmSegment('stops',k+' (1)');
+        warm('stops',k);warm('stops',k+' (1)');
       }
     }catch(e){}
   }
 
-  async function unlock(){
-    const c=getCtx();
-    if(c){
-      try{if(c.state==='suspended')await c.resume();}catch(e){}
-      // iOS/iPadOS: start an actual zero-gain WebAudio source in the user gesture.
-      if(!unlockStarted){
-        unlockStarted=true;
-        try{
-          const b=c.createBuffer(1,1,22050),s=c.createBufferSource(),g=c.createGain();
-          g.gain.value=0;s.buffer=b;s.connect(g);g.connect(c.destination);s.start(0);
-        }catch(e){}
-      }
-    }
+  function unlock(){
     warmFixed();warmUpcoming();
+    try{
+      const a=new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA=');
+      a.volume=0;a.playsInline=true;const p=a.play();if(p&&p.then)p.then(()=>a.pause()).catch(()=>{});
+    }catch(e){}
   }
-
   document.addEventListener('touchstart',unlock,{capture:true,passive:true});
   document.addEventListener('pointerdown',unlock,{capture:true,passive:true});
   document.addEventListener('click',unlock,{capture:true,passive:true});
@@ -171,22 +153,13 @@
   try{
     announceArrival=async function(stop,next){
       if(!guideTtsOn)return;
-      await unlock();
+      unlock();
       const stopKey=stop.audioName||stop.name;
-      const specs=[
-        ['phrases','이번정류소'],
-        ['stops',stopKey],
-        next?['phrases','다음정류소']:['phrases','종점입니다'],
-        ...(next?[['stops',next.audioName||next.name]]:[]),
-        ['phrases_en','thisstopis'],
-        ['stops',stopKey+' (1)']
-      ];
-      const resolved=[];
-      for(const s of specs)resolved.push(await resolveSegment(s[0],s[1]));
+      const specs=[['phrases','이번정류소'],['stops',stopKey],next?['phrases','다음정류소']:['phrases','종점입니다'],...(next?[['stops',next.audioName||next.name]]:[]),['phrases_en','thisstopis'],['stops',stopKey+' (1)']];
+      const resolved=await Promise.all(specs.map(s=>resolveSegment(s[0],s[1])));
       await playResolvedSequence(resolved);
     };
-  }catch(e){console.error('native WebAudio announcement override failed',e);}
+  }catch(e){console.error('recorded-audio announcement override failed',e);}
 
-  warmFixed();
-  setInterval(warmUpcoming,1500);
+  warmFixed();setInterval(warmUpcoming,1500);
 })();
