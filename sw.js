@@ -1,13 +1,13 @@
-// App shell. v36 uses the same compact live signal display on the map as the route signal window.
-const CACHE_NAME='bus-map-shell-v36-20260924-map-signal-display';
+// App shell. v37 fixes collapsed live signal lamps on the map.
+const CACHE_NAME='bus-map-shell-v37-20260924-signal-lamps';
 const SHELL_FILES=['./','./index.html','./planner.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./ios-touch-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(file=>new URL(file,self.registration.scope).href));
-const PAGE_PATCH='<script src="./mobile-patch.js?v=36"></script><script src="./gapless-patch.js?v=36"></script><script src="./traffic-map-patch.js?v=36"></script><script src="./ios-touch-patch.js?v=36"></script>';
+const PAGE_PATCH='<script src="./mobile-patch.js?v=37"></script><script src="./gapless-patch.js?v=37"></script><script src="./traffic-map-patch.js?v=37"></script><script src="./ios-touch-patch.js?v=37"></script>';
 
 async function patchedHtmlResponse(response){
   let text=await response.text();
-  if(!text.includes('traffic-map-patch.js?v=36')){
-    if(/<\\/body>/i.test(text))text=text.replace(/<\\/body>/i,PAGE_PATCH+'</body>');
+  if(!text.includes('traffic-map-patch.js?v=37')){
+    if(/<\/body>/i.test(text))text=text.replace(/<\/body>/i,PAGE_PATCH+'</body>');
     else text+=PAGE_PATCH;
   }
   const headers=new Headers(response.headers);
