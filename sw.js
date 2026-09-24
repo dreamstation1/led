@@ -1,5 +1,5 @@
-// App shell v43: restore native recorded WAV playback on iPhone/iPad/PC.
-const CACHE_NAME='bus-map-shell-v43-20260924-native-audio';
+// App shell v44: restore native recorded WAV playback on iPhone/iPad/PC.
+const CACHE_NAME='bus-map-shell-v44-20260924-audio-signals';
 const SHELL_FILES=['./','./index.html','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./ios-touch-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(f=>new URL(f,self.registration.scope).href));
 const PATCH_URLS=new Set(['request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','ios-touch-patch.js'].map(f=>new URL('./'+f,self.registration.scope).href));
