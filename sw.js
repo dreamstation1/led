@@ -1,12 +1,12 @@
-// App shell. v37 fixes collapsed live signal lamps on the map.
-const CACHE_NAME='bus-map-shell-v37-20260924-signal-lamps';
-const SHELL_FILES=['./','./index.html','./planner.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./ios-touch-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
+// App shell. v38 prevents repeated missing-audio requests from rate limiting GitHub Pages.
+const CACHE_NAME='bus-map-shell-v38-20260924-request-guard';
+const SHELL_FILES=['./','./index.html','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./ios-touch-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(file=>new URL(file,self.registration.scope).href));
-const PAGE_PATCH='<script src="./mobile-patch.js?v=37"></script><script src="./gapless-patch.js?v=37"></script><script src="./traffic-map-patch.js?v=37"></script><script src="./ios-touch-patch.js?v=37"></script>';
+const PAGE_PATCH='<script src="./request-guard.js?v=38"></script><script src="./mobile-patch.js?v=38"></script><script src="./gapless-patch.js?v=38"></script><script src="./traffic-map-patch.js?v=38"></script><script src="./ios-touch-patch.js?v=38"></script>';
 
 async function patchedHtmlResponse(response){
   let text=await response.text();
-  if(!text.includes('traffic-map-patch.js?v=37')){
+  if(!text.includes('request-guard.js?v=38')){
     if(/<\/body>/i.test(text))text=text.replace(/<\/body>/i,PAGE_PATCH+'</body>');
     else text+=PAGE_PATCH;
   }
@@ -29,7 +29,7 @@ self.addEventListener('fetch',event=>{
   }
   const url=new URL(req.url);url.search='';if(!SHELL_URLS.has(url.href))return;
   event.respondWith(caches.open(CACHE_NAME).then(async cache=>{
-    if(url.href===new URL('./mobile-patch.js',self.registration.scope).href||url.href===new URL('./gapless-patch.js',self.registration.scope).href||url.href===new URL('./traffic-map-patch.js',self.registration.scope).href||url.href===new URL('./ios-touch-patch.js',self.registration.scope).href){
+    if(url.href===new URL('./request-guard.js',self.registration.scope).href||url.href===new URL('./mobile-patch.js',self.registration.scope).href||url.href===new URL('./gapless-patch.js',self.registration.scope).href||url.href===new URL('./traffic-map-patch.js',self.registration.scope).href||url.href===new URL('./ios-touch-patch.js',self.registration.scope).href){
       try{const fresh=await fetch(req,{cache:'no-cache'});if(fresh.ok){await cache.put(url.href,fresh.clone());return fresh;}}catch(e){}
     }
     const cached=await cache.match(url.href);if(cached)return cached;
