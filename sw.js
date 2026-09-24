@@ -1,12 +1,12 @@
-// App shell. v33 fixes iPhone touch targets for location and live traffic markers.
-const CACHE_NAME='bus-map-shell-v33-20260924-ios-touch';
+// App shell. v34 restores native iPhone file audio and uses compact live traffic-signal pills.
+const CACHE_NAME='bus-map-shell-v34-20260924-native-audio-signal-pill';
 const SHELL_FILES=['./','./index.html','./planner.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./ios-touch-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(file=>new URL(file,self.registration.scope).href));
-const PAGE_PATCH='<script src="./mobile-patch.js?v=33"></script><script src="./gapless-patch.js?v=33"></script><script src="./traffic-map-patch.js?v=33"></script><script src="./ios-touch-patch.js?v=33"></script>';
+const PAGE_PATCH='<script src="./mobile-patch.js?v=34"></script><script src="./gapless-patch.js?v=34"></script><script src="./traffic-map-patch.js?v=34"></script><script src="./ios-touch-patch.js?v=34"></script>';
 
 async function patchedHtmlResponse(response){
   let text=await response.text();
-  if(!text.includes('ios-touch-patch.js?v=33')){
+  if(!text.includes('gapless-patch.js?v=34')){
     if(/<\/body>/i.test(text))text=text.replace(/<\/body>/i,PAGE_PATCH+'</body>');
     else text+=PAGE_PATCH;
   }
@@ -21,44 +21,28 @@ self.addEventListener('install',event=>{
 });
 
 self.addEventListener('activate',event=>{
-  event.waitUntil(caches.keys().then(names=>Promise.all(
-    names.filter(n=>n.startsWith('bus-map-shell-')&&n!==CACHE_NAME).map(n=>caches.delete(n))
-  )).then(()=>self.clients.claim()));
+  event.waitUntil(caches.keys().then(names=>Promise.all(names.filter(n=>n.startsWith('bus-map-shell-')&&n!==CACHE_NAME).map(n=>caches.delete(n)))).then(()=>self.clients.claim()));
 });
 
 self.addEventListener('fetch',event=>{
   const req=event.request;
-  if(req.method!=='GET' || new URL(req.url).origin!==location.origin)return;
-
+  if(req.method!=='GET'||new URL(req.url).origin!==location.origin)return;
   if(req.mode==='navigate'){
     event.respondWith((async()=>{
-      const cache=await caches.open(CACHE_NAME);
-      let res=null;
-      try{
-        res=await fetch(req,{cache:'no-cache'});
-        if(res&&res.ok)await cache.put(new URL('./index.html',self.registration.scope).href,res.clone());
-      }catch(e){res=await cache.match(new URL('./index.html',self.registration.scope).href);}
+      const cache=await caches.open(CACHE_NAME);let res=null;
+      try{res=await fetch(req,{cache:'no-cache'});if(res&&res.ok)await cache.put(new URL('./index.html',self.registration.scope).href,res.clone());}
+      catch(e){res=await cache.match(new URL('./index.html',self.registration.scope).href);}
       if(!res)res=await cache.match(new URL('./index.html',self.registration.scope).href);
       return res?patchedHtmlResponse(res):res;
-    })());
-    return;
+    })());return;
   }
-
   const url=new URL(req.url);url.search='';
   if(!SHELL_URLS.has(url.href))return;
   event.respondWith(caches.open(CACHE_NAME).then(async cache=>{
-    if(
-      url.href===new URL('./mobile-patch.js',self.registration.scope).href ||
-      url.href===new URL('./gapless-patch.js',self.registration.scope).href ||
-      url.href===new URL('./traffic-map-patch.js',self.registration.scope).href ||
-      url.href===new URL('./ios-touch-patch.js',self.registration.scope).href
-    ){
+    if(url.href===new URL('./mobile-patch.js',self.registration.scope).href||url.href===new URL('./gapless-patch.js',self.registration.scope).href||url.href===new URL('./traffic-map-patch.js',self.registration.scope).href||url.href===new URL('./ios-touch-patch.js',self.registration.scope).href){
       try{const fresh=await fetch(req,{cache:'no-cache'});if(fresh.ok){await cache.put(url.href,fresh.clone());return fresh;}}catch(e){}
     }
-    const cached=await cache.match(url.href);
-    if(cached)return cached;
-    const res=await fetch(req);
-    if(res.ok)await cache.put(url.href,res.clone());
-    return res;
+    const cached=await cache.match(url.href);if(cached)return cached;
+    const res=await fetch(req);if(res.ok)await cache.put(url.href,res.clone());return res;
   }));
 });
