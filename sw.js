@@ -1,12 +1,12 @@
-// App shell. v32 shows actual live signal phases directly on map markers.
-const CACHE_NAME='bus-map-shell-v32-20260924-live-map-phases';
-const SHELL_FILES=['./','./index.html','./planner.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
+// App shell. v33 fixes iPhone touch targets for location and live traffic markers.
+const CACHE_NAME='bus-map-shell-v33-20260924-ios-touch';
+const SHELL_FILES=['./','./index.html','./planner.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./ios-touch-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(file=>new URL(file,self.registration.scope).href));
-const PAGE_PATCH='<script src="./mobile-patch.js?v=32"></script><script src="./gapless-patch.js?v=32"></script><script src="./traffic-map-patch.js?v=32"></script>';
+const PAGE_PATCH='<script src="./mobile-patch.js?v=33"></script><script src="./gapless-patch.js?v=33"></script><script src="./traffic-map-patch.js?v=33"></script><script src="./ios-touch-patch.js?v=33"></script>';
 
 async function patchedHtmlResponse(response){
   let text=await response.text();
-  if(!text.includes('traffic-map-patch.js?v=32')){
+  if(!text.includes('ios-touch-patch.js?v=33')){
     if(/<\/body>/i.test(text))text=text.replace(/<\/body>/i,PAGE_PATCH+'</body>');
     else text+=PAGE_PATCH;
   }
@@ -50,7 +50,8 @@ self.addEventListener('fetch',event=>{
     if(
       url.href===new URL('./mobile-patch.js',self.registration.scope).href ||
       url.href===new URL('./gapless-patch.js',self.registration.scope).href ||
-      url.href===new URL('./traffic-map-patch.js',self.registration.scope).href
+      url.href===new URL('./traffic-map-patch.js',self.registration.scope).href ||
+      url.href===new URL('./ios-touch-patch.js',self.registration.scope).href
     ){
       try{const fresh=await fetch(req,{cache:'no-cache'});if(fresh.ok){await cache.put(url.href,fresh.clone());return fresh;}}catch(e){}
     }
