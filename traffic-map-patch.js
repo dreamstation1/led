@@ -1,6 +1,6 @@
 (function(){
-  if(window.__trafficMapPatchV36)return;
-  window.__trafficMapPatchV36=true;
+  if(window.__trafficMapPatchV37)return;
+  window.__trafficMapPatchV37=true;
 
   let layer=null,refreshTimer=null,generation=0;
   const liveCache=new Map();
@@ -8,32 +8,36 @@
   const style=document.createElement('style');
   style.textContent=`
     .live-signal-pill{
-      display:flex;align-items:center;gap:3px;
-      padding:3px 5px;border-radius:8px;
-      background:#090b0e;border:1px solid #30363d;
-      box-shadow:0 1px 4px #0008;white-space:nowrap;
-      transform:translate(-50%,-50%);
+      display:flex!important;flex-direction:row!important;align-items:center!important;gap:3px!important;
+      width:auto!important;height:auto!important;min-width:34px!important;min-height:15px!important;
+      padding:3px 5px!important;border-radius:8px!important;
+      background:#090b0e!important;border:1px solid #30363d!important;
+      box-shadow:0 1px 4px #0008!important;white-space:nowrap!important;
+      transform:translate(-50%,-50%)!important;
     }
+    .live-signal-pill.near{border-color:#30363d!important;box-shadow:0 1px 4px #0008!important}
     .sig-lamp{
-      width:9px;height:9px;border-radius:50%;
-      background:#30343a;
-      box-shadow:inset 0 0 0 1px #4a5058;
+      display:block!important;box-sizing:border-box!important;
+      flex:0 0 9px!important;width:9px!important;height:9px!important;min-width:9px!important;min-height:9px!important;
+      border-radius:50%!important;background:#30343a!important;
+      box-shadow:inset 0 0 0 1px #4a5058!important;
     }
-    .sig-lamp.red.on{background:#ff2020;box-shadow:0 0 5px #ff2020}
-    .sig-lamp.yellow.on{background:#ffb515;box-shadow:0 0 5px #ffb515}
-    .sig-lamp.green.on{background:#38ed63;box-shadow:0 0 5px #38ed63}
+    .sig-lamp.red.on{background:#ff2020!important;box-shadow:0 0 5px #ff2020!important}
+    .sig-lamp.yellow.on{background:#ffb515!important;box-shadow:0 0 5px #ffb515!important}
+    .sig-lamp.green.on{background:#38ed63!important;box-shadow:0 0 5px #38ed63!important}
     .sig-left{
-      width:11px;height:11px;display:flex;align-items:center;justify-content:center;
-      color:#565d66;font-size:10px;font-weight:900;line-height:1;
+      flex:0 0 11px!important;width:11px!important;height:11px!important;
+      display:flex!important;align-items:center!important;justify-content:center!important;
+      color:#565d66!important;font-size:10px!important;font-weight:900!important;line-height:1!important;
     }
-    .sig-left.red{color:#ff4545}.sig-left.yellow{color:#ffc32b}
-    .sig-left.green{color:#41f276;text-shadow:0 0 5px #38ed63}
-    .route-signal-icon{display:none!important}
+    .sig-left.red{color:#ff4545!important}.sig-left.yellow{color:#ffc32b!important}
+    .sig-left.green{color:#41f276!important;text-shadow:0 0 5px #38ed63!important}
+    .route-signal-icon{display:none!important;width:0!important;height:0!important;overflow:hidden!important;pointer-events:none!important}
     #browseTrafficPanel{display:none!important}
     @media(max-width:768px){
-      .live-signal-pill{gap:2px;padding:2px 4px;border-radius:7px}
-      .sig-lamp{width:8px;height:8px}
-      .sig-left{width:10px;height:10px;font-size:9px}
+      .live-signal-pill{gap:2px!important;padding:2px 4px!important;min-width:31px!important;min-height:14px!important;border-radius:7px!important}
+      .sig-lamp{flex-basis:8px!important;width:8px!important;height:8px!important;min-width:8px!important;min-height:8px!important}
+      .sig-left{flex-basis:10px!important;width:10px!important;height:10px!important;font-size:9px!important}
     }
   `;
   document.head.appendChild(style);
@@ -63,7 +67,7 @@
     return '<div class="live-signal-pill'+(loading?' loading':'')+'">'+lamp('red')+lamp('yellow')+lamp('green')+left+'</div>';
   }
   function liveIcon(state,loading=false){
-    return L.divIcon({className:'',html:markerHtml(state,loading),iconSize:[1,1],iconAnchor:[0,0]});
+    return L.divIcon({className:'live-signal-div-icon',html:markerHtml(state,loading),iconSize:[1,1],iconAnchor:[0,0]});
   }
   async function loadLive(items,center,gen){
     const queue=[...items];
