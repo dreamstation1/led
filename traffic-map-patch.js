@@ -1,85 +1,111 @@
 (function(){
-  if(window.__trafficMapPatchV34)return;
-  window.__trafficMapPatchV34=true;
+  if(window.__trafficMapPatchV36)return;
+  window.__trafficMapPatchV36=true;
 
-  let layer=null,refreshTimer=null,generation=0,selected=null;
+  let layer=null,refreshTimer=null,generation=0;
   const liveCache=new Map();
 
   const style=document.createElement('style');
   style.textContent=`
-    .live-signal-pill{display:flex;align-items:center;gap:4px;padding:4px 7px;border-radius:999px;background:#11161c;border:1.5px solid #728191;box-shadow:0 2px 8px #0009;white-space:nowrap;transform:translate(-50%,-50%)}
-    .live-signal-pill.near{border-color:#ffd84a;box-shadow:0 0 0 3px #ffd84a40,0 2px 8px #0009}
-    .live-signal-pill.loading{opacity:.58}
-    .sig-lamp{width:11px;height:11px;border-radius:50%;background:#2b3036;box-shadow:inset 0 0 0 1px #424b55}
-    .sig-lamp.red.on{background:#ff3b3b;box-shadow:0 0 8px #ff3b3b}
-    .sig-lamp.yellow.on{background:#ffd43b;box-shadow:0 0 8px #ffd43b}
-    .sig-lamp.green.on{background:#31e58c;box-shadow:0 0 8px #31e58c}
-    .sig-left{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#2b3036;color:#66717d;font-size:14px;font-weight:900;box-shadow:inset 0 0 0 1px #424b55}
-    .sig-left.red{background:#672127;color:#ff7b7b}.sig-left.yellow{background:#705d18;color:#ffe066}.sig-left.green{background:#153e2c;color:#4cf0a1;box-shadow:0 0 8px #31e58c}
-    .route-signal-icon{display:none!important;pointer-events:none!important;width:0!important;height:0!important;border:0!important;overflow:hidden!important}
-    #browseTrafficPanel{position:absolute;z-index:950;right:10px;top:72px;max-width:min(340px,calc(100vw - 20px));padding:8px 10px;border-radius:10px;background:#111820e8;color:#eef6ff;font-size:12px;line-height:1.4;box-shadow:0 3px 12px #0007;backdrop-filter:blur(6px);display:none;pointer-events:none}
-    @media(max-width:768px){#browseTrafficPanel{display:none!important}.live-signal-pill{padding:4px 6px;gap:3px}.sig-lamp{width:10px;height:10px}.sig-left{width:16px;height:16px;font-size:12px}}
+    .live-signal-pill{
+      display:flex;align-items:center;gap:3px;
+      padding:3px 5px;border-radius:8px;
+      background:#090b0e;border:1px solid #30363d;
+      box-shadow:0 1px 4px #0008;white-space:nowrap;
+      transform:translate(-50%,-50%);
+    }
+    .sig-lamp{
+      width:9px;height:9px;border-radius:50%;
+      background:#30343a;
+      box-shadow:inset 0 0 0 1px #4a5058;
+    }
+    .sig-lamp.red.on{background:#ff2020;box-shadow:0 0 5px #ff2020}
+    .sig-lamp.yellow.on{background:#ffb515;box-shadow:0 0 5px #ffb515}
+    .sig-lamp.green.on{background:#38ed63;box-shadow:0 0 5px #38ed63}
+    .sig-left{
+      width:11px;height:11px;display:flex;align-items:center;justify-content:center;
+      color:#565d66;font-size:10px;font-weight:900;line-height:1;
+    }
+    .sig-left.red{color:#ff4545}.sig-left.yellow{color:#ffc32b}
+    .sig-left.green{color:#41f276;text-shadow:0 0 5px #38ed63}
+    .route-signal-icon{display:none!important}
+    #browseTrafficPanel{display:none!important}
+    @media(max-width:768px){
+      .live-signal-pill{gap:2px;padding:2px 4px;border-radius:7px}
+      .sig-lamp{width:8px;height:8px}
+      .sig-left{width:10px;height:10px;font-size:9px}
+    }
   `;
   document.head.appendChild(style);
 
-  const panel=document.createElement('div');panel.id='browseTrafficPanel';
-  const mapEl=document.getElementById('map')||document.body;
-  if(getComputedStyle(mapEl).position==='static')mapEl.style.position='relative';
-  mapEl.appendChild(panel);
-
-  const isPhone=()=>matchMedia('(max-width:768px)').matches;
   function sourceFor(lat,lng){return lat>=37.40&&lat<=37.72&&lng>=126.75&&lng<=127.20?'seoul':'nationwide';}
-  function showPanel(html){if(isPhone())return;panel.innerHTML=html;panel.style.display='block';}
-  function hidePanel(){panel.style.display='none';}
-
-  function nearestToCenter(list,center){let best=null,bd=Infinity;for(const ix of list){const d=hav(center.lat,center.lng,ix.lat,ix.lng);if(d<bd){bd=d;best=ix;}}return best?{ix:best,d:bd}:null;}
-  function directionFor(ix,center){const heading=bearingDeg(center.lat,center.lng,ix.lat,ix.lng),fromDeg=(heading+180)%360;return TRAFFIC_DIRS.reduce((a,b)=>trafficAngleGap(a.deg,fromDeg)<=trafficAngleGap(b.deg,fromDeg)?a:b);}
-  function movement(rec,dir,type,source){const stem=dir.key+type+'sg',statusKey=stem+(source==='seoul'?'StatNm':'SttsNm'),raw=rec?.[statusKey];if(raw==null||raw==='')return {exists:false,color:null};return {exists:true,color:trafficStatusColor(raw)};}
-  function stateFor(rec,ix,center){if(!rec)return null;const dir=directionFor(ix,center);let straight=movement(rec,dir,'St',ix.source);const bus=movement(rec,dir,'Bs',ix.source);if(!straight.exists&&bus.exists)straight=bus;const left=movement(rec,dir,'Lt',ix.source);return {dir,straight,left};}
-
-  function markerHtml(state,near=false,loading=false){
+  function directionFor(ix,center){
+    const heading=bearingDeg(center.lat,center.lng,ix.lat,ix.lng),fromDeg=(heading+180)%360;
+    return TRAFFIC_DIRS.reduce((a,b)=>trafficAngleGap(a.deg,fromDeg)<=trafficAngleGap(b.deg,fromDeg)?a:b);
+  }
+  function movement(rec,dir,type,source){
+    const stem=dir.key+type+'sg',statusKey=stem+(source==='seoul'?'StatNm':'SttsNm'),raw=rec?.[statusKey];
+    if(raw==null||raw==='')return {exists:false,color:null};
+    return {exists:true,color:trafficStatusColor(raw)};
+  }
+  function stateFor(rec,ix,center){
+    if(!rec)return null;
+    const dir=directionFor(ix,center);
+    let straight=movement(rec,dir,'St',ix.source);
+    const bus=movement(rec,dir,'Bs',ix.source);
+    if(!straight.exists&&bus.exists)straight=bus;
+    return {straight,left:movement(rec,dir,'Lt',ix.source)};
+  }
+  function markerHtml(state,loading=false){
     const c=state?.straight?.color||null;
     const lamp=n=>'<span class="sig-lamp '+n+(c===n?' on':'')+'"></span>';
     const left=state?.left?.exists?'<span class="sig-left '+(state.left.color||'')+'">←</span>':'';
-    return '<div class="live-signal-pill'+(near?' near':'')+(loading?' loading':'')+'">'+lamp('red')+lamp('yellow')+lamp('green')+left+'</div>';
+    return '<div class="live-signal-pill'+(loading?' loading':'')+'">'+lamp('red')+lamp('yellow')+lamp('green')+left+'</div>';
   }
-  function liveIcon(state,near=false,loading=false){return L.divIcon({className:'',html:markerHtml(state,near,loading),iconSize:[1,1],iconAnchor:[0,0]});}
-
-  async function showIntersection(ix){
-    selected=ix;
-    if(isPhone())return;
-    try{
-      const rec=await fetchTrafficLiveRecord(ix),st=stateFor(rec,ix,map.getCenter());
-      const bits=[];if(st?.straight?.exists)bits.push('직진 '+st.straight.color);if(st?.left?.exists)bits.push('좌회전 '+st.left.color);
-      showPanel('<b>'+esc(ix.name||'교차로')+'</b><div>'+esc(bits.join(' · ')||'신호 상태 확인 불가')+'</div>');
-    }catch(e){showPanel('<b>'+esc(ix.name||'교차로')+'</b>');}
+  function liveIcon(state,loading=false){
+    return L.divIcon({className:'',html:markerHtml(state,loading),iconSize:[1,1],iconAnchor:[0,0]});
   }
-
   async function loadLive(items,center,gen){
     const queue=[...items];
-    const worker=async()=>{while(queue.length){const item=queue.shift();if(!item||gen!==generation)return;const {ix,m,near}=item,key=(ix.source||'')+':'+ix.crsrdId;let cached=liveCache.get(key);if(!cached||Date.now()-cached.at>4500){try{cached={at:Date.now(),rec:await fetchTrafficLiveRecord(ix)};}catch(e){cached={at:Date.now(),rec:null};}liveCache.set(key,cached);}if(gen!==generation)return;const st=stateFor(cached.rec,ix,center);try{m.setIcon(liveIcon(st,near,false));}catch(e){}}};
+    const worker=async()=>{
+      while(queue.length){
+        const item=queue.shift(); if(!item||gen!==generation)return;
+        const {ix,m}=item,key=(ix.source||'')+':'+ix.crsrdId;
+        let cached=liveCache.get(key);
+        if(!cached||Date.now()-cached.at>4500){
+          try{cached={at:Date.now(),rec:await fetchTrafficLiveRecord(ix)};}
+          catch(e){cached={at:Date.now(),rec:null};}
+          liveCache.set(key,cached);
+        }
+        if(gen!==generation)return;
+        try{m.setIcon(liveIcon(stateFor(cached.rec,ix,center),false));}catch(e){}
+      }
+    };
     await Promise.all([worker(),worker(),worker(),worker()]);
   }
-
   async function refresh(){
     const gen=++generation;clearTimeout(refreshTimer);
     try{
-      if(typeof trafficLightOn!=='undefined'&&!trafficLightOn){if(layer){map.removeLayer(layer);layer=null;}hidePanel();return;}
-      if(typeof map==='undefined'||typeof L==='undefined')return;
-      if(map.getZoom()<14){if(layer){map.removeLayer(layer);layer=null;}hidePanel();return;}
-      const center=map.getCenter(),source=sourceFor(center.lat,center.lng),all=await loadTrafficIntersections(source);if(gen!==generation)return;
-      const b=map.getBounds().pad(0.10);let visible=all.filter(ix=>b.contains([ix.lat,ix.lng]));
+      if(typeof trafficLightOn!=='undefined'&&!trafficLightOn){if(layer){map.removeLayer(layer);layer=null;}return;}
+      if(typeof map==='undefined'||typeof L==='undefined'||map.getZoom()<14){if(layer){map.removeLayer(layer);layer=null;}return;}
+      const center=map.getCenter(),source=sourceFor(center.lat,center.lng),all=await loadTrafficIntersections(source);
+      if(gen!==generation)return;
+      const b=map.getBounds().pad(0.08);
+      let visible=all.filter(ix=>b.contains([ix.lat,ix.lng]));
       visible.sort((a,b)=>hav(center.lat,center.lng,a.lat,a.lng)-hav(center.lat,center.lng,b.lat,b.lng));
-      visible=visible.slice(0,isPhone()?20:32).map(ix=>({...ix,source:ix.source||source}));
+      visible=visible.slice(0,matchMedia('(max-width:768px)').matches?24:40).map(ix=>({...ix,source:ix.source||source}));
       if(layer){try{map.removeLayer(layer);}catch(e){}}
-      layer=L.layerGroup().addTo(map);const nearest=nearestToCenter(visible,center),jobs=[];
-      for(const ix of visible){const near=nearest&&nearest.ix.crsrdId===ix.crsrdId;const m=L.marker([ix.lat,ix.lng],{icon:liveIcon(null,near,true),zIndexOffset:1000,keyboard:false}).addTo(layer);m.on('click',()=>showIntersection(ix));jobs.push({ix,m,near});}
+      layer=L.layerGroup().addTo(map);
+      const jobs=[];
+      for(const ix of visible){
+        const m=L.marker([ix.lat,ix.lng],{icon:liveIcon(null,true),zIndexOffset:1000,keyboard:false,interactive:false}).addTo(layer);
+        jobs.push({ix,m});
+      }
       await loadLive(jobs,center,gen);
     }catch(e){}
   }
-
-  function schedule(){clearTimeout(refreshTimer);refreshTimer=setTimeout(refresh,160);}
+  function schedule(){clearTimeout(refreshTimer);refreshTimer=setTimeout(refresh,150);}
   try{map.on('moveend zoomend',schedule);}catch(e){}
   setInterval(()=>{try{refresh();}catch(e){}},5000);
-  setTimeout(refresh,600);
+  setTimeout(refresh,500);
 })();
