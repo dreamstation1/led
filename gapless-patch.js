@@ -1,11 +1,11 @@
 (function(){
-  if(window.__gaplessQueueV45)return;
-  window.__gaplessQueueV45=true;
+  if(window.__gaplessQueueV49)return;
+  window.__gaplessQueueV49=true;
 
   const BlobCache=new Map();
   const LoadCache=new Map();
-  const AUDIO_OVERLAP_SEC=0;
-  const TTS_PRETRIGGER_SEC=0;
+  const SEGMENT_GAP_MS=180;
+  const SENTENCE_GAP_MS=450;
   let primeEl=null;
 
   function pathsFor(category,key){
@@ -83,53 +83,37 @@
     return false;
   }
 
-  function playAudioRun(run,onBeforeEnd){
+  function playAudioSegment(seg){
     return new Promise(resolve=>{
-      if(!run.length){resolve(false);return;}
       const rate=Math.max(0.1,typeof guideRate==='number'?guideRate:1);
-      const vol=typeof guideVolume==='number'?guideVolume:1;
-      const starts=[];
-      let t=0;
-      for(let i=0;i<run.length;i++){
-        const a=run[i].audio;
-        a.playbackRate=rate;a.volume=vol;a.currentTime=0;
-        starts.push(Math.max(0,t));
-        const d=Number.isFinite(a.duration)?a.duration/rate:0;
-        t=Math.max(0,t+d-AUDIO_OVERLAP_SEC);
-      }
-      const last=run[run.length-1].audio;
-      let settled=false;
-      const timers=[];
-      const finish=ok=>{if(settled)return;settled=true;timers.forEach(clearTimeout);resolve(ok);};
-      run.forEach((item,i)=>{
-        timers.push(setTimeout(()=>{
-          try{const p=item.audio.play();if(p&&p.catch)p.catch(()=>{});}catch(e){}
-        },Math.round(starts[i]*1000)));
-      });
-      if(onBeforeEnd){
-        const finalDur=Number.isFinite(last.duration)?last.duration/rate:0;
-        const trigger=Math.max(0,(starts[starts.length-1]+finalDur-TTS_PRETRIGGER_SEC)*1000);
-        timers.push(setTimeout(()=>{try{onBeforeEnd();}catch(e){}},trigger));
-      }
-      last.addEventListener('ended',()=>finish(true),{once:true});
-      timers.push(setTimeout(()=>finish(false),Math.max(2000,(t+5)*1000)));
+      const a=seg.audio;
+      a.playbackRate=rate;a.volume=typeof guideVolume==='number'?guideVolume:1;a.currentTime=0;
+      let settled=false,timer;
+      const ended=()=>finish(true),failed=()=>finish(false);
+      const finish=ok=>{
+        if(settled)return;settled=true;clearTimeout(timer);
+        a.removeEventListener('ended',ended);a.removeEventListener('error',failed);
+        if(!ok)a.pause();
+        resolve(ok);
+      };
+      a.addEventListener('ended',ended,{once:true});
+      a.addEventListener('error',failed,{once:true});
+      timer=setTimeout(failed,Math.max(5000,((Number.isFinite(a.duration)?a.duration/rate:30)+5)*1000));
+      try{const p=a.play();if(p&&p.catch)p.catch(failed);}catch(e){failed();}
     });
   }
 
   async function playResolvedSequence(items){
-    let i=0;
-    while(i<items.length){
-      if(items[i].kind==='tts'){
-        await sayTts(items[i]);i++;continue;
+    for(let i=0;i<items.length;i++){
+      const seg=items[i];
+      if(seg.kind==='tts')await sayTts(seg);
+      else await playAudioSegment(seg);
+      if(i+1<items.length){
+        // Keep phrase/name joins short, but breathe between complete sentences.
+        // Wait for actual playback completion, including recorded/TTS transitions.
+        const sentenceEnd=seg.category==='stops'||seg.key==='종점입니다';
+        await new Promise(resolve=>setTimeout(resolve,sentenceEnd?SENTENCE_GAP_MS:SEGMENT_GAP_MS));
       }
-      const run=[];
-      while(i<items.length&&items[i].kind==='audio'){run.push(items[i]);i++;}
-      if(i<items.length&&items[i].kind==='tts'){
-        const seg=items[i];let p=null;
-        await playAudioRun(run,()=>{p=sayTts(seg);});
-        if(!p)p=sayTts(seg);
-        await p;i++;
-      }else await playAudioRun(run,null);
     }
   }
 
