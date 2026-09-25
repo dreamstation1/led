@@ -13,7 +13,7 @@ function setup({touch=false}={}){
     translateStationName:async n=>n};
   vm.createContext(c);
   let src=fs.readFileSync(path.join(__dirname,'../gapless-patch.js'),'utf8');
-  src=src.replace('  warmFixed();setInterval','  window.test={playAudioSegment,sayTts,playResolvedSequence,pauseBetween,unlock,getPrime:()=>primeEl,getGaps:()=>[SEGMENT_GAP_MS,SENTENCE_GAP_MS],setResolver:f=>resolveSegment=f};\n  warmFixed();setInterval');
+  src=src.replace('  warmFixed();setInterval','  window.test={playAudioSegment,sayTts,playResolvedSequence,pauseBetween,resolveAnnouncement,unlock,getPrime:()=>primeEl,getGaps:()=>[SEGMENT_GAP_MS,SENTENCE_GAP_MS],setResolver:f=>resolveSegment=f};\n  warmFixed();setInterval');
   vm.runInContext(src,c);
   return {c,api:c.window.test,played,audios,spoken,cancelled:()=>cancelled};
 }
@@ -73,4 +73,14 @@ test('missing English stop recording omits both thisstopis and the English stop 
   await announcement;
   assert.deepEqual(s.played,['이번정류소','첫정류소','다음정류소','다음정류소이름']);
   assert.equal(s.played.includes('thisstopis'),false);
+});
+test('a TTS stop name also gets a TTS English ending when the (1) recording is missing',async()=>{
+  const s=setup();
+  s.api.setResolver(async(category,key,recordingOnly=false)=>{
+    if(key.endsWith(' (1)'))return recordingOnly?{kind:'missing',category,key}:{kind:'tts',text:'English stop',lang:'en-US',category,key};
+    if(category==='stops'&&key==='녹음없는정류소')return {kind:'tts',text:key,lang:'ko-KR',category,key};
+    return {kind:'audio',url:'blob:'+key,category,key};
+  });
+  const result=Array.from(await s.api.resolveAnnouncement({name:'녹음없는정류소'},{name:'다음정류소'}));
+  assert.deepEqual(result.slice(-2).map(x=>[x.key,x.kind]),[['thisstopis','audio'],['녹음없는정류소 (1)','tts']]);
 });

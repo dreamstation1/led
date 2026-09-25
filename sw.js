@@ -1,9 +1,9 @@
-// App shell v56: resilient LED WiFi and bundled traffic-intersection locations.
-const CACHE_NAME='bus-map-shell-v56-20260925-led-wifi-and-traffic-map';
+// App shell v57: TTS announcements keep their synthesized English ending.
+const CACHE_NAME='bus-map-shell-v57-20260925-conditional-english-tts';
 const SHELL_FILES=['./','./index.html','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./traffic-intersections.js','./ios-touch-patch.js','./gyeonggi-stops-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(f=>new URL(f,self.registration.scope).href));
 const PATCH_URLS=new Set(['request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','ios-touch-patch.js','gyeonggi-stops-patch.js'].map(f=>new URL('./'+f,self.registration.scope).href));
-const PAGE_PATCH='<script src="./request-guard.js?v=47"></script><script src="./mobile-patch.js?v=56"></script><script src="./gapless-patch.js?v=55"></script><script src="./traffic-map-patch.js?v=56"></script><script src="./ios-touch-patch.js?v=54"></script><script src="./gyeonggi-stops-patch.js?v=47"></script>';
+const PAGE_PATCH='<script src="./request-guard.js?v=47"></script><script src="./mobile-patch.js?v=56"></script><script src="./gapless-patch.js?v=57"></script><script src="./traffic-map-patch.js?v=56"></script><script src="./ios-touch-patch.js?v=54"></script><script src="./gyeonggi-stops-patch.js?v=47"></script>';
 async function patchedHtmlResponse(response){
  let text=await response.text();
  text=text.replace(/<script src="\.\/(?:request-guard|mobile-patch|gapless-patch|traffic-map-patch|ios-touch-patch|gyeonggi-stops-patch)\.js\?v=\d+"><\/script>/g,'');

@@ -1,6 +1,6 @@
 (function(){
-  if(window.__gaplessQueueV55)return;
-  window.__gaplessQueueV55=true;
+  if(window.__gaplessQueueV57)return;
+  window.__gaplessQueueV57=true;
 
   const BlobCache=new Map();
   const LoadCache=new Map();
@@ -194,6 +194,25 @@
   document.addEventListener('pointerdown',unlock,{capture:true,passive:true});
   document.addEventListener('click',unlock,{capture:true,passive:true});
 
+  async function resolveAnnouncement(stop,next){
+    const stopKey=stop.audioName||stop.name;
+    const specs=[['phrases','이번정류소'],['stops',stopKey],next?['phrases','다음정류소']:['phrases','종점입니다'],...(next?[['stops',next.audioName||next.name]]:[])];
+    const resolved=await Promise.all(specs.map(s=>resolveSegment(s[0],s[1])));
+    const englishStop=await resolveSegment('stops',stopKey+' (1)',true);
+    if(englishStop.kind==='audio'){
+      resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);
+    }else{
+      // If either Korean stop name already needed TTS, keep the announcement
+      // consistent and synthesize its English ending too. Only a fully
+      // recorded Korean announcement with a missing "(1)" clip ends here.
+      const stopNameUsesTts=resolved.some((seg,i)=>specs[i][0]==='stops'&&seg.kind==='tts');
+      if(stopNameUsesTts){
+        resolved.push(await resolveSegment('phrases_en','thisstopis'),await resolveSegment('stops',stopKey+' (1)'));
+      }
+    }
+    return resolved;
+  }
+
   try{
     announceArrival=async function(stop,next){
       window.cancelGuideAnnouncement();
@@ -201,15 +220,8 @@
       const controller=new AbortController();
       announcement=controller;
       unlock();
-      const stopKey=stop.audioName||stop.name;
-      const specs=[['phrases','이번정류소'],['stops',stopKey],next?['phrases','다음정류소']:['phrases','종점입니다'],...(next?[['stops',next.audioName||next.name]]:[])];
       try{
-        const resolved=await Promise.all(specs.map(s=>resolveSegment(s[0],s[1])));
-        // The English pair is optional as one unit. A missing "(1)" stop
-        // recording must never fall back to the Korean base clip or TTS, and
-        // without that recording "thisstopis" is omitted as well.
-        const englishStop=await resolveSegment('stops',stopKey+' (1)',true);
-        if(englishStop.kind==='audio')resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);
+        const resolved=await resolveAnnouncement(stop,next);
         if(controller.signal.aborted)return;
         await playResolvedSequence(resolved,controller.signal);
       }finally{
