@@ -1,5 +1,53 @@
 // Geometry published by Seoul TOPIS, not a route guessed by a car navigator.
 const busGeometryCache=new Map();
+const gyeonggiGeometryJobs=new Map();
+
+async function gyeonggiRoadGeometry(route){
+  if(busGeometryCache.has(route.id))return busGeometryCache.get(route.id);
+  if(gyeonggiGeometryJobs.has(route.id))return gyeonggiGeometryJobs.get(route.id);
+  const job=(async()=>{
+    const stops=route.nodes.map((node,order)=>({stop:STOPS[STOP_BY_NODE.get(String(node))],order}))
+      .filter(({stop})=>stop&&Number.isFinite(stop.lat)&&Number.isFinite(stop.lng));
+    if(stops.length<2)throw new Error('경기도 노선의 정류소 좌표가 없습니다.');
+    const points=[],anchors=new Array(route.nodes.length).fill(null);
+    // Overlap one stop between batches. Every stop stays in its original order.
+    for(let first=0;first<stops.length-1;first+=59){
+      const batch=stops.slice(first,first+60);
+      const coords=batch.map(({stop:s})=>`${s.lng},${s.lat}`).join(';');
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),25000);
+      let data;
+      try{
+        const response=await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?steps=true&overview=false&geometries=geojson&continue_straight=false&radiuses=${batch.map(()=>100).join(';')}`,{signal:controller.signal});
+        if(!response.ok)throw new Error('도로 경로 서버 응답 오류');
+        data=await response.json();
+      }finally{clearTimeout(timer);}
+      const legs=data.routes?.[0]?.legs;
+      if(data.code!=='Ok'||legs?.length!==batch.length-1)throw new Error('정류소 사이 도로 경로를 찾을 수 없습니다.');
+      for(let i=0;i<legs.length;i++){
+        const line=legs[i].steps.flatMap(step=>step.geometry?.coordinates||[]);
+        if(line.length<2||line.some(p=>!Number.isFinite(p[0])||!Number.isFinite(p[1])))throw new Error('도로 경로 좌표가 올바르지 않습니다.');
+        const head=[line[0][1],line[0][0]],tail=points[points.length-1];
+        // OSRM can round adjacent leg endpoints differently by under a metre.
+        // Reject disconnected batches rather than inventing a long connector.
+        if(tail&&hav(...tail,...head)>2)throw new Error('도로 경로 연결이 일치하지 않습니다.');
+        if(!tail)points.push(head);
+        anchors[batch[i].order]=points.length-1;
+        for(const [lng,lat] of line){
+          const last=points[points.length-1];
+          if(last[0]!==lat||last[1]!==lng)points.push([lat,lng]);
+        }
+        anchors[batch[i+1].order]=points.length-1;
+      }
+    }
+    const arc=[0];
+    for(let i=1;i<points.length;i++)arc.push(arc[i-1]+hav(...points[i-1],...points[i]));
+    const value={route,points,anchors,arc};
+    busGeometryCache.set(route.id,value);
+    return value;
+  })();
+  gyeonggiGeometryJobs.set(route.id,job);
+  try{return await job;}finally{gyeonggiGeometryJobs.delete(route.id);}
+}
 
 function busShapeFor(routeId){
   const points=typeof BUS_ROUTE_SHAPES==='undefined'?null:BUS_ROUTE_SHAPES[String(routeId)];
@@ -69,11 +117,12 @@ function busGeometrySegment(routeId,start,end){
 async function fetchBusRouteGeometry(routeId,start,end){
   const routeMeta=ROUTES.find(r=>String(r.id)===String(routeId));
   if(routeMeta?.region==='gyeonggi'){
-    const pts=routeMeta.nodes.map(node=>STOPS[STOP_BY_NODE.get(String(node))]).filter(Boolean).map(s=>[s.lat,s.lng]);
-    if(pts.length<2)throw new Error('경기도 노선의 정류소 좌표가 없습니다.');
-    if(start==null&&end==null)return pts;
-    if(!Number.isInteger(start)||!Number.isInteger(end)||end<=start)return Promise.reject(new Error('정류소 구간이 올바르지 않습니다.'));
-    return pts.slice(start,end+1);
+    const full=start==null&&end==null;
+    if(!full&&(!Number.isInteger(start)||!Number.isInteger(end)||start<0||end<=start||end>=routeMeta.nodes.length))throw new Error('정류소 구간이 올바르지 않습니다.');
+    const g=await gyeonggiRoadGeometry(routeMeta);
+    if(full)return g.points;
+    if(g.anchors[start]==null||g.anchors[end]==null)throw new Error('정류소 좌표가 없습니다.');
+    return g.points.slice(g.anchors[start],g.anchors[end]+1);
   }
   if(start==null && end==null)return busShapeFor(routeId);
   const {g,a,b}=busGeometrySegment(routeId,start,end);

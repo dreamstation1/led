@@ -1,5 +1,5 @@
-// App shell v47: hide noisy Gyeonggi stops by default and expose a filtered visibility toggle.
-const CACHE_NAME='bus-map-shell-v47-20260925-gyeonggi-stop-filter';
+// App shell v48: corrected Gyeonggi coordinates and stop-ordered road routing.
+const CACHE_NAME='bus-map-shell-v48-20260925-gyeonggi-road-routing';
 const SHELL_FILES=['./','./index.html','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./ios-touch-patch.js','./gyeonggi-stops-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(f=>new URL(f,self.registration.scope).href));
 const PATCH_URLS=new Set(['request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','ios-touch-patch.js','gyeonggi-stops-patch.js'].map(f=>new URL('./'+f,self.registration.scope).href));
