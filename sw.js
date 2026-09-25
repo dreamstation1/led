@@ -1,9 +1,9 @@
-// App shell v52: reuse the tap-unlocked audio element for recorded clips on mobile.
-const CACHE_NAME='bus-map-shell-v52-20260925-mobile-recorded-audio';
+// App shell v53: first-stop audio, recording fallbacks, and LAN transport guidance.
+const CACHE_NAME='bus-map-shell-v53-20260925-audio-and-lan-fixes';
 const SHELL_FILES=['./','./index.html','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./ios-touch-patch.js','./gyeonggi-stops-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(f=>new URL(f,self.registration.scope).href));
 const PATCH_URLS=new Set(['request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','ios-touch-patch.js','gyeonggi-stops-patch.js'].map(f=>new URL('./'+f,self.registration.scope).href));
-const PAGE_PATCH='<script src="./request-guard.js?v=47"></script><script src="./mobile-patch.js?v=47"></script><script src="./gapless-patch.js?v=52"></script><script src="./traffic-map-patch.js?v=47"></script><script src="./ios-touch-patch.js?v=51"></script><script src="./gyeonggi-stops-patch.js?v=47"></script>';
+const PAGE_PATCH='<script src="./request-guard.js?v=47"></script><script src="./mobile-patch.js?v=53"></script><script src="./gapless-patch.js?v=52"></script><script src="./traffic-map-patch.js?v=47"></script><script src="./ios-touch-patch.js?v=51"></script><script src="./gyeonggi-stops-patch.js?v=47"></script>';
 async function patchedHtmlResponse(response){
  let text=await response.text();
  text=text.replace(/<script src="\.\/(?:request-guard|mobile-patch|gapless-patch|traffic-map-patch|ios-touch-patch|gyeonggi-stops-patch)\.js\?v=\d+"><\/script>/g,'');

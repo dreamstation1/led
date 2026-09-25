@@ -2766,6 +2766,23 @@ async function ledConnectWifi(){
   if(ledConnected)status.textContent=ok?('전광판에 와이파이로 연결됐어요 ('+host+').'):('전광판('+host+')에 연결하지 못했어요 - 같은 와이파이에 붙어있는지, IP가 맞는지 확인해주세요.');
   renderGuideBar();
 }
+function ledWifiUrl(){
+  let value=String(ledWifiHost||'').trim();
+  if(!/^https?:\/\//i.test(value))value='http://'+value;
+  const url=new URL(value);
+  if(!/^https?:$/.test(url.protocol))throw new Error('전광판 주소는 IP 또는 http(s) 주소여야 합니다.');
+  url.pathname='/';url.search='';url.hash='';
+  return url.href;
+}
+function openLedWifiAddress(){
+  const input=document.getElementById('ledWifiHostInput');
+  if(input&&input.value.trim())ledWifiHost=input.value.trim();
+  try{
+    const url=ledWifiUrl();
+    window.open(url,'_blank','noopener');
+    status.textContent='전광판 주소를 새 탭에서 열었습니다. iPhone/iPad에서는 주소가 열린 뒤 이 화면으로 돌아와 다시 연결을 눌러주세요.';
+  }catch(e){status.textContent=e.message;}
+}
 async function ledDisconnect(){
   const wasUsb=ledMode==='usb';
   ledConnected=false;
@@ -2822,10 +2839,20 @@ async function ledSendLineRaw(line){
       // read the response back (opaque under no-cors) but a network-level
       // failure (wrong IP, off WiFi, sign powered off) still rejects this
       // promise, so connection loss is still detected.
-      await fetch('http://'+ledWifiHost+'/',{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},body:line});
+      const controller=new AbortController();
+      const timer=setTimeout(()=>controller.abort(),7000);
+      try{
+        // targetAddressSpace asks browsers implementing Local Network Access
+        // to prompt for a LAN-device permission instead of rejecting the
+        // private IP outright. Unknown request options are safely ignored.
+        await fetch(ledWifiUrl(),{method:'POST',mode:'no-cors',body:line,signal:controller.signal,targetAddressSpace:'local'});
+      }finally{clearTimeout(timer);}
       return true;
     }catch(e){
-      status.textContent='전광판(와이파이) 전송 실패: '+(e&&e.message?e.message:e);
+      const apple=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+      status.textContent=apple&&location.protocol==='https:'
+        ?'iPhone/iPad가 HTTPS 페이지에서 로컬 HTTP 전광판 연결을 차단했습니다. 아래 “전광판 주소 열기”로 IP를 먼저 연 뒤 다시 연결해 보세요. 계속 차단되면 전광판이 HTTPS를 지원하거나 전광판 자체의 HTTP 제어 페이지에서 실행해야 합니다.'
+        :'전광판(와이파이) 전송 실패: '+(e&&e.message?e.message:e);
       ledConnected=false;
       ledMode=null;
       renderGuideBar();
@@ -3240,12 +3267,14 @@ function renderGuideBar(){
       </div>
       `:`
       <div class="guide-speed-row">
-        <button type="button" id="ledConnectBtn" class="guide-btn primary">USB로 연결</button>
+        <button type="button" id="ledConnectBtn" class="guide-btn primary" ${'serial' in navigator?'':'disabled title="Web Serial은 데스크톱 Chrome/Edge에서만 지원됩니다"'}>${'serial' in navigator?'USB로 연결':'USB는 PC Chrome 전용'}</button>
       </div>
       <div class="guide-speed-row">
         <input type="text" id="ledWifiHostInput" placeholder="전광판 IP (예: 192.168.0.42)" value="${ledWifiHost}" style="flex:1;min-width:0;">
         <button type="button" id="ledWifiConnectBtn" class="guide-btn">와이파이로 연결</button>
+        <button type="button" id="ledWifiOpenBtn" class="guide-btn ghost">전광판 주소 열기</button>
       </div>
+      <div class="guide-led-status">iPhone/iPad는 Web Serial USB를 지원하지 않습니다. 같은 Wi‑Fi에서 IP 연결을 사용하세요.</div>
       `}
       <div class="guide-speed-presets" id="ledStyleButtons">
         ${['1111','2222','3333','4444'].map(v=>`<button type="button" class="guide-speed-preset ${v===ledStyle?'on':''}" data-ledstyle="${v}">${v}</button>`).join('')}
@@ -3271,6 +3300,8 @@ function renderGuideBar(){
   document.getElementById('ledConnectBtn').onclick=()=>{ledConnected?ledDisconnect():ledConnect();};
   const wifiBtn=document.getElementById('ledWifiConnectBtn');
   if(wifiBtn)wifiBtn.onclick=ledConnectWifi;
+  const wifiOpenBtn=document.getElementById('ledWifiOpenBtn');
+  if(wifiOpenBtn)wifiOpenBtn.onclick=openLedWifiAddress;
   document.getElementById('ledStyleButtons').querySelectorAll('[data-ledstyle]').forEach(btn=>{
     btn.onclick=()=>{
       ledSetStyle(btn.dataset.ledstyle);
@@ -3508,6 +3539,20 @@ function audioPaths(category,key){
   // are cheap/cached), and means a small naming difference doesn't silently
   // turn into a skipped announcement.
   const keys=new Set([key, key.replace(/_/g,''), key.replace(/ \(/g,'(')]);
+  if(category==='stops'){
+    const secondSuffix=(key.match(/ \(1\)$/)||[''])[0];
+    const stopBase=secondSuffix?key.slice(0,-secondSuffix.length):key;
+    // Display names omit platform suffixes such as "(12번홈)", while some
+    // older route data keeps them in audioName. Try the uploaded display-name
+    // recording too.
+    const withoutPlatform=stopBase.replace(/\s*\(\d+번홈\)\s*$/,'').trim();
+    if(withoutPlatform&&withoutPlatform!==stopBase)keys.add(withoutPlatform+secondSuffix);
+    // A large number of stops have one uploaded recording but no separate
+    // " (1)" copy. Reuse the real base recording for the second mention
+    // instead of unexpectedly switching only that part to synthetic TTS.
+    if(secondSuffix)keys.add(stopBase);
+    if(secondSuffix&&withoutPlatform!==stopBase)keys.add(withoutPlatform);
+  }
   // "영등포구청.우리은행"처럼 한 자리에 있는 지명 두 개를 점으로 이어붙인
   // 정류소명은, 녹음이 대표 지명 하나("영등포구청")만 있는 경우가 많아서
   // 점 앞부분만으로도 한 번 더 시도한다(요청에 따른 임시 조치 - 나중에
@@ -3856,11 +3901,11 @@ function startGuideLive(){
   // chained with .then() rather than fired separately, so the index command
   // can never reach the wire before the route data it depends on (that
   // exact ordering race is what silently dropped the index before).
-  // Just upload the route silently - don't show or announce anything yet.
-  // The sign only ever lights up / speaks once we're actually within the
-  // approach radius (200m) of guideNextIndex (liveStartIdx+1), same as every
-  // later stop on the route; the start stop itself gets no special display.
-  if(ledConnected)ledUploadRoute();
+  // Announce the selected departure stop once. It is deliberately kept out
+  // of the GPS arrival loop (guideNextIndex still points at the following
+  // stop), so the first location fix cannot cascade through nearby stops.
+  announceArrival(currentGuideStops[liveStartIdx],currentGuideStops[liveStartIdx+1]||null);
+  if(ledConnected)ledUploadRoute().then(()=>ledSetIndex(liveStartIdx));
   status.textContent='실시간 위치 추적을 시작했습니다.'+(liveStartIdx>0?' · '+currentGuideStops[liveStartIdx].name+'부터':'');
   // maximumAge:0 forces a fresh GPS fix every time instead of reusing a cached
   // one, so the dot/announcements track genuinely live movement.
@@ -3959,11 +4004,8 @@ function startGuideSim(){
   // Same reason as startGuideLive(): upload the (unsliced) route, then only
   // once that's actually on the wire, explicitly jump the sign to the
   // chosen start stop.
-  // Same reason as startGuideLive(): just upload the route silently, no
-  // display or announcement yet - the sign only lights up / speaks once the
-  // sim actually gets within the approach radius (200m) of guideNextIndex
-  // (startIdx+1), same as every later stop.
-  if(ledConnected)ledUploadRoute();
+  announceArrival(currentGuideStops[startIdx],currentGuideStops[startIdx+1]||null);
+  if(ledConnected)ledUploadRoute().then(()=>ledSetIndex(startIdx));
   status.textContent='시뮬레이션을 시작합니다'+(startIdx>0?' · '+currentGuideStops[startIdx].name+'에서 출발':'')+' (속도 '+fmtSpeed(simSpeedMultiplier)+')';
 
   const totalLen=pathLengthM(path);
@@ -4053,6 +4095,7 @@ function stopGuide(){
 
 </script>
 <script src="planner.js?v=20260919-9"></script>
+<script src="./mobile-patch.js?v=53"></script>
 <script src="./ios-touch-patch.js?v=51"></script>
 <script src="./gapless-patch.js?v=52"></script>
 </body>

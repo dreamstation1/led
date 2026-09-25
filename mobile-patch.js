@@ -1,6 +1,6 @@
 (function(){
-  if(window.__mobilePatchV29)return;
-  window.__mobilePatchV29=true;
+  if(window.__mobilePatchV53)return;
+  window.__mobilePatchV53=true;
 
   /* ---------- adaptive guide + simulation ---------- */
   let lastSimPanAt=0;
@@ -61,7 +61,8 @@
       guideNextIndex=startIdx+1;guideApproachAnnounced=false;guideMinDistToTarget=Infinity;
       guideLastLat=guideLastLng=guideHeadingDeg=null;
       markGuideProgress();renderGuideBar();updateGuideStatus();
-      try{if(ledConnected)ledUploadRoute();}catch(e){}
+      announceArrival(currentGuideStops[startIdx],currentGuideStops[startIdx+1]||null);
+      try{if(ledConnected)ledUploadRoute().then(()=>ledSetIndex(startIdx));}catch(e){}
       const path=currentRoutePath,totalLen=pathLengthM(path),stopArcs=stopArcLengthsAlongPath(path,currentGuideStops);
       let traveled=Math.max(0,Math.min(totalLen,stopArcs[startIdx]||0)),lastTs=null,dwellUntil=0;
       const initial=pointAtDistanceM(path,traveled);simPositionWithoutFixedRadius(initial[0],initial[1]);
