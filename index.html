@@ -1101,7 +1101,23 @@ if(window.visualViewport)window.visualViewport.addEventListener('resize',debounc
 // the two modes share every call site (ledSendLine etc.) and only differ in
 // how the bytes actually leave the browser.
 let ledPort=null, ledWriter=null, ledReadLoopActive=false, ledConnected=false, ledStyle='1111';
-let ledMode=null, ledWifiHost='';
+let ledMode=null, ledWifiHost='', ledBridgeWindow=null;
+let ledBridgeSeq=0;
+const ledBridgePending=new Map();
+window.addEventListener('message',event=>{
+  if(event.source!==ledBridgeWindow||event.data?.type!=='led-ack')return;
+  const pending=ledBridgePending.get(event.data.id);if(!pending)return;
+  ledBridgePending.delete(event.data.id);clearTimeout(pending.timer);pending.resolve(Boolean(event.data.ok));
+});
+function ledBridgeSend(line){
+  return new Promise((resolve,reject)=>{
+    if(!ledBridgeWindow||ledBridgeWindow.closed){reject(new Error('전광판 브리지 탭을 먼저 열어주세요.'));return;}
+    const id=++ledBridgeSeq;
+    const timer=setTimeout(()=>{ledBridgePending.delete(id);reject(new Error('전광판 브리지 응답 시간이 초과됐습니다.'));},20000);
+    ledBridgePending.set(id,{resolve:v=>v?resolve(true):reject(new Error('전광판이 명령을 받지 못했습니다.')),timer});
+    ledBridgeWindow.postMessage({type:'led-command',id,line:String(line)},'*');
+  });
+}
 
 const StopCanvas=L.Layer.extend({
   onAdd:function(map){
@@ -2749,6 +2765,14 @@ async function ledConnect(){
 // HTTP POST를 보내서 똑같은 명령(R:/I:/CFG:/MSG:)을 전달함. 전광판은 부팅할
 // 때 자기 IP를 화면에 몇 초간 띄워줌.
 async function ledConnectWifi(){
+  if(ledBridgeWindow&&!ledBridgeWindow.closed){
+    ledMode='bridge';ledConnected=true;
+    status.textContent='휴대폰 전광판 탭을 통해 연결 중...';renderGuideBar();
+    const ok=await ledSendLine('CFG:'+ledStyle);
+    if(ok&&currentGuideStops&&currentGuideStops.length>=2)await ledUploadRoute();
+    status.textContent=ok?'휴대폰 전광판 브리지로 연결됐어요. 전광판 탭은 닫지 마세요.':'전광판 브리지 연결에 실패했습니다.';
+    renderGuideBar();return;
+  }
   const input=document.getElementById('ledWifiHostInput');
   const host=(input?input.value:'').trim();
   if(!host){
@@ -2780,8 +2804,8 @@ function openLedWifiAddress(){
   if(input&&input.value.trim())ledWifiHost=input.value.trim();
   try{
     const url=ledWifiUrl();
-    window.open(url,'_blank','noopener');
-    status.textContent='전광판 주소를 새 탭에서 열었습니다. iPhone/iPad에서는 주소가 열린 뒤 이 화면으로 돌아와 다시 연결을 눌러주세요.';
+    ledBridgeWindow=window.open(url,'led-sign-bridge');
+    status.textContent='전광판 브리지 탭을 열었습니다. 이 지도 화면으로 돌아온 뒤 “와이파이로 연결”을 다시 눌러주세요. 운행 중에는 브리지 탭을 닫지 마세요.';
   }catch(e){status.textContent=e.message;}
 }
 async function ledDisconnect(){
@@ -2832,6 +2856,9 @@ function ledSendLine(line){
 }
 async function ledSendLineRaw(line){
   if(!ledConnected)return false;
+  if(ledMode==='bridge'){
+    try{return await ledBridgeSend(line);}catch(e){status.textContent=e.message;ledConnected=false;ledMode=null;renderGuideBar();return false;}
+  }
   if(ledMode==='wifi'){
     try{
       // no-cors + a body-only text/plain POST never triggers a CORS
@@ -2883,7 +2910,7 @@ async function ledSendLineRaw(line){
 // ledSendLine there.
 async function ledSendByte(ch){
   if(!ledConnected)return false;
-  if(ledMode==='wifi')return await ledSendLine(ch);
+  if(ledMode==='wifi'||ledMode==='bridge')return await ledSendLine(ch);
   if(!ledWriter)return false;
   try{
     await ledWriter.write(new TextEncoder().encode(ch));
@@ -3285,7 +3312,7 @@ function renderGuideBar(){
     <div class="guide-led">
       <div class="guide-speed-row">
         <span class="guide-speed-label">실물 전광판</span>
-        <span class="guide-led-status">${ledConnected?('● 연결됨 ('+(ledMode==='wifi'?'WiFi':'USB')+')'):'○ 연결 안 됨'}</span>
+        <span class="guide-led-status">${ledConnected?('● 연결됨 ('+(ledMode==='bridge'?'휴대폰 브리지':ledMode==='wifi'?'WiFi':'USB')+')'):'○ 연결 안 됨'}</span>
       </div>
       ${ledConnected?`
       <div class="guide-speed-row">
