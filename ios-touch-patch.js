@@ -1,6 +1,6 @@
 (function(){
-  if(window.__appleTouchPatchV42)return;
-  window.__appleTouchPatchV42=true;
+  if(window.__appleTouchPatchV51)return;
+  window.__appleTouchPatchV51=true;
 
   const isAppleTouch=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
   if(!isAppleTouch)return;
@@ -21,6 +21,8 @@
     html.apple-touch-device #map,html.apple-touch-device .leaflet-container{touch-action:none;}
     html.apple-touch-device button,html.apple-touch-device a,html.apple-touch-device input,html.apple-touch-device select,html.apple-touch-device textarea,html.apple-touch-device [role="button"]{touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
     html.apple-touch-device input,html.apple-touch-device select,html.apple-touch-device textarea{font-size:16px!important;}
+    html.apple-touch-device #routeHead,html.apple-touch-device #routeStops,html.apple-touch-device #settingsPanel,html.apple-touch-device #plannerPanel,html.apple-touch-device #favoritesPanel,html.apple-touch-device #searchResults,html.apple-touch-device #routeSearchResults{touch-action:pan-y!important;-webkit-overflow-scrolling:touch;}
+    html.apple-touch-device input[type="range"]{touch-action:none!important;}
     html.apple-touch-device .leaflet-control-container{pointer-events:none;}
     html.apple-touch-device .leaflet-control-container .leaflet-control,html.apple-touch-device .leaflet-control-container button,html.apple-touch-device .leaflet-control-container a{pointer-events:auto!important;}
     html.apple-touch-device .live-signal-marker,html.apple-touch-device .live-signal-pill,html.apple-touch-device .route-signal-icon,html.apple-touch-device .leaflet-marker-icon{pointer-events:auto!important;touch-action:manipulation!important;}

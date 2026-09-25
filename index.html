@@ -127,6 +127,7 @@ button:hover{background:#2a3039}
   padding:14px 14px 10px;
   border-bottom:1px solid #343b45;
   flex:0 0 auto;
+  min-height:0;
 }
 #routeHeadTop{
   display:flex;
@@ -321,6 +322,12 @@ button:hover{background:#2a3039}
   border:1px solid #343b45;
   box-shadow:0 10px 28px rgba(0,0,0,.35);
   display:none;
+  max-height:calc(100dvh - 64px - env(safe-area-inset-bottom));
+  overflow-x:hidden;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+  touch-action:pan-y;
 }
 #settingsPanel.open{display:block}
 .setting-row{
@@ -667,6 +674,7 @@ body.light-ui .route{color:#fff}
   .route-stop-startbtn{min-height:30px}
   #routeTitle{font-size:20px}
   .route-stop{padding-top:11px;padding-bottom:11px}
+  #settingsPanel{top:max(54px,calc(env(safe-area-inset-top) + 48px));right:8px;width:calc(100% - 16px);max-height:calc(100dvh - 64px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
 }
 @media(max-width:700px){
   #routeReopenTab{padding-top:calc(14px + env(safe-area-inset-top));padding-bottom:calc(14px + env(safe-area-inset-bottom))}
@@ -734,6 +742,31 @@ body.light-ui .route{color:#fff}
 .guide-speed-preset:hover{filter:brightness(1.12)}
 .guide-led{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);}
 .guide-led-status{font-size:11px;color:var(--muted);}
+
+/* On phones/tablets the expanded speed/audio/LED controls can be taller than
+   the viewport. Make the header itself a momentum-scroll area so every
+   control remains reachable while the stop list keeps its own scrolling. */
+@media (max-width:1180px), (hover:none) and (pointer:coarse){
+  #routeSidebar{min-height:0;overflow:hidden}
+  #routeHead{
+    max-height:min(74%,720px);
+    overflow-x:hidden;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    overscroll-behavior-y:contain;
+    touch-action:pan-y;
+    scrollbar-width:thin;
+  }
+  #routeStops{min-height:88px;touch-action:pan-y}
+  #guideOptions{max-height:1600px}
+  #plannerPanel,#favoritesPanel,#searchResults,#routeSearchResults,.planner-suggestions{
+    -webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain;
+    touch-action:pan-y;
+  }
+  #plannerPanel{max-height:calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
+  #favoritesPanel{max-height:calc(100dvh - 110px - env(safe-area-inset-bottom))}
+}
 
 /* Horizontal red-yellow-green readout for the real-time traffic-signal
    widget (설정 > 실시간 신호등 표시) - deliberately laid out left-to-right
@@ -3227,6 +3260,13 @@ function renderGuideBar(){
     lsSet('guideOptionsCollapsed',guideOptionsCollapsed?'1':'0');
     document.getElementById('guideOptions').classList.toggle('collapsed',guideOptionsCollapsed);
     document.getElementById('guideOptionsToggle').textContent=guideOptionsCollapsed?'속도/음량/전광판 설정 ▾':'속도/음량/전광판 설정 ▴';
+    if(!guideOptionsCollapsed){
+      // On a short phone/tablet viewport the controls expand below the fold.
+      // Move the header's own scroll position to the beginning of the controls;
+      // subsequent swipes can then reach every speed/audio/LED option.
+      const head=document.getElementById('routeHead');
+      requestAnimationFrame(()=>head.scrollTo({top:Math.max(0,document.getElementById('guideOptionsToggle').offsetTop-8),behavior:'smooth'}));
+    }
   };
   document.getElementById('ledConnectBtn').onclick=()=>{ledConnected?ledDisconnect():ledConnect();};
   const wifiBtn=document.getElementById('ledWifiConnectBtn');
@@ -4013,6 +4053,7 @@ function stopGuide(){
 
 </script>
 <script src="planner.js?v=20260919-9"></script>
+<script src="./ios-touch-patch.js?v=51"></script>
 <script src="./gapless-patch.js?v=50"></script>
 </body>
 </html>
