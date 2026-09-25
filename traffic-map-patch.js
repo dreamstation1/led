@@ -1,6 +1,6 @@
 (function(){
-  if(window.__trafficMapPatchV54)return;
-  window.__trafficMapPatchV54=true;
+  if(window.__trafficMapPatchV56)return;
+  window.__trafficMapPatchV56=true;
 
   let layer=null,refreshTimer=null,generation=0,selected=null;
   const liveCache=new Map();
@@ -28,7 +28,7 @@
   mapEl.appendChild(panel);
 
   const isPhone=()=>matchMedia('(max-width:768px)').matches;
-  function sourceFor(lat,lng){return lat>=37.40&&lat<=37.72&&lng>=126.75&&lng<=127.20?'seoul':'nationwide';}
+  function sourceFor(lat,lng){try{return window.trafficSourceForLocation?.(lat,lng)||'nationwide';}catch(e){return 'nationwide';}}
   function showPanel(html){if(isPhone())return;panel.innerHTML=html;panel.style.display='block';}
   function hidePanel(){panel.style.display='none';}
 
@@ -75,7 +75,7 @@
       visible=visible.slice(0,isPhone()?20:32).map(ix=>({...ix,source:ix.source||source}));
       if(layer){try{map.removeLayer(layer);}catch(e){}}
       layer=L.layerGroup().addTo(map);const nearest=nearestToCenter(visible,center),jobs=[];
-      for(const ix of visible){const near=nearest&&nearest.ix.crsrdId===ix.crsrdId;const m=L.marker([ix.lat,ix.lng],{icon:liveIcon(null,near,true),zIndexOffset:1000,keyboard:false}).addTo(layer);m.on('click',()=>showIntersection(ix));jobs.push({ix,m,near});}
+      for(const ix of visible){const near=nearest&&nearest.ix.crsrdId===ix.crsrdId;const m=L.marker([ix.lat,ix.lng],{icon:liveIcon(null,near,near),zIndexOffset:1000,keyboard:false}).addTo(layer);m.on('click',()=>showIntersection(ix));if(near)jobs.push({ix,m,near});}
       await loadLive(jobs,center,gen);
     }catch(e){console.warn('browse traffic refresh failed',e);}
   }
@@ -84,6 +84,5 @@
   window.refreshTrafficMapNow=()=>{clearTimeout(refreshTimer);return refresh();};
   window.setTrafficMapEnabled=on=>{if(!on){generation++;clearTimeout(refreshTimer);if(layer){try{map.removeLayer(layer);}catch(e){}layer=null;}hidePanel();return;}refresh();};
   try{map.on('moveend zoomend',schedule);}catch(e){}
-  setInterval(()=>{try{refresh();}catch(e){}},5000);
   setTimeout(refresh,600);
 })();

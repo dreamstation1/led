@@ -936,6 +936,7 @@ body.light-ui .route{color:#fff}
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="traffic-intersections.js?v=56"></script>
 <script src="route-shapes.js?v=20260919-9"></script>
 <script src="route-geometry.js?v=20260925-48"></script>
 <script src="gyeonggi-data.js?v=20260925-48"></script>
@@ -2840,7 +2841,8 @@ async function ledSendLineRaw(line){
       // failure (wrong IP, off WiFi, sign powered off) still rejects this
       // promise, so connection loss is still detected.
       const controller=new AbortController();
-      const timer=setTimeout(()=>controller.abort(),7000);
+      let timedOut=false;
+      const timer=setTimeout(()=>{timedOut=true;controller.abort();},15000);
       try{
         // targetAddressSpace asks browsers implementing Local Network Access
         // to prompt for a LAN-device permission instead of rejecting the
@@ -2850,7 +2852,9 @@ async function ledSendLineRaw(line){
       return true;
     }catch(e){
       const apple=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-      status.textContent=apple&&location.protocol==='https:'
+      status.textContent=timedOut
+        ?'전광판이 15초 안에 응답하지 않았습니다. 전광판에 표시된 IP가 맞는지, 휴대폰과 전광판이 둘 다 SJ_YC12에 연결됐는지 확인한 뒤 다시 눌러주세요.'
+        :apple&&location.protocol==='https:'
         ?'iPhone/iPad가 HTTPS 페이지에서 로컬 HTTP 전광판 연결을 차단했습니다. 아래 “전광판 주소 열기”로 IP를 먼저 연 뒤 다시 연결해 보세요. 계속 차단되면 전광판이 HTTPS를 지원하거나 전광판 자체의 HTTP 제어 페이지에서 실행해야 합니다.'
         :'전광판(와이파이) 전송 실패: '+(e&&e.message?e.message:e);
       ledConnected=false;
@@ -2976,6 +2980,23 @@ function trafficItems(data){
   }
   return Array.isArray(items)?items:typeof items==='object'?[items]:[];
 }
+function bundledTrafficIntersections(region='all'){
+  const rows=Array.isArray(window.STATIC_TRAFFIC_INTERSECTIONS)?window.STATIC_TRAFFIC_INTERSECTIONS:[];
+  return rows.filter(r=>region==='all'||(region==='seoul')===String(r[0]).startsWith('11')).map(r=>({
+    stdgCd:String(r[0]),crsrdId:String(r[1]),lat:Number(r[2]),lng:Number(r[3]),name:r[4]||'교차로',source:String(r[0]).startsWith('11')?'seoul':'nationwide'
+  }));
+}
+function trafficSourceForLocation(lat,lng){
+  const rows=Array.isArray(window.STATIC_TRAFFIC_INTERSECTIONS)?window.STATIC_TRAFFIC_INTERSECTIONS:[];
+  let best=null,bestD=Infinity;
+  for(const r of rows){const d=hav(lat,lng,Number(r[2]),Number(r[3]));if(d<bestD){bestD=d;best=r;}}
+  // The nationwide provider currently publishes intersection coordinates for
+  // Seoul, Ulsan and Jeju only. A tight nearest-point check avoids treating
+  // nearby Gyeonggi cities (Bucheon/Goyang/Gimpo) as Seoul.
+  if(best&&bestD<2500)return String(best[0]).startsWith('11')?'seoul':'nationwide';
+  return 'nationwide';
+}
+window.trafficSourceForLocation=trafficSourceForLocation;
 async function trafficFetchJson(url){
   const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),8000);
   try{
@@ -3049,6 +3070,8 @@ function loadTrafficIntersections(source='seoul'){
     if(source==='seoul'){
       rows=(await fetchSeoulTrafficMap()).map(it=>({...it,crsrdId:String(it.itstId),name:it.itstNm,source}));
     }else{
+      const bundled=bundledTrafficIntersections('outside-seoul');
+      if(bundled.length)return bundled;
       const live=await fetchTrafficLiveNationwide();
       const codes=[...new Set(live.map(it=>it.stdgCd).filter(Boolean))];
       for(const code of codes)rows.push(...(await fetchCrsrdMapInfo(code)).map(it=>({...it,name:it.crsrdNm,source})));
@@ -3064,6 +3087,8 @@ function loadTrafficIntersections(source='seoul'){
     trafficMapFailures.set(source,{at:Date.now(),error});
     const stale=source==='seoul'?readSeoulTrafficMapCache(true):null;
     if(stale){trafficMaps.set(source,stale);return stale;}
+    const bundled=bundledTrafficIntersections(source==='seoul'?'seoul':'outside-seoul');
+    if(bundled.length){trafficMaps.set(source,bundled);return bundled;}
     throw error;
   })
     .finally(()=>trafficMapPromises.delete(source));
@@ -4093,8 +4118,8 @@ function stopGuide(){
 
 </script>
 <script src="planner.js?v=20260919-9"></script>
-<script src="./mobile-patch.js?v=54"></script>
-<script src="./traffic-map-patch.js?v=54"></script>
+<script src="./mobile-patch.js?v=56"></script>
+<script src="./traffic-map-patch.js?v=56"></script>
 <script src="./ios-touch-patch.js?v=54"></script>
 <script src="./gapless-patch.js?v=55"></script>
 </body>

@@ -1,6 +1,6 @@
 (function(){
-  if(window.__mobilePatchV54)return;
-  window.__mobilePatchV54=true;
+  if(window.__mobilePatchV56)return;
+  window.__mobilePatchV56=true;
 
   /* ---------- adaptive guide + simulation ---------- */
   let lastSimPanAt=0;
@@ -110,7 +110,7 @@
       const sig=pathSig(currentRoutePath);if(!force&&sig===routeSignature&&routeSignals.length)return routeSignals;
       routeSignature=sig;const path=currentRoutePath;
       const lats=path.map(p=>p[0]),lngs=path.map(p=>p[1]);const minLat=Math.min(...lats)-.001,maxLat=Math.max(...lats)+.001,minLng=Math.min(...lngs)-.001,maxLng=Math.max(...lngs)+.001;
-      const mid=path[Math.floor(path.length/2)],source=mid[0]>=37.40&&mid[0]<=37.72&&mid[1]>=126.75&&mid[1]<=127.20?'seoul':'nationwide';
+      const mid=path[Math.floor(path.length/2)],source=window.trafficSourceForLocation?.(mid[0],mid[1])||'nationwide';
       const list=await loadTrafficIntersections(source),found=[];
       for(const ix of list){
         if(ix.lat<minLat||ix.lat>maxLat||ix.lng<minLng||ix.lng>maxLng)continue;
@@ -170,7 +170,7 @@
   async function trafficTick(){
     try{
       if(!trafficLightOn)return;await buildRouteSignals();const pos=currentPos();let ix=chooseNextRouteSignal(pos);
-      if(!ix){const lat=pos?.lat??map.getCenter().lat,lng=pos?.lng??map.getCenter().lng,source=lat>=37.40&&lat<=37.72&&lng>=126.75&&lng<=127.20?'seoul':'nationwide',list=await loadTrafficIntersections(source),heading=pos?.heading??null;ix=trafficIntersectionAhead(list,lat,lng,heading);if(ix)ix={...ix,source,routeHeading:heading??bearingDeg(lat,lng,ix.lat,ix.lng),turnDelta:0};}
+      if(!ix){const lat=pos?.lat??map.getCenter().lat,lng=pos?.lng??map.getCenter().lng,source=window.trafficSourceForLocation?.(lat,lng)||'nationwide',list=await loadTrafficIntersections(source),heading=pos?.heading??null;ix=trafficIntersectionAhead(list,lat,lng,heading);if(ix)ix={...ix,source:ix.source||source,routeHeading:heading??bearingDeg(lat,lng,ix.lat,ix.lng),turnDelta:0};}
       if(!ix){markNextSignal(null);renderPhaseV29(null,'다가오는 신호 정보를 찾는 중입니다');return;}
       markNextSignal(ix);const rec=await fetchTrafficLiveRecord(ix),heading=ix.routeHeading??pos?.heading??bearingDeg(pos?.lat??ix.lat,pos?.lng??ix.lng,ix.lat,ix.lng),phase=pickPhaseV29(rec,heading,ix.source||'seoul',ix.turnDelta||0),distance=pos?hav(pos.lat,pos.lng,ix.lat,ix.lng):null;
       renderPhaseV29(phase?{...phase,name:ix.name,lat:ix.lat,lng:ix.lng,crsrdId:ix.crsrdId,distance}:null,ix.name+' · 현재 진행 방향의 최신 신호 정보가 없습니다');
