@@ -2516,8 +2516,8 @@ document.getElementById('showStopsToggle').checked=showStops;
 document.getElementById('trafficLightToggle').onchange=e=>{
   trafficLightOn=e.target.checked;
   lsSet('trafficLightOn',trafficLightOn?'1':'0');
-  if(trafficLightOn)startTrafficLightPolling();
-  else stopTrafficLightPolling();
+  if(trafficLightOn){startTrafficLightPolling();window.setTrafficMapEnabled?.(true);status.textContent='실시간 신호등 ON · 내 위치를 누르면 주변 신호를 바로 찾습니다.';}
+  else{stopTrafficLightPolling();window.setTrafficMapEnabled?.(false);}
 };
 document.getElementById('trafficLightToggle').checked=trafficLightOn;
 if(trafficLightOn)setTimeout(()=>startTrafficLightPolling(),500);
@@ -3227,6 +3227,7 @@ function renderGuideBar(){
     </div>
     <button type="button" id="guideOptionsToggle" class="guide-options-toggle">${guideOptionsCollapsed?'속도/음량/전광판 설정 ▾':'속도/음량/전광판 설정 ▴'}</button>
     <div id="guideOptions" class="guide-options${guideOptionsCollapsed?' collapsed':''}">
+    <div class="guide-led-status">방송 시점은 정류소 간 거리에 따라 자동 판단합니다: 짧은 구간은 약 1/2, 긴 구간은 약 2/3 진행 지점입니다.</div>
     <div class="guide-speed">
       <div class="guide-speed-row">
         <span class="guide-speed-label">시뮬레이션 속도</span>
@@ -4095,8 +4096,9 @@ function stopGuide(){
 
 </script>
 <script src="planner.js?v=20260919-9"></script>
-<script src="./mobile-patch.js?v=53"></script>
-<script src="./ios-touch-patch.js?v=51"></script>
+<script src="./mobile-patch.js?v=54"></script>
+<script src="./traffic-map-patch.js?v=54"></script>
+<script src="./ios-touch-patch.js?v=54"></script>
 <script src="./gapless-patch.js?v=52"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 (function(){
-  if(window.__trafficMapPatchV46)return;
-  window.__trafficMapPatchV46=true;
+  if(window.__trafficMapPatchV54)return;
+  window.__trafficMapPatchV54=true;
 
   let layer=null,refreshTimer=null,generation=0,selected=null;
   const liveCache=new Map();
@@ -67,6 +67,7 @@
       // Browse-mode signals are independent from route selection. If the map is visible and zoomed in,
       // show live intersections even before a bus route has been chosen.
       if(typeof map==='undefined'||typeof L==='undefined')return;
+      if(typeof trafficLightOn!=='undefined'&&!trafficLightOn){if(layer){map.removeLayer(layer);layer=null;}hidePanel();return;}
       if(map.getZoom()<14){if(layer){map.removeLayer(layer);layer=null;}hidePanel();return;}
       const center=map.getCenter(),source=sourceFor(center.lat,center.lng),all=await loadTrafficIntersections(source);if(gen!==generation)return;
       const b=map.getBounds().pad(0.10);let visible=all.filter(ix=>b.contains([ix.lat,ix.lng]));
@@ -80,6 +81,8 @@
   }
 
   function schedule(){clearTimeout(refreshTimer);refreshTimer=setTimeout(refresh,160);}
+  window.refreshTrafficMapNow=()=>{clearTimeout(refreshTimer);return refresh();};
+  window.setTrafficMapEnabled=on=>{if(!on){generation++;clearTimeout(refreshTimer);if(layer){try{map.removeLayer(layer);}catch(e){}layer=null;}hidePanel();return;}refresh();};
   try{map.on('moveend zoomend',schedule);}catch(e){}
   setInterval(()=>{try{refresh();}catch(e){}},5000);
   setTimeout(refresh,600);

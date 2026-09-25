@@ -1,6 +1,6 @@
 (function(){
-  if(window.__mobilePatchV53)return;
-  window.__mobilePatchV53=true;
+  if(window.__mobilePatchV54)return;
+  window.__mobilePatchV54=true;
 
   /* ---------- adaptive guide + simulation ---------- */
   let lastSimPanAt=0;
@@ -10,6 +10,7 @@
     return 0.5+((segmentM-200)/800)*(1/6);
   }
   function adaptiveRemainingRadius(segmentM){return Math.max(20,segmentM*(1-adaptiveFraction(segmentM)));}
+  window.guideAutoAnnouncementRadius=adaptiveRemainingRadius;
 
   try{
     const baseOnGuidePosition=onGuidePosition;
@@ -184,9 +185,30 @@
 
   try{
     if(typeof locBtn!=='undefined')locBtn.onclick=()=>{
-      if(!navigator.geolocation)return;if(userWatchId!=null){navigator.geolocation.clearWatch(userWatchId);userWatchId=null;}
+      if(!navigator.geolocation){status.textContent='이 브라우저는 위치 기능을 지원하지 않습니다.';return;}
+      if(userWatchId!=null){
+        if(trackedUser){map.setView([trackedUser.lat,trackedUser.lng],17);try{userMarker?.openPopup();}catch(e){}status.textContent='현재 위치를 계속 추적 중입니다.';}
+        trafficTick();try{window.refreshTrafficMapNow?.();}catch(e){}
+        return;
+      }
+      status.textContent='현재 위치 권한을 요청하고 있습니다…';
+      locBtn.textContent='위치 찾는 중…';
       let first=true,prev=null;
-      userWatchId=navigator.geolocation.watchPosition(p=>{const lat=p.coords.latitude,lng=p.coords.longitude;let heading=Number.isFinite(p.coords.heading)?p.coords.heading:null;if(heading==null&&prev&&hav(prev.lat,prev.lng,lat,lng)>=2)heading=bearingDeg(prev.lat,prev.lng,lat,lng);trackedUser={lat,lng,heading};prev={lat,lng};if(userMarker)userMarker.setLatLng([lat,lng]);else userMarker=L.marker([lat,lng]).addTo(map).bindPopup('내 위치');if(first){first=false;map.setView([lat,lng],17);try{userMarker.openPopup();}catch(e){}}trafficTick();},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
+      const onPosition=p=>{
+        const lat=p.coords.latitude,lng=p.coords.longitude;let heading=Number.isFinite(p.coords.heading)?p.coords.heading:null;
+        if(heading==null&&prev&&hav(prev.lat,prev.lng,lat,lng)>=2)heading=bearingDeg(prev.lat,prev.lng,lat,lng);
+        trackedUser={lat,lng,heading};prev={lat,lng};
+        if(userMarker)userMarker.setLatLng([lat,lng]);else userMarker=L.marker([lat,lng],{zIndexOffset:1800}).addTo(map).bindPopup('내 위치');
+        locBtn.textContent='내 위치 추적 중';status.textContent='현재 위치를 찾았습니다'+(trafficLightOn?' · 주변 실시간 신호등을 확인합니다':'');
+        if(first){first=false;map.setView([lat,lng],17);try{userMarker.openPopup();}catch(e){}}
+        trafficTick();try{window.refreshTrafficMapNow?.();}catch(e){}
+      };
+      const onError=e=>{
+        if(userWatchId!=null){try{navigator.geolocation.clearWatch(userWatchId);}catch(_){}userWatchId=null;}
+        locBtn.textContent='내 위치';
+        status.textContent=e?.code===1?'위치 권한이 꺼져 있습니다. 브라우저의 이 사이트 위치 권한을 허용한 뒤 다시 눌러주세요.':e?.code===2?'현재 위치를 확인할 수 없습니다. 휴대폰 위치 기능과 Wi‑Fi/GPS를 확인해주세요.':'위치 확인 시간이 초과됐습니다. 실외나 창가에서 다시 눌러주세요.';
+      };
+      userWatchId=navigator.geolocation.watchPosition(onPosition,onError,{enableHighAccuracy:true,maximumAge:0,timeout:15000});
     };
   }catch(e){}
 

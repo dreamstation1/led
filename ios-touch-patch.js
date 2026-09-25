@@ -1,6 +1,6 @@
 (function(){
-  if(window.__appleTouchPatchV51)return;
-  window.__appleTouchPatchV51=true;
+  if(window.__appleTouchPatchV54)return;
+  window.__appleTouchPatchV54=true;
 
   const isAppleTouch=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
   if(!isAppleTouch)return;
@@ -88,6 +88,7 @@
       if(firstFix){firstFix=false;map.setView([lat,lng],17);if(typeof userMarker!=='undefined'&&userMarker)userMarker.openPopup();}
     }catch(e){}
     try{if(typeof trafficTick==='function')trafficTick();}catch(e){}
+    try{window.refreshTrafficMapNow?.();}catch(e){}
     setStatus('현재 위치 추적 중');
   }
 

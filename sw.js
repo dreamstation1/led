@@ -1,13 +1,13 @@
-// App shell v53: first-stop audio, recording fallbacks, and LAN transport guidance.
-const CACHE_NAME='bus-map-shell-v53-20260925-audio-and-lan-fixes';
+// App shell v54: reliable Android location feedback and immediate traffic refresh.
+const CACHE_NAME='bus-map-shell-v54-20260925-location-and-signals';
 const SHELL_FILES=['./','./index.html','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./ios-touch-patch.js','./gyeonggi-stops-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(f=>new URL(f,self.registration.scope).href));
 const PATCH_URLS=new Set(['request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','ios-touch-patch.js','gyeonggi-stops-patch.js'].map(f=>new URL('./'+f,self.registration.scope).href));
-const PAGE_PATCH='<script src="./request-guard.js?v=47"></script><script src="./mobile-patch.js?v=53"></script><script src="./gapless-patch.js?v=52"></script><script src="./traffic-map-patch.js?v=47"></script><script src="./ios-touch-patch.js?v=51"></script><script src="./gyeonggi-stops-patch.js?v=47"></script>';
+const PAGE_PATCH='<script src="./request-guard.js?v=47"></script><script src="./mobile-patch.js?v=54"></script><script src="./gapless-patch.js?v=52"></script><script src="./traffic-map-patch.js?v=54"></script><script src="./ios-touch-patch.js?v=54"></script><script src="./gyeonggi-stops-patch.js?v=47"></script>';
 async function patchedHtmlResponse(response){
  let text=await response.text();
  text=text.replace(/<script src="\.\/(?:request-guard|mobile-patch|gapless-patch|traffic-map-patch|ios-touch-patch|gyeonggi-stops-patch)\.js\?v=\d+"><\/script>/g,'');
- if(!text.includes('ios-touch-patch.js?v=51'))text=/<\/body>/i.test(text)?text.replace(/<\/body>/i,PAGE_PATCH+'</body>'):text+PAGE_PATCH;
+ if(!text.includes('ios-touch-patch.js?v=54'))text=/<\/body>/i.test(text)?text.replace(/<\/body>/i,PAGE_PATCH+'</body>'):text+PAGE_PATCH;
  const h=new Headers(response.headers);h.set('content-type','text/html; charset=utf-8');h.delete('content-length');
  return new Response(text,{status:response.status,statusText:response.statusText,headers:h});
 }
