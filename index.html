@@ -3240,7 +3240,7 @@ function renderGuideBar(){
   document.getElementById('guideStartBtn').onclick=()=>{unlockAudioForMobile();startGuideLive();};
   document.getElementById('guideSimBtn').onclick=()=>{unlockAudioForMobile();startGuideSim();};
   document.getElementById('guideStopBtn').onclick=stopGuide;
-  document.getElementById('guideTtsBtn').onclick=()=>{guideTtsOn=!guideTtsOn;renderGuideBar();if(guideActive)updateGuideStatus();};
+  document.getElementById('guideTtsBtn').onclick=()=>{guideTtsOn=!guideTtsOn;if(!guideTtsOn)window.cancelGuideAnnouncement?.();renderGuideBar();if(guideActive)updateGuideStatus();};
 
   const speedSlider=document.getElementById('guideSpeedSlider');
   const speedValue=document.getElementById('guideSpeedValue');
@@ -3996,6 +3996,7 @@ function startGuideSim(){
 }
 
 function stopGuide(){
+  window.cancelGuideAnnouncement?.();
   if(guideWatchId!=null){navigator.geolocation.clearWatch(guideWatchId);guideWatchId=null;}
   if(guideSimRaf!=null){cancelAnimationFrame(guideSimRaf);guideSimRaf=null;}
   if(guideUserMarker){map.removeLayer(guideUserMarker);guideUserMarker=null;}
@@ -4012,6 +4013,6 @@ function stopGuide(){
 
 </script>
 <script src="planner.js?v=20260919-9"></script>
-<script src="./gapless-patch.js?v=49"></script>
+<script src="./gapless-patch.js?v=50"></script>
 </body>
 </html>

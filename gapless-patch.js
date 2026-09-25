@@ -1,12 +1,26 @@
 (function(){
-  if(window.__gaplessQueueV49)return;
-  window.__gaplessQueueV49=true;
+  if(window.__gaplessQueueV50)return;
+  window.__gaplessQueueV50=true;
 
   const BlobCache=new Map();
   const LoadCache=new Map();
   const SEGMENT_GAP_MS=180;
   const SENTENCE_GAP_MS=450;
   let primeEl=null;
+  let announcement=null;
+  window.cancelGuideAnnouncement=function(){
+    if(announcement)announcement.abort();
+    announcement=null;
+  };
+
+  function pauseBetween(ms,signal){
+    return new Promise(resolve=>{
+      if(signal.aborted){resolve();return;}
+      const done=()=>{clearTimeout(timer);signal.removeEventListener('abort',done);resolve();};
+      const timer=setTimeout(done,ms);
+      signal.addEventListener('abort',done,{once:true});
+    });
+  }
 
   function pathsFor(category,key){
     try{if(typeof audioPaths==='function')return audioPaths(category,key)||[];}catch(e){}
@@ -78,13 +92,30 @@
     return {kind:'tts',text:t.text,lang:t.lang,category,key};
   }
 
-  async function sayTts(seg){
-    try{if(typeof speakText==='function')return await speakText(seg.text,seg.lang);}catch(e){}
-    return false;
+  function sayTts(seg,signal){
+    return new Promise(resolve=>{
+      if(signal.aborted||!window.speechSynthesis){resolve(false);return;}
+      let settled=false,timer;
+      const u=new SpeechSynthesisUtterance(seg.text);
+      u.lang=seg.lang;u.volume=guideVolume;u.rate=guideRate;
+      const finish=ok=>{
+        if(settled)return;settled=true;clearTimeout(timer);
+        signal.removeEventListener('abort',cancel);
+        u.onend=u.onerror=null;
+        if(!ok)window.speechSynthesis.cancel();
+        resolve(ok);
+      };
+      const cancel=()=>finish(false);
+      u.onend=()=>finish(true);u.onerror=cancel;
+      signal.addEventListener('abort',cancel,{once:true});
+      timer=setTimeout(cancel,Math.max(30000,seg.text.length*1000/Math.max(.1,guideRate)));
+      try{window.speechSynthesis.speak(u);}catch(e){cancel();}
+    });
   }
 
-  function playAudioSegment(seg){
+  function playAudioSegment(seg,signal){
     return new Promise(resolve=>{
+      if(signal.aborted){resolve(false);return;}
       const rate=Math.max(0.1,typeof guideRate==='number'?guideRate:1);
       const a=seg.audio;
       a.playbackRate=rate;a.volume=typeof guideVolume==='number'?guideVolume:1;a.currentTime=0;
@@ -93,26 +124,30 @@
       const finish=ok=>{
         if(settled)return;settled=true;clearTimeout(timer);
         a.removeEventListener('ended',ended);a.removeEventListener('error',failed);
+        signal.removeEventListener('abort',failed);
         if(!ok)a.pause();
         resolve(ok);
       };
       a.addEventListener('ended',ended,{once:true});
       a.addEventListener('error',failed,{once:true});
+      signal.addEventListener('abort',failed,{once:true});
       timer=setTimeout(failed,Math.max(5000,((Number.isFinite(a.duration)?a.duration/rate:30)+5)*1000));
       try{const p=a.play();if(p&&p.catch)p.catch(failed);}catch(e){failed();}
     });
   }
 
-  async function playResolvedSequence(items){
+  async function playResolvedSequence(items,signal){
     for(let i=0;i<items.length;i++){
+      if(signal.aborted)return;
       const seg=items[i];
-      if(seg.kind==='tts')await sayTts(seg);
-      else await playAudioSegment(seg);
+      if(seg.kind==='tts')await sayTts(seg,signal);
+      else await playAudioSegment(seg,signal);
+      if(signal.aborted)return;
       if(i+1<items.length){
         // Keep phrase/name joins short, but breathe between complete sentences.
         // Wait for actual playback completion, including recorded/TTS transitions.
         const sentenceEnd=seg.category==='stops'||seg.key==='종점입니다';
-        await new Promise(resolve=>setTimeout(resolve,sentenceEnd?SENTENCE_GAP_MS:SEGMENT_GAP_MS));
+        await pauseBetween(sentenceEnd?SENTENCE_GAP_MS:SEGMENT_GAP_MS,signal);
       }
     }
   }
@@ -148,12 +183,20 @@
 
   try{
     announceArrival=async function(stop,next){
+      window.cancelGuideAnnouncement();
       if(!guideTtsOn)return;
+      const controller=new AbortController();
+      announcement=controller;
       unlock();
       const stopKey=stop.audioName||stop.name;
       const specs=[['phrases','이번정류소'],['stops',stopKey],next?['phrases','다음정류소']:['phrases','종점입니다'],...(next?[['stops',next.audioName||next.name]]:[]),['phrases_en','thisstopis'],['stops',stopKey+' (1)']];
-      const resolved=await Promise.all(specs.map(s=>resolveSegment(s[0],s[1])));
-      await playResolvedSequence(resolved);
+      try{
+        const resolved=await Promise.all(specs.map(s=>resolveSegment(s[0],s[1])));
+        if(controller.signal.aborted)return;
+        await playResolvedSequence(resolved,controller.signal);
+      }finally{
+        if(announcement===controller)announcement=null;
+      }
     };
   }catch(e){console.error('native gapless announcement override failed',e);}
 
