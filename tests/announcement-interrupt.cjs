@@ -4,8 +4,8 @@ const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 function setup(){
   const played=[],audios=[],spoken=[];let cancelled=0;
   class Audio extends EventTarget{
-    constructor(){super();this.duration=10;this.readyState=4;audios.push(this);}
-    setAttribute(){} load(){this.dispatchEvent(new Event('loadedmetadata'));}
+    constructor(src=''){super();this.src=src;this.duration=10;this.readyState=4;audios.push(this);}
+    setAttribute(){} removeAttribute(name){if(name==='src')this.src='';} load(){this.dispatchEvent(new Event('loadedmetadata'));}
     play(){played.push(this.src);return Promise.resolve();} pause(){this.paused=true;}
   }
   const c={window:{speechSynthesis:{speak:u=>spoken.push(u),cancel:()=>cancelled++}},document:{addEventListener(){}},Audio,SpeechSynthesisUtterance:class{constructor(text){this.text=text;}},AbortController,setTimeout,clearTimeout,setInterval:()=>0,console,
@@ -13,7 +13,7 @@ function setup(){
     translateStationName:async n=>n};
   vm.createContext(c);
   let src=fs.readFileSync(path.join(__dirname,'../gapless-patch.js'),'utf8');
-  src=src.replace('  warmFixed();setInterval','  window.test={playAudioSegment,sayTts,playResolvedSequence,pauseBetween,setResolver:f=>resolveSegment=f};\n  warmFixed();setInterval');
+  src=src.replace('  warmFixed();setInterval','  window.test={playAudioSegment,sayTts,playResolvedSequence,pauseBetween,unlock,getPrime:()=>primeEl,setResolver:f=>resolveSegment=f};\n  warmFixed();setInterval');
   vm.runInContext(src,c);
   return {c,api:c.window.test,played,audios,spoken,cancelled:()=>cancelled};
 }
@@ -44,4 +44,16 @@ test('aborting an inter-sentence pause prevents the next segment',async()=>{
   const p=s.api.playResolvedSequence([{kind:'audio',audio:a,category:'stops'},{kind:'audio',audio:b}],ctrl.signal);
   a.dispatchEvent(new Event('ended'));await flush();ctrl.abort();await p;
   assert.deepEqual(s.played,['first']);
+});
+test('recorded clips reuse the exact audio element unlocked by the user tap',async()=>{
+  const s=setup();s.api.unlock();await flush();
+  const unlocked=s.api.getPrime();assert.equal(s.audios.length,1);
+  s.played.length=0;
+  for(const url of ['blob:first','blob:second']){
+    const ctrl=new AbortController();
+    const p=s.api.playAudioSegment({kind:'audio',url},ctrl.signal);
+    await flush();assert.equal(s.api.getPrime(),unlocked);assert.equal(unlocked.src,url);
+    unlocked.dispatchEvent(new Event('ended'));assert.equal(await p,true);
+  }
+  assert.equal(s.audios.length,1);assert.deepEqual(s.played,['blob:first','blob:second']);
 });

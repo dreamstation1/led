@@ -1,6 +1,6 @@
 (function(){
-  if(window.__gaplessQueueV50)return;
-  window.__gaplessQueueV50=true;
+  if(window.__gaplessQueueV52)return;
+  window.__gaplessQueueV52=true;
 
   const BlobCache=new Map();
   const LoadCache=new Map();
@@ -73,7 +73,9 @@
       a.setAttribute('webkit-playsinline','');
       a.src=url;
       let done=false;
-      const finish=ok=>{if(done)return;done=true;clearTimeout(timer);resolve(ok?a:null);};
+      // This temporary element only verifies that the browser can decode the
+      // file. Actual playback uses the one tap-unlocked element in unlock().
+      const finish=ok=>{if(done)return;done=true;clearTimeout(timer);a.removeAttribute('src');resolve(ok?url:null);};
       const timer=setTimeout(()=>finish(a.readyState>=1),5000);
       a.addEventListener('loadedmetadata',()=>finish(true),{once:true});
       a.addEventListener('canplaythrough',()=>finish(true),{once:true});
@@ -85,8 +87,8 @@
   async function resolveSegment(category,key){
     const found=await firstPlayable(pathsFor(category,key));
     if(found){
-      const audio=await prepareAudio(found.url);
-      if(audio)return {kind:'audio',audio,category,key};
+      const preparedUrl=await prepareAudio(found.url);
+      if(preparedUrl)return {kind:'audio',url:preparedUrl,category,key};
     }
     const t=await ttsInfo(category,key);
     return {kind:'tts',text:t.text,lang:t.lang,category,key};
@@ -117,8 +119,15 @@
     return new Promise(resolve=>{
       if(signal.aborted){resolve(false);return;}
       const rate=Math.max(0.1,typeof guideRate==='number'?guideRate:1);
-      const a=seg.audio;
-      a.playbackRate=rate;a.volume=typeof guideVolume==='number'?guideVolume:1;a.currentTime=0;
+      // iOS/iPadOS only grants later playback to the media element unlocked by
+      // the user's tap. Reuse that exact element for every recorded clip;
+      // creating a fresh Audio here makes Safari reject play() and leaves only
+      // the TTS fallback audible.
+      const a=seg.audio||(primeEl||(primeEl=new Audio()));
+      try{
+        if(seg.url&&a.src!==seg.url){a.src=seg.url;a.load();}
+        a.playbackRate=rate;a.volume=typeof guideVolume==='number'?guideVolume:1;a.currentTime=0;
+      }catch(e){resolve(false);return;}
       let settled=false,timer;
       const ended=()=>finish(true),failed=()=>finish(false);
       const finish=ok=>{
@@ -173,7 +182,9 @@
     if(primeEl)return;
     try{
       primeEl=new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA=');
-      primeEl.volume=0;primeEl.playsInline=true;
+      primeEl.volume=0;primeEl.preload='auto';primeEl.playsInline=true;
+      primeEl.setAttribute('playsinline','');
+      primeEl.setAttribute('webkit-playsinline','');
       const p=primeEl.play();if(p&&p.then)p.then(()=>{try{primeEl.pause();}catch(e){}}).catch(()=>{});
     }catch(e){}
   }
