@@ -1,11 +1,12 @@
 (function(){
-  if(window.__gaplessQueueV52)return;
-  window.__gaplessQueueV52=true;
+  if(window.__gaplessQueueV55)return;
+  window.__gaplessQueueV55=true;
 
   const BlobCache=new Map();
   const LoadCache=new Map();
-  const SEGMENT_GAP_MS=180;
-  const SENTENCE_GAP_MS=450;
+  const TOUCH_DEVICE=(()=>{try{return navigator.maxTouchPoints>0||matchMedia('(pointer:coarse)').matches||/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);}catch(e){return false;}})();
+  const SEGMENT_GAP_MS=TOUCH_DEVICE?0:180;
+  const SENTENCE_GAP_MS=TOUCH_DEVICE?0:450;
   let primeEl=null;
   let announcement=null;
   window.cancelGuideAnnouncement=function(){
@@ -15,7 +16,7 @@
 
   function pauseBetween(ms,signal){
     return new Promise(resolve=>{
-      if(signal.aborted){resolve();return;}
+      if(signal.aborted||ms<=0){resolve();return;}
       const done=()=>{clearTimeout(timer);signal.removeEventListener('abort',done);resolve();};
       const timer=setTimeout(done,ms);
       signal.addEventListener('abort',done,{once:true});
@@ -84,12 +85,13 @@
     });
   }
 
-  async function resolveSegment(category,key){
+  async function resolveSegment(category,key,recordingOnly=false){
     const found=await firstPlayable(pathsFor(category,key));
     if(found){
       const preparedUrl=await prepareAudio(found.url);
       if(preparedUrl)return {kind:'audio',url:preparedUrl,category,key};
     }
+    if(recordingOnly)return {kind:'missing',category,key};
     const t=await ttsInfo(category,key);
     return {kind:'tts',text:t.text,lang:t.lang,category,key};
   }
@@ -200,9 +202,14 @@
       announcement=controller;
       unlock();
       const stopKey=stop.audioName||stop.name;
-      const specs=[['phrases','이번정류소'],['stops',stopKey],next?['phrases','다음정류소']:['phrases','종점입니다'],...(next?[['stops',next.audioName||next.name]]:[]),['phrases_en','thisstopis'],['stops',stopKey+' (1)']];
+      const specs=[['phrases','이번정류소'],['stops',stopKey],next?['phrases','다음정류소']:['phrases','종점입니다'],...(next?[['stops',next.audioName||next.name]]:[])];
       try{
         const resolved=await Promise.all(specs.map(s=>resolveSegment(s[0],s[1])));
+        // The English pair is optional as one unit. A missing "(1)" stop
+        // recording must never fall back to the Korean base clip or TTS, and
+        // without that recording "thisstopis" is omitted as well.
+        const englishStop=await resolveSegment('stops',stopKey+' (1)',true);
+        if(englishStop.kind==='audio')resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);
         if(controller.signal.aborted)return;
         await playResolvedSequence(resolved,controller.signal);
       }finally{

@@ -3548,11 +3548,8 @@ function audioPaths(category,key){
     // recording too.
     const withoutPlatform=stopBase.replace(/\s*\(\d+번홈\)\s*$/,'').trim();
     if(withoutPlatform&&withoutPlatform!==stopBase)keys.add(withoutPlatform+secondSuffix);
-    // A large number of stops have one uploaded recording but no separate
-    // " (1)" copy. Reuse the real base recording for the second mention
-    // instead of unexpectedly switching only that part to synthetic TTS.
-    if(secondSuffix)keys.add(stopBase);
-    if(secondSuffix&&withoutPlatform!==stopBase)keys.add(withoutPlatform);
+    // " (1)" is the separately recorded English stop-name clip. Never use
+    // the Korean base recording when that exact second clip is absent.
   }
   // "영등포구청.우리은행"처럼 한 자리에 있는 지명 두 개를 점으로 이어붙인
   // 정류소명은, 녹음이 대표 지명 하나("영등포구청")만 있는 경우가 많아서
@@ -4099,6 +4096,6 @@ function stopGuide(){
 <script src="./mobile-patch.js?v=54"></script>
 <script src="./traffic-map-patch.js?v=54"></script>
 <script src="./ios-touch-patch.js?v=54"></script>
-<script src="./gapless-patch.js?v=52"></script>
+<script src="./gapless-patch.js?v=55"></script>
 </body>
 </html>
