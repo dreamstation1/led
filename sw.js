@@ -1,5 +1,5 @@
-// App shell v59: UTIC incident and urban CCTV map layers.
-const CACHE_NAME='bus-map-shell-v59-20260930-utic-map';
+// App shell v60: persistent CCTV viewer and complete dispatch history summary.
+const CACHE_NAME='bus-map-shell-v60-20260930-dispatch-cctv';
 const SHELL_FILES=['./','./index.html','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./utic-map-patch.js','./traffic-intersections.js','./ios-touch-patch.js','./gyeonggi-stops-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(f=>new URL(f,self.registration.scope).href));
 const PATCH_URLS=new Set(['request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','utic-map-patch.js','ios-touch-patch.js','gyeonggi-stops-patch.js'].map(f=>new URL('./'+f,self.registration.scope).href));

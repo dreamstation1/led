@@ -92,7 +92,7 @@
       const lat=number(row,['coordY','coordy','yCoord','cctvY','locationDataY','lat','latitude']),lng=number(row,['coordX','coordx','xCoord','cctvX','locationDataX','lng','longitude']);
       if(!inBounds(lat,lng,bounds))continue;
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:'<div class="utic-cctv-icon">📹</div>',iconSize:[30,30],iconAnchor:[15,15]}),zIndexOffset:700}).addTo(cctvLayer);
-      marker.bindPopup(cctvPopup(row),{maxWidth:370,className:'bus-popup'});count++;
+      marker.on('click',()=>window.openPersistentCctv?.(cctvPopup(row)));marker.bindTooltip(clean(row.cctvName||row.cctvname||row.CCTV_NAME||row.name||'UTIC CCTV'));count++;
     }return count;
   }
   async function refresh(force=false){

@@ -147,6 +147,11 @@ button:hover{background:#2a3039}
 #routeBusSummary{margin-top:8px;font-size:12px;color:#a9b4c4;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 #routeBusSummary .rbs-count{color:#fff;font-weight:700}
 #routeBusSummary .rbs-plan{color:#8fc7ff;border:1px solid #31577a;border-radius:999px;padding:3px 8px;background:rgba(49,87,122,.18)}
+#routeBusSummary .rbs-dispatch{width:100%;padding:7px 9px;border:1px solid #31577a;border-radius:9px;background:rgba(49,87,122,.12);color:#cfe7ff}
+#routeBusSummary .rbs-dispatch summary{cursor:pointer;font-weight:800;color:#8fc7ff}
+#routeBusSummary .rbs-dispatch-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 12px;margin-top:7px}
+#routeBusSummary .rbs-dispatch-item{min-width:0;color:#c2ccd8;overflow-wrap:anywhere}
+#routeBusSummary .rbs-dispatch-item b{display:block;color:#fff;font-size:10px;margin-bottom:1px}
 #routeBusSummary .rbs-reserve{border:1px solid #ff5a36;border-radius:999px;padding:3px 8px;cursor:pointer;background:linear-gradient(90deg,#ff4d6d,#ffd166,#06d6a0,#4dabf7,#c77dff,#ff4d6d);background-size:300% 100%;animation:rbsRainbow 2.2s linear infinite;color:#101318;font-weight:800}
 #routeBusSummary .rbs-reserve.offline{background:#2b3039;color:#a9b4c4;border-color:#505967;animation:none}
 @keyframes rbsRainbow{to{background-position:300% 0}}
@@ -712,6 +717,10 @@ body.light-ui .route{color:#fff}
 .cctv-map-icon{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#15202b;border:2px solid #55b8ff;box-shadow:0 2px 7px rgba(0,0,0,.55);font-size:16px;cursor:pointer}
 .cctv-popup video{width:100%;max-width:340px;min-height:170px;background:#080a0d;border-radius:8px;margin-top:7px}
 .cctv-popup-link{display:inline-block;margin-top:7px;color:#43a9e8;font-weight:800;text-decoration:none}
+.persistent-cctv-panel{position:absolute;z-index:1400;right:12px;bottom:18px;width:min(390px,calc(100% - 24px));padding:12px;border:1px solid #3d4a5d;border-radius:14px;background:#121820f2;color:#fff;box-shadow:0 8px 28px #000b;backdrop-filter:blur(8px)}
+.persistent-cctv-close{position:absolute;right:8px;top:7px;width:32px;height:32px;border:0;border-radius:50%;background:#27303b;color:#fff;font-size:20px;font-weight:900;cursor:pointer}
+.persistent-cctv-body{padding-right:34px}.persistent-cctv-panel video{display:block;width:100%;min-height:190px;max-height:42vh;margin-top:9px;border-radius:9px;background:#05070a}
+@media(max-width:700px){.persistent-cctv-panel{position:fixed;right:8px;bottom:max(8px,env(safe-area-inset-bottom));width:calc(100% - 16px)}.persistent-cctv-panel video{min-height:180px;max-height:36vh}}
 #guideBar{margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
 .guide-controls{display:flex;gap:6px;flex-wrap:wrap;}
 .guide-btn{height:32px;padding:0 11px;border-radius:8px;font-size:12px;font-weight:750;background:var(--panel2);color:var(--text);border:1px solid var(--border);cursor:pointer;}
@@ -2140,6 +2149,20 @@ function seoulDateKey(daysAgo=0){
 function compactBusTime(value){
   const s=String(value||'');return /^\d{12,14}$/.test(s)?s.slice(8,10)+':'+s.slice(10,12):'';
 }
+function dispatchValue(row,...keys){for(const key of keys)if(row?.[key]!=null&&row[key]!=='')return row[key];return '';}
+function dispatchStopSummary(r,rows,idKeys,snKeys){
+  const counts=new Map();
+  for(const row of rows){
+    const id=String(dispatchValue(row,...idKeys)||''),sn=Number(dispatchValue(row,...snKeys));
+    const key=id+'|'+(Number.isFinite(sn)?sn:'');if(id||Number.isFinite(sn))counts.set(key,(counts.get(key)||0)+1);
+  }
+  const best=[...counts].sort((a,b)=>b[1]-a[1])[0]?.[0];if(!best)return null;
+  const [id,snText]=best.split('|'),sn=Number(snText);let stop=null;
+  if(id&&STOP_BY_NODE.has(id))stop=STOPS[STOP_BY_NODE.get(id)];
+  if(!stop&&Number.isFinite(sn)&&sn>=1&&sn<=r.nodes.length){const node=String(r.nodes[sn-1]);if(STOP_BY_NODE.has(node))stop=STOPS[STOP_BY_NODE.get(node)];}
+  return {id,sn:Number.isFinite(sn)?sn:null,name:stop?.name||'',node:stop?.node||id};
+}
+function dispatchStopText(stop){return stop?(stop.name||('NODE '+stop.node))+(stop.sn?' · '+stop.sn+'번째':''):'확인 불가';}
 async function loadRouteDispatchSummary(r){
   if(!r || r.region==='gyeonggi' || String(r.id).startsWith('G'))return;
   const key=String(r.id);
@@ -2158,10 +2181,20 @@ async function loadRouteDispatchSummary(r){
     }
     if(!rows.length){routeDispatchHistory.set(key,{empty:true,message:'최근 7일 배차 이력 자료 없음'});return;}
     const active=rows.filter(x=>String(x.flag??'1')!=='0');
-    const vehicles=new Set(active.map(x=>String(x.vehId||'')).filter(Boolean));
-    const starts=active.map(x=>String(x.startDt||'')).filter(Boolean).sort();
-    const ends=active.map(x=>String(x.endDt||'')).filter(Boolean).sort();
-    routeDispatchHistory.set(key,{date,vehicles:vehicles.size,runs:active.length,first:compactBusTime(starts[0]),last:compactBusTime(ends[ends.length-1])});
+    const vehicles=new Set(active.map(x=>String(dispatchValue(x,'vehId','veh_id'))).filter(Boolean));
+    const starts=active.map(x=>String(dispatchValue(x,'startDt','start_dt'))).filter(Boolean).sort();
+    const ends=active.map(x=>String(dispatchValue(x,'endDt','end_dt'))).filter(Boolean).sort();
+    const startStop=dispatchStopSummary(r,active,['ssttnId','ssttn_id'],['ssttnSn','ssttn_sn']);
+    const turnStop=dispatchStopSummary(r,active,['tsttnId','tsttn_id'],['tsttnSn','tsttn_sn']);
+    const endStop=dispatchStopSummary(r,active,['esttnId','esttn_id'],['esttnSn','esttn_sn']);
+    const firstRow=active.find(x=>String(dispatchValue(x,'fircarAt','fircar_at'))==='1');
+    const lastRow=active.find(x=>String(dispatchValue(x,'lstcarAt','lstcar_at'))==='1');
+    const plans=new Set(active.map(x=>String(dispatchValue(x,'planId','plan_id'))).filter(Boolean));
+    const runNumbers=active.map(x=>Number(dispatchValue(x,'runSn','run_sn'))).filter(Number.isFinite);
+    const remarks=[...new Set(active.map(x=>String(x.rm||'').trim()).filter(Boolean))].slice(0,2);
+    routeDispatchHistory.set(key,{date,vehicles:vehicles.size,runs:active.length,first:compactBusTime(starts[0]),last:compactBusTime(ends[ends.length-1]),
+      startStop,turnStop,endStop,firstBus:firstRow?compactBusTime(dispatchValue(firstRow,'startDt','start_dt')):'',lastBus:lastRow?compactBusTime(dispatchValue(lastRow,'startDt','start_dt')):'',
+      plans:plans.size,runMin:runNumbers.length?Math.min(...runNumbers):null,runMax:runNumbers.length?Math.max(...runNumbers):null,remarks});
   }catch(e){
     routeDispatchHistory.set(key,{error:true,message:'배차 이력 조회 실패'});
   }finally{
@@ -2177,8 +2210,18 @@ function updateRouteBusSummary(r,items){
   const planHtml=plan?.loading?'<span class="rbs-plan">최근 배차 조회 중…</span>':
     plan?.empty||plan?.error?`<span class="rbs-plan">${esc(plan.message||'배차 이력 자료 없음')}</span>`:
     plan?`<span class="rbs-plan">${esc(plan.date.slice(4,6)+'/'+plan.date.slice(6,8))} 배차 ${plan.vehicles}대 · ${plan.runs}회${plan.first&&plan.last?' · '+esc(plan.first+'~'+plan.last):''}</span>`:'';
+  const detailHtml=plan&&!plan.loading&&!plan.empty&&!plan.error?`<details class="rbs-dispatch" open><summary>배차 운행 상세</summary><div class="rbs-dispatch-grid">
+    <div class="rbs-dispatch-item"><b>출발 정류장</b>${esc(dispatchStopText(plan.startStop))}</div>
+    <div class="rbs-dispatch-item"><b>회차 정류장</b>${esc(dispatchStopText(plan.turnStop))}</div>
+    <div class="rbs-dispatch-item"><b>최종 정류장</b>${esc(dispatchStopText(plan.endStop))}</div>
+    <div class="rbs-dispatch-item"><b>첫차 / 막차 출발</b>${esc((plan.firstBus||'-')+' / '+(plan.lastBus||'-'))}</div>
+    <div class="rbs-dispatch-item"><b>운행계획</b>${plan.plans||0}개</div>
+    <div class="rbs-dispatch-item"><b>운행순번</b>${plan.runMin==null?'-':esc(String(plan.runMin)+(plan.runMax!==plan.runMin?'~'+plan.runMax:''))}</div>
+    ${plan.remarks?.length?`<div class="rbs-dispatch-item" style="grid-column:1/-1"><b>비고</b>${esc(plan.remarks.join(' · '))}</div>`:''}
+  </div></details>`:'';
   el.innerHTML=`<span class="rbs-count">${count==null?'실시간 위치를 켜면 운행 대수가 표시됩니다':`현재 ${count}대 운행 중`}</span>`+
     planHtml+
+    detailHtml+
     (reserve.length?reserve.map(it=>`<button class="rbs-reserve" data-veh="${esc(it.vehId||'')}" title="눌러서 노선의 버스 위치 보기">예비차 ${esc(shortBusNumber(it))}호 운행 중!!!</button>`).join(''):'');
   el.querySelectorAll('.rbs-reserve').forEach(btn=>btn.onclick=e=>{
     e.stopPropagation();
@@ -2479,6 +2522,14 @@ function cctvPopupHtml(row){
   const safeUrl=/^https:\/\//i.test(rawUrl)?rawUrl:'';
   return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div>${safeUrl?`<video controls autoplay muted playsinline preload="metadata" src="${esc(safeUrl)}"></video><a class="cctv-popup-link" href="${esc(safeUrl)}" target="_blank" rel="noopener">영상 새 창에서 열기</a>`:'<div class="popup-meta">HTTPS 영상 주소가 제공되지 않았습니다.</div>'}</div>`;
 }
+let persistentCctvPanel=null;
+function closePersistentCctv(){if(persistentCctvPanel){persistentCctvPanel.remove();persistentCctvPanel=null;}}
+function openPersistentCctv(html){
+  if(!persistentCctvPanel){persistentCctvPanel=document.createElement('div');persistentCctvPanel.className='persistent-cctv-panel';(document.getElementById('map')||document.body).appendChild(persistentCctvPanel);}
+  persistentCctvPanel.innerHTML=`<button class="persistent-cctv-close" type="button" aria-label="CCTV 닫기">×</button><div class="persistent-cctv-body">${html}</div>`;
+  persistentCctvPanel.querySelector('.persistent-cctv-close').onclick=closePersistentCctv;
+}
+window.openPersistentCctv=openPersistentCctv;window.closePersistentCctv=closePersistentCctv;
 async function refreshCctvLayer(){
   const generation=++cctvLoadGeneration;
   if(!cctvOn){clearCctvMarkers();return;}
@@ -2501,7 +2552,7 @@ async function refreshCctvLayer(){
       const lat=Number(String(row.coordy||'').replace(/;/g,'')),lng=Number(String(row.coordx||'').replace(/;/g,''));
       if(!Number.isFinite(lat)||!Number.isFinite(lng))continue;
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'cctv-map-icon',html:'📹',iconSize:[30,30],iconAnchor:[15,15]}),zIndexOffset:700}).addTo(map);
-      marker.bindPopup(cctvPopupHtml(row),{maxWidth:370,className:'bus-popup'});cctvMarkers.push(marker);
+      marker.on('click',()=>openPersistentCctv(cctvPopupHtml(row)));marker.bindTooltip(String(row.cctvname||'도로 CCTV').replace(/;+$/,'').trim());cctvMarkers.push(marker);
     }
     document.getElementById('status').textContent=`현재 지도 영역 CCTV ${cctvMarkers.length}개`;
   }catch(e){
@@ -2511,7 +2562,7 @@ async function refreshCctvLayer(){
 document.getElementById('itsCctvKeyInput').value=itsCctvKey;
 document.getElementById('itsCctvKeyInput').onchange=e=>{itsCctvKey=e.target.value.trim();lsSet('itsCctvKey',itsCctvKey);if(cctvOn)refreshCctvLayer();};
 document.getElementById('cctvToggle').checked=cctvOn;
-document.getElementById('cctvToggle').onchange=e=>{cctvOn=e.target.checked;lsSet('itsCctvOn',cctvOn?'1':'0');refreshCctvLayer();};
+document.getElementById('cctvToggle').onchange=e=>{cctvOn=e.target.checked;lsSet('itsCctvOn',cctvOn?'1':'0');if(!cctvOn)closePersistentCctv();refreshCctvLayer();};
 map.on('moveend',()=>{if(!cctvOn)return;clearTimeout(cctvMoveTimer);cctvMoveTimer=setTimeout(refreshCctvLayer,450);});
 if(cctvOn)setTimeout(refreshCctvLayer,700);
 
