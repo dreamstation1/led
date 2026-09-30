@@ -1,108 +1,28 @@
 (function(){
-  if(window.__trafficMapPatchV64)return;
-  window.__trafficMapPatchV64=true;
-
-  let layer=null,refreshTimer=null,livePollTimer=null,generation=0,selected=null,currentNearestJob=null;
-  const liveCache=new Map();
-
-  const style=document.createElement('style');
-  style.textContent=`
-    .live-signal-pill{display:flex;align-items:center;gap:3px;padding:4px 5px;border-radius:5px;background:linear-gradient(#20262b,#080b0e);border:2px solid #424b52;box-shadow:0 3px 8px #000c,inset 0 0 0 1px #050607;white-space:nowrap;transform:translate(-50%,-50%)}
-    .live-signal-pill.near{border-color:#f4c542;box-shadow:0 0 0 3px #ffd84a50,0 3px 9px #000d}
-    .live-signal-pill.loading{opacity:.58}
-    .sig-lamp,.sig-left{width:17px;height:17px;box-sizing:border-box;border-radius:50%;background:#090c0e;border:1px solid #313940;box-shadow:inset 0 0 4px #000;flex:0 0 17px}
-    .sig-lamp.red.on{background:#ff2d37;border-color:#ff6d73;box-shadow:0 0 9px #ff2430,inset 0 0 3px #fff8}
-    .sig-lamp.yellow.on{background:#ffbf16;border-color:#ffe06a;box-shadow:0 0 9px #ffb000,inset 0 0 3px #fff8}
-    .sig-lamp.green.on{background:#17e6ad;border-color:#70ffda;box-shadow:0 0 9px #00dca0,inset 0 0 3px #fff8}
-    .sig-left{display:flex;align-items:center;justify-content:center;color:#1f2b2b;font-size:15px;line-height:1;font-weight:1000;text-shadow:none}
-    .sig-left.on.green{color:#28f0c0;border-color:#70ffda;text-shadow:0 0 6px #00e3aa;box-shadow:0 0 9px #00dca0,inset 0 0 3px #124}
-    .sig-left.on.yellow{color:#ffd04a;border-color:#ffe06a;text-shadow:0 0 6px #ffb000;box-shadow:0 0 8px #ffb000,inset 0 0 3px #421}
-    .route-signal-icon{display:none!important;pointer-events:none!important;width:0!important;height:0!important;border:0!important;overflow:hidden!important}
-    #browseTrafficPanel{position:absolute;z-index:950;right:10px;top:72px;max-width:min(340px,calc(100vw - 20px));padding:8px 10px;border-radius:10px;background:#111820e8;color:#eef6ff;font-size:12px;line-height:1.4;box-shadow:0 3px 12px #0007;backdrop-filter:blur(6px);display:none;pointer-events:none}
-    @media(max-width:768px){#browseTrafficPanel{display:none!important}.live-signal-pill{padding:3px 4px;gap:2px}.sig-lamp,.sig-left{width:15px;height:15px;flex-basis:15px}.sig-left{font-size:13px}}
-  `;
-  document.head.appendChild(style);
-
-  const panel=document.createElement('div');panel.id='browseTrafficPanel';
-  const mapEl=document.getElementById('map')||document.body;
-  if(getComputedStyle(mapEl).position==='static')mapEl.style.position='relative';
-  mapEl.appendChild(panel);
-
-  const isPhone=()=>matchMedia('(max-width:768px)').matches;
-  function sourceFor(lat,lng){try{return window.trafficSourceForLocation?.(lat,lng)||'nationwide';}catch(e){return 'nationwide';}}
-  function showPanel(html){if(isPhone())return;panel.innerHTML=html;panel.style.display='block';}
-  function hidePanel(){panel.style.display='none';}
-
+  if(window.__trafficMapPatchV65)return;
+  window.__trafficMapPatchV65=true;
+  let layer=null,refreshTimer=null,livePollTimer=null,popupTicker=null,generation=0,currentNearestJob=null,openMarker=null,openIx=null,currentJobs=[];
+  const liveCache=new Map(),POLL_MS=15000,isPhone=()=>matchMedia('(max-width:768px)').matches;
+  const style=document.createElement('style');style.textContent=`
+    .leaflet-signal-icon{background:transparent!important;border:0!important}.live-signal-pill{box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:4px;width:104px;height:34px;padding:5px 7px;border-radius:8px;background:linear-gradient(#252b30,#080a0c);border:2px solid #4c555c;box-shadow:0 3px 8px #000c,inset 0 0 0 1px #050607;white-space:nowrap;cursor:pointer}.live-signal-pill.near{border-color:#f4c542;box-shadow:0 0 0 3px #ffd84a50,0 3px 9px #000d}.live-signal-pill.loading{opacity:.72}
+    .sig-lamp,.sig-left{width:20px;height:20px;box-sizing:border-box;border-radius:50%;background:#090c0e;border:1px solid #343d43;box-shadow:inset 0 0 4px #000;flex:0 0 20px}.sig-lamp.red.on{background:#ff2d37;border-color:#ff7379;box-shadow:0 0 9px #ff2430,inset 0 0 3px #fff8}.sig-lamp.yellow.on{background:#ffbf16;border-color:#ffe06a;box-shadow:0 0 9px #ffb000,inset 0 0 3px #fff8}.sig-lamp.green.on{background:#17e6ad;border-color:#70ffda;box-shadow:0 0 9px #00dca0,inset 0 0 3px #fff8}.sig-left{display:flex;align-items:center;justify-content:center;color:#263033;font-size:18px;line-height:1;font-weight:1000}.sig-left.on.green{color:#28f0c0;border-color:#70ffda;text-shadow:0 0 6px #00e3aa;box-shadow:0 0 9px #00dca0,inset 0 0 3px #124}.sig-left.on.yellow{color:#ffd04a;border-color:#ffe06a;text-shadow:0 0 6px #ffb000;box-shadow:0 0 8px #ffb000,inset 0 0 3px #421}
+    .route-signal-icon{display:none!important;pointer-events:none!important;width:0!important;height:0!important;border:0!important;overflow:hidden!important}.signal-map-popup .leaflet-popup-content-wrapper{border-radius:16px;background:#151b22;color:#f5f8fb;box-shadow:0 10px 30px #0009}.signal-map-popup .leaflet-popup-tip{background:#151b22}.signal-map-popup .leaflet-popup-content{width:min(340px,calc(100vw - 64px))!important;margin:16px 18px}.signal-map-popup .leaflet-popup-close-button{color:#aeb8c2!important;font-size:25px!important;right:5px!important;top:5px!important}.signal-card-title{padding-right:24px;font-size:18px;font-weight:900;line-height:1.25}.signal-card-meta{margin-top:4px;color:#96a5b4;font-size:12px}.signal-card-approach{margin:12px 0 7px;color:#dce6ef;font-size:13px;font-weight:800}.signal-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.signal-move{display:flex;align-items:center;justify-content:space-between;min-height:40px;padding:7px 9px;border:1px solid #35404b;border-radius:10px;background:#202832}.signal-move-name{font-weight:800}.signal-move-state{font-weight:900}.signal-move-state.red{color:#ff6670}.signal-move-state.yellow{color:#ffd04a}.signal-move-state.green{color:#27edb5}.signal-card-time{margin-top:9px;color:#93a1af;font-size:11px}.signal-card-error{padding:12px 0;color:#ffb2b6}
+    @media(max-width:768px){.live-signal-pill{width:88px;height:30px;padding:4px 6px;gap:3px;border-radius:7px}.sig-lamp,.sig-left{width:17px;height:17px;flex-basis:17px}.sig-left{font-size:15px}.signal-map-popup .leaflet-popup-content{width:min(320px,calc(100vw - 54px))!important;margin:15px}.signal-card-title{font-size:17px}.signal-grid{gap:6px}.signal-move{min-height:38px;padding:6px 8px}}@media(max-width:380px){.signal-grid{grid-template-columns:1fr}.signal-map-popup .leaflet-popup-content{width:calc(100vw - 50px)!important}}
+  `;document.head.appendChild(style);
+  function sourceFor(lat,lng){try{return window.trafficSourceForLocation?.(lat,lng)||'nationwide';}catch(e){return'nationwide';}}
   function nearestToCenter(list,center){let best=null,bd=Infinity;for(const ix of list){const d=hav(center.lat,center.lng,ix.lat,ix.lng);if(d<bd){bd=d;best=ix;}}return best?{ix:best,d:bd}:null;}
   function directionFor(ix,center){const heading=bearingDeg(center.lat,center.lng,ix.lat,ix.lng),fromDeg=(heading+180)%360;return TRAFFIC_DIRS.reduce((a,b)=>trafficAngleGap(a.deg,fromDeg)<=trafficAngleGap(b.deg,fromDeg)?a:b);}
-  function movement(rec,dir,type,source){const stem=dir.key+type+'sg',statusKey=stem+(source==='seoul'?'StatNm':'SttsNm'),raw=rec?.[statusKey];if(raw==null||raw==='')return {exists:false,color:null};return {exists:true,color:trafficStatusColor(raw)};}
-  function stateFor(rec,ix,center){if(!rec)return null;const dir=directionFor(ix,center);let straight=movement(rec,dir,'St',ix.source);const bus=movement(rec,dir,'Bs',ix.source);if(!straight.exists&&bus.exists)straight=bus;const left=movement(rec,dir,'Lt',ix.source);return {dir,straight,left};}
-
-  function markerHtml(state,near=false,loading=false){
-    const c=state?.straight?.color||null;
-    const lamp=n=>'<span class="sig-lamp '+n+(c===n?' on':'')+'"></span>';
-    const leftColor=state?.left?.exists?state.left.color:null;
-    const left='<span class="sig-left'+(leftColor==='green'||leftColor==='yellow'?' on '+leftColor:'')+'">←</span>';
-    return '<div class="live-signal-pill'+(near?' near':'')+(loading?' loading':'')+'">'+lamp('red')+lamp('yellow')+left+lamp('green')+'</div>';
-  }
-  function liveIcon(state,near=false,loading=false){return L.divIcon({className:'',html:markerHtml(state,near,loading),iconSize:[1,1],iconAnchor:[0,0]});}
-
-  async function showIntersection(ix){
-    selected=ix;
-    if(isPhone())return;
-    try{
-      const rec=await fetchTrafficLiveRecord(ix),st=stateFor(rec,ix,map.getCenter());
-      const bits=[];if(st?.straight?.exists)bits.push('직진 '+st.straight.color);if(st?.left?.exists)bits.push('좌회전 '+st.left.color);
-      showPanel('<b>'+esc(ix.name||'교차로')+'</b><div>'+esc(bits.join(' · ')||'신호 상태 확인 불가')+'</div>');
-    }catch(e){showPanel('<b>'+esc(ix.name||'교차로')+'</b>');}
-  }
-
-  async function loadLive(items,center,gen){
-    const queue=[...items];
-    const worker=async()=>{while(queue.length){const item=queue.shift();if(!item||gen!==generation)return;const {ix,m,near}=item,key=(ix.source||'')+':'+ix.crsrdId;let cached=liveCache.get(key);if(!cached||Date.now()-cached.at>4500){try{cached={at:Date.now(),rec:await fetchTrafficLiveRecord(ix)};}catch(e){cached={at:Date.now(),rec:null};}liveCache.set(key,cached);}if(gen!==generation)return;const st=stateFor(cached.rec,ix,center);try{m.setIcon(liveIcon(st,near,false));}catch(e){}}};
-    await Promise.all([worker(),worker(),worker(),worker()]);
-  }
-
-  async function refreshNearestLive(){
-    const job=currentNearestJob;
-    if(!job||typeof map==='undefined'||typeof trafficLightOn!=='undefined'&&!trafficLightOn)return;
-    try{
-      const key=(job.ix.source||'')+':'+job.ix.crsrdId;
-      const rec=await fetchTrafficLiveRecord(job.ix);
-      liveCache.set(key,{at:Date.now(),rec});
-      if(job===currentNearestJob&&map.hasLayer(job.m))job.m.setIcon(liveIcon(stateFor(rec,job.ix,map.getCenter()),true,false));
-    }catch(e){/* 마지막으로 받은 현시는 유지하고 다음 주기에 재시도 */}
-  }
-  function restartLivePolling(){
-    clearInterval(livePollTimer);livePollTimer=null;
-    if(currentNearestJob)livePollTimer=setInterval(refreshNearestLive,10000);
-  }
-
-  async function refresh(){
-    const gen=++generation;clearTimeout(refreshTimer);
-    try{
-      // Browse-mode signals are independent from route selection. If the map is visible and zoomed in,
-      // show live intersections even before a bus route has been chosen.
-      if(typeof map==='undefined'||typeof L==='undefined')return;
-      if(typeof trafficLightOn!=='undefined'&&!trafficLightOn){currentNearestJob=null;restartLivePolling();if(layer){map.removeLayer(layer);layer=null;}hidePanel();return;}
-      // Route links commonly open at z=13. Keeping the cutoff at 14 made the
-      // setting look broken even though the API was healthy.
-      if(map.getZoom()<13){currentNearestJob=null;restartLivePolling();if(layer){map.removeLayer(layer);layer=null;}hidePanel();return;}
-      const center=map.getCenter(),source=sourceFor(center.lat,center.lng),all=await loadTrafficIntersections(source);if(gen!==generation)return;
-      const b=map.getBounds().pad(0.10);let visible=all.filter(ix=>b.contains([ix.lat,ix.lng]));
-      visible.sort((a,b)=>hav(center.lat,center.lng,a.lat,a.lng)-hav(center.lat,center.lng,b.lat,b.lng));
-      visible=visible.slice(0,isPhone()?10:16).map(ix=>({...ix,source:ix.source||source}));
-      if(layer){try{map.removeLayer(layer);}catch(e){}}
-      layer=L.layerGroup().addTo(map);const nearest=nearestToCenter(visible,center),jobs=[];
-      for(const ix of visible){const near=nearest&&nearest.ix.crsrdId===ix.crsrdId;const m=L.marker([ix.lat,ix.lng],{icon:liveIcon(null,near,true),zIndexOffset:1000,keyboard:false}).addTo(layer);m.on('click',()=>showIntersection(ix));jobs.push({ix,m,near});}
-      currentNearestJob=jobs.find(job=>job.near)||null;restartLivePolling();
-      await loadLive(jobs,center,gen);
-    }catch(e){console.warn('browse traffic refresh failed',e);}
-  }
-
-  function schedule(){clearTimeout(refreshTimer);refreshTimer=setTimeout(refresh,160);}
-  window.refreshTrafficMapNow=()=>{clearTimeout(refreshTimer);return refresh();};
-  window.setTrafficMapEnabled=on=>{if(!on){generation++;clearTimeout(refreshTimer);currentNearestJob=null;restartLivePolling();if(layer){try{map.removeLayer(layer);}catch(e){}layer=null;}hidePanel();return;}refresh();};
-  try{map.on('moveend zoomend',schedule);}catch(e){}
-  setTimeout(refresh,600);
+  function movement(rec,dir,type,source){const stem=dir.key+type+'sg',raw=rec?.[stem+(source==='seoul'?'StatNm':'SttsNm')];if(raw==null||raw==='')return{exists:false,color:null,seconds:null};const color=trafficStatusColor(raw),remain=rec?.[stem+(source==='seoul'?'RmdrCs':'RmndCs')],base=trafficRecordTime(rec),duration=remain==null||remain===''?null:Number(remain)/(source==='seoul'?10:1000),seconds=Number.isFinite(duration)&&Number.isFinite(base)?Math.max(0,Math.ceil((base+duration*1000-Date.now())/1000)):null;return{exists:true,color,seconds};}
+  function stateFor(rec,ix,center){if(!rec)return null;const dir=directionFor(ix,center);let straight=movement(rec,dir,'St',ix.source),bus=movement(rec,dir,'Bs',ix.source);if(!straight.exists&&bus.exists)straight=bus;return{dir,straight,left:movement(rec,dir,'Lt',ix.source),uTurn:movement(rec,dir,'Ut',ix.source),bus,pedestrian:movement(rec,dir,'Pd',ix.source)};}
+  function markerHtml(state,near=false,loading=false){const c=state?.straight?.color||null,lamp=n=>'<span class="sig-lamp '+n+(c===n?' on':'')+'"></span>',lc=state?.left?.exists?state.left.color:null,left='<span class="sig-left'+(lc==='green'||lc==='yellow'?' on '+lc:'')+'">←</span>';return'<div class="live-signal-pill'+(near?' near':'')+(loading?' loading':'')+'">'+lamp('red')+lamp('yellow')+left+lamp('green')+'</div>';}
+  function liveIcon(state,near=false,loading=false){const size=isPhone()?[88,30]:[104,34];return L.divIcon({className:'leaflet-signal-icon',html:markerHtml(state,near,loading),iconSize:size,iconAnchor:[size[0]/2,size[1]/2],popupAnchor:[0,-size[1]/2]});}
+  const stateName=m=>!m?.exists?'정보 없음':m.color==='red'?'정지':m.color==='yellow'?'전환':m.color==='green'?'진행':'상태 확인 중';
+  function moveHtml(label,m,unavailable=false){const value=unavailable?'API 미제공':stateName(m)+(m?.seconds!=null?' · '+m.seconds+'초':'');return'<div class="signal-move"><span class="signal-move-name">'+label+'</span><span class="signal-move-state '+(m?.color||'')+'">'+value+'</span></div>';}
+  function popupHtml(ix,st,rec,error=''){if(error)return'<div class="signal-card-title">'+esc(ix.name||'교차로')+'</div><div class="signal-card-error">'+esc(error)+'</div>';const at=trafficRecordTime(rec),when=Number.isFinite(at)?new Date(at).toLocaleTimeString('ko-KR'):'확인 불가';return'<div class="signal-card-title">🚦 '+esc(ix.name||'교차로')+'</div><div class="signal-card-meta">교차로 ID '+esc(ix.crsrdId)+'</div><div class="signal-card-approach">'+esc(st?.dir?.label||'현재 방향')+' 진입 신호</div><div class="signal-grid">'+moveHtml('직진',st?.straight)+moveHtml('좌회전',st?.left)+moveHtml('유턴',st?.uTurn)+moveHtml('버스',st?.bus)+moveHtml('보행',st?.pedestrian)+moveHtml('우회전',null,true)+'</div><div class="signal-card-time">기준 '+esc(when)+' · 자동 갱신 정보</div>';}
+  async function recordFor(ix,force=false){const key=(ix.source||'')+':'+ix.crsrdId,cached=liveCache.get(key);if(!force&&cached&&Date.now()-cached.at<8000)return cached.rec;const rec=await fetchTrafficLiveRecord(ix);liveCache.set(key,{at:Date.now(),rec});return rec;}
+  async function showIntersection(ix,m){openMarker=m;openIx=ix;currentNearestJob={ix,m,near:true};restartLivePolling();clearInterval(popupTicker);m.bindPopup('<div class="signal-card-title">🚦 '+esc(ix.name||'교차로')+'</div><div class="signal-card-meta">실시간 신호를 불러오는 중…</div>',{className:'signal-map-popup',maxWidth:380,minWidth:220,autoPan:true,keepInView:true}).openPopup();m.once('popupclose',()=>{clearInterval(popupTicker);popupTicker=null;openMarker=openIx=null;currentNearestJob=currentJobs.find(x=>x.near)||null;restartLivePolling();});try{const rec=await recordFor(ix,true),cacheKey=(ix.source||'')+':'+ix.crsrdId,paint=()=>{const latest=liveCache.get(cacheKey)?.rec||rec,st=stateFor(latest,ix,map.getCenter());if(openMarker===m&&m.isPopupOpen())m.setPopupContent(popupHtml(ix,st,latest));m.setIcon(liveIcon(st,true,false));};paint();popupTicker=setInterval(paint,1000);}catch(e){if(openMarker===m&&m.isPopupOpen())m.setPopupContent(popupHtml(ix,null,null,e.message||'신호 정보를 불러오지 못했습니다'));}}
+  async function refreshNearestLive(){const job=currentNearestJob;if(!job||document.hidden||typeof map==='undefined'||typeof trafficLightOn!=='undefined'&&!trafficLightOn)return;try{const rec=await recordFor(job.ix,true);if(job===currentNearestJob&&map.hasLayer(job.m))job.m.setIcon(liveIcon(stateFor(rec,job.ix,map.getCenter()),true,false));if(openMarker===job.m&&job.m.isPopupOpen())job.m.setPopupContent(popupHtml(job.ix,stateFor(rec,job.ix,map.getCenter()),rec));}catch(e){}}
+  function restartLivePolling(){clearInterval(livePollTimer);livePollTimer=null;if(currentNearestJob)livePollTimer=setInterval(refreshNearestLive,POLL_MS);}
+  async function refresh(){const gen=++generation;clearTimeout(refreshTimer);try{if(typeof map==='undefined'||typeof L==='undefined')return;if((typeof trafficLightOn!=='undefined'&&!trafficLightOn)||map.getZoom()<13){currentJobs=[];currentNearestJob=null;restartLivePolling();if(layer){map.removeLayer(layer);layer=null;}return;}const center=map.getCenter(),source=sourceFor(center.lat,center.lng),all=await loadTrafficIntersections(source);if(gen!==generation)return;const b=map.getBounds().pad(.10);let visible=all.filter(ix=>b.contains([ix.lat,ix.lng]));visible.sort((a,b)=>hav(center.lat,center.lng,a.lat,a.lng)-hav(center.lat,center.lng,b.lat,b.lng));visible=visible.slice(0,isPhone()?10:16).map(ix=>({...ix,source:ix.source||source}));if(layer){try{map.removeLayer(layer);}catch(e){}}layer=L.layerGroup().addTo(map);const nearest=nearestToCenter(visible,center),jobs=[];for(const ix of visible){const near=nearest&&nearest.ix.crsrdId===ix.crsrdId,m=L.marker([ix.lat,ix.lng],{icon:liveIcon(null,near,false),zIndexOffset:1000,keyboard:true,title:ix.name||'교차로'}).addTo(layer);m.on('click',()=>showIntersection(ix,m));jobs.push({ix,m,near});}currentJobs=jobs;currentNearestJob=jobs.find(x=>x.near)||null;restartLivePolling();await refreshNearestLive();}catch(e){console.warn('browse traffic refresh failed',e);}}
+  function schedule(){clearTimeout(refreshTimer);refreshTimer=setTimeout(refresh,180);}window.refreshTrafficMapNow=()=>{clearTimeout(refreshTimer);return refresh();};window.setTrafficMapEnabled=on=>{if(!on){generation++;clearTimeout(refreshTimer);currentJobs=[];currentNearestJob=null;restartLivePolling();if(layer){try{map.removeLayer(layer);}catch(e){}layer=null;}return;}refresh();};try{map.on('moveend zoomend',schedule);}catch(e){}document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshNearestLive();});setTimeout(refresh,600);
 })();

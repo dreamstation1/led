@@ -3239,7 +3239,11 @@ async function fetchTrafficLiveSeoul(itstId){
   try{
     const fused=trafficItems(await trafficFetchJson(trafficSeoulUrl(SEOUL_TDATA_URL,params)));
     if(fused.length && fused.some(rec=>Object.keys(rec).some(k=>/StatNm$/.test(k))) && fused.some(rec=>Object.keys(rec).some(k=>/RmdrCs$/.test(k))))return fused;
-  }catch(e){ /* 아래의 분리 API로 복구 */ }
+  }catch(e){
+    // 네트워크/CORS/429 실패 때 분리 API 두 개까지 연속 호출하지 않는다.
+    // 결합 API가 정상 응답했지만 자료만 비었을 때만 아래 복구 경로를 쓴다.
+    throw e;
+  }
   const [timingResult,phaseResult]=await Promise.allSettled([
     trafficFetchJson(trafficSeoulUrl(SEOUL_TDATA_TIMING_URL,params)),
     trafficFetchJson(trafficSeoulUrl(SEOUL_TDATA_PHASE_URL,params))
@@ -3259,13 +3263,21 @@ async function fetchTrafficLiveSeoul(itstId){
   else if(Number.isFinite(pAt))merged.trsmUtcTime=pAt;
   return [merged];
 }
+const trafficLiveRequests=new Map(),trafficLiveCache=new Map(),trafficLiveFailures=new Map();
 async function fetchTrafficLiveRecord(intersection){
-  const rows=intersection.source==='seoul'?await fetchTrafficLiveSeoul(intersection.crsrdId):await fetchTrafficLiveNationwide(intersection);
-  const matching=rows.filter(it=>intersection.source==='seoul'
-    ?String(it.itstId)===intersection.crsrdId
-    :String(it.crsrdId)===intersection.crsrdId && String(it.stdgCd)===String(intersection.stdgCd));
-  matching.sort((a,b)=>(trafficRecordTime(b)||0)-(trafficRecordTime(a)||0));
-  return matching[0]||null;
+  const key=(intersection.source||'')+':'+intersection.crsrdId,now=Date.now(),cached=trafficLiveCache.get(key),failure=trafficLiveFailures.get(key);
+  if(cached&&now-cached.at<8000)return cached.rec;
+  if(failure&&now-failure.at<(failure.error?.status===429?TRAFFIC_RATE_LIMIT_BACKOFF:60000))throw failure.error;
+  if(trafficLiveRequests.has(key))return trafficLiveRequests.get(key);
+  const task=(async()=>{
+    const rows=intersection.source==='seoul'?await fetchTrafficLiveSeoul(intersection.crsrdId):await fetchTrafficLiveNationwide(intersection);
+    const matching=rows.filter(it=>intersection.source==='seoul'
+      ?String(it.itstId)===intersection.crsrdId
+      :String(it.crsrdId)===intersection.crsrdId && String(it.stdgCd)===String(intersection.stdgCd));
+    matching.sort((a,b)=>(trafficRecordTime(b)||0)-(trafficRecordTime(a)||0));
+    const rec=matching[0]||null;trafficLiveCache.set(key,{at:Date.now(),rec});trafficLiveFailures.delete(key);return rec;
+  })().catch(error=>{trafficLiveFailures.set(key,{at:Date.now(),error});throw error;}).finally(()=>trafficLiveRequests.delete(key));
+  trafficLiveRequests.set(key,task);return task;
 }
 function pickTrafficPhase(rec,headingDeg,source='seoul',now=Date.now()){
   if(headingDeg==null || !Number.isFinite(Number(headingDeg)))return null;
@@ -4258,7 +4270,7 @@ function stopGuide(){
 <script src="planner.js?v=20260919-9"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
 <script src="./mobile-patch.js?v=56"></script>
-<script src="./traffic-map-patch.js?v=64"></script>
+<script src="./traffic-map-patch.js?v=65"></script>
 <script src="./utic-map-patch.js?v=59"></script>
 <script src="./ios-touch-patch.js?v=54"></script>
 <script src="./gapless-patch.js?v=57"></script>
