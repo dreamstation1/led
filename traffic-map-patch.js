@@ -1,8 +1,8 @@
 (function(){
-  if(window.__trafficMapPatchV63)return;
-  window.__trafficMapPatchV63=true;
+  if(window.__trafficMapPatchV64)return;
+  window.__trafficMapPatchV64=true;
 
-  let layer=null,refreshTimer=null,generation=0,selected=null;
+  let layer=null,refreshTimer=null,livePollTimer=null,generation=0,selected=null,currentNearestJob=null;
   const liveCache=new Map();
 
   const style=document.createElement('style');
@@ -63,16 +63,31 @@
     await Promise.all([worker(),worker(),worker(),worker()]);
   }
 
+  async function refreshNearestLive(){
+    const job=currentNearestJob;
+    if(!job||typeof map==='undefined'||typeof trafficLightOn!=='undefined'&&!trafficLightOn)return;
+    try{
+      const key=(job.ix.source||'')+':'+job.ix.crsrdId;
+      const rec=await fetchTrafficLiveRecord(job.ix);
+      liveCache.set(key,{at:Date.now(),rec});
+      if(job===currentNearestJob&&map.hasLayer(job.m))job.m.setIcon(liveIcon(stateFor(rec,job.ix,map.getCenter()),true,false));
+    }catch(e){/* 마지막으로 받은 현시는 유지하고 다음 주기에 재시도 */}
+  }
+  function restartLivePolling(){
+    clearInterval(livePollTimer);livePollTimer=null;
+    if(currentNearestJob)livePollTimer=setInterval(refreshNearestLive,10000);
+  }
+
   async function refresh(){
     const gen=++generation;clearTimeout(refreshTimer);
     try{
       // Browse-mode signals are independent from route selection. If the map is visible and zoomed in,
       // show live intersections even before a bus route has been chosen.
       if(typeof map==='undefined'||typeof L==='undefined')return;
-      if(typeof trafficLightOn!=='undefined'&&!trafficLightOn){if(layer){map.removeLayer(layer);layer=null;}hidePanel();return;}
+      if(typeof trafficLightOn!=='undefined'&&!trafficLightOn){currentNearestJob=null;restartLivePolling();if(layer){map.removeLayer(layer);layer=null;}hidePanel();return;}
       // Route links commonly open at z=13. Keeping the cutoff at 14 made the
       // setting look broken even though the API was healthy.
-      if(map.getZoom()<13){if(layer){map.removeLayer(layer);layer=null;}hidePanel();return;}
+      if(map.getZoom()<13){currentNearestJob=null;restartLivePolling();if(layer){map.removeLayer(layer);layer=null;}hidePanel();return;}
       const center=map.getCenter(),source=sourceFor(center.lat,center.lng),all=await loadTrafficIntersections(source);if(gen!==generation)return;
       const b=map.getBounds().pad(0.10);let visible=all.filter(ix=>b.contains([ix.lat,ix.lng]));
       visible.sort((a,b)=>hav(center.lat,center.lng,a.lat,a.lng)-hav(center.lat,center.lng,b.lat,b.lng));
@@ -80,13 +95,14 @@
       if(layer){try{map.removeLayer(layer);}catch(e){}}
       layer=L.layerGroup().addTo(map);const nearest=nearestToCenter(visible,center),jobs=[];
       for(const ix of visible){const near=nearest&&nearest.ix.crsrdId===ix.crsrdId;const m=L.marker([ix.lat,ix.lng],{icon:liveIcon(null,near,true),zIndexOffset:1000,keyboard:false}).addTo(layer);m.on('click',()=>showIntersection(ix));jobs.push({ix,m,near});}
+      currentNearestJob=jobs.find(job=>job.near)||null;restartLivePolling();
       await loadLive(jobs,center,gen);
     }catch(e){console.warn('browse traffic refresh failed',e);}
   }
 
   function schedule(){clearTimeout(refreshTimer);refreshTimer=setTimeout(refresh,160);}
   window.refreshTrafficMapNow=()=>{clearTimeout(refreshTimer);return refresh();};
-  window.setTrafficMapEnabled=on=>{if(!on){generation++;clearTimeout(refreshTimer);if(layer){try{map.removeLayer(layer);}catch(e){}layer=null;}hidePanel();return;}refresh();};
+  window.setTrafficMapEnabled=on=>{if(!on){generation++;clearTimeout(refreshTimer);currentNearestJob=null;restartLivePolling();if(layer){try{map.removeLayer(layer);}catch(e){}layer=null;}hidePanel();return;}refresh();};
   try{map.on('moveend zoomend',schedule);}catch(e){}
   setTimeout(refresh,600);
 })();
