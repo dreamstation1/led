@@ -128,6 +128,13 @@ button:hover{background:#2a3039}
   border-bottom:1px solid #343b45;
   flex:0 0 auto;
   min-height:0;
+  max-height:65%;
+  overflow-x:hidden;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-y:contain;
+  touch-action:pan-y;
+  scrollbar-width:thin;
 }
 #routeHeadTop{
   display:flex;
@@ -752,13 +759,24 @@ body.light-ui .route{color:#fff}
 .guide-led{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);}
 .guide-led-status{font-size:11px;color:var(--muted);}
 
-/* On phones/tablets the expanded speed/audio/LED controls can be taller than
-   the viewport. Make the header itself a momentum-scroll area so every
-   control remains reachable while the stop list keeps its own scrolling. */
+/* The route controls can be taller than the viewport on phones, tablets and
+   desktop windows alike. The header and stop list are independent vertical
+   scroll regions so expanding speed/audio/LED never pushes a control outside
+   the screen. A percentage of the actual sidebar height works consistently
+   in Samsung Internet, iOS Safari, installed PWAs and desktop browsers. */
+#routeHead{
+  max-height:65%;
+  overflow-x:hidden;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-y:contain;
+  touch-action:pan-y;
+  scrollbar-width:thin;
+}
 @media (max-width:1180px), (hover:none) and (pointer:coarse){
   #routeSidebar{min-height:0;overflow:hidden}
   #routeHead{
-    max-height:min(74%,720px);
+    max-height:65%;
     overflow-x:hidden;
     overflow-y:auto;
     -webkit-overflow-scrolling:touch;
@@ -958,6 +976,7 @@ body.light-ui .route{color:#fff}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="traffic-intersections.js?v=56"></script>
+<script id="audioFileManifest" type="application/json">["가양2단지성지아파트.동양고등학교 (1).wav","가양2단지성지아파트.동양고등학교.wav","가양동천주교영등포공업고등학교 (1).wav","가양동천주교영등포공업고등학교.wav","가양역1번출구.우성아파트 (1).wav","가양역1번출구.우성아파트.wav","가양역6번출구.현대프린스텔 (1).wav","가양역6번출구.현대프린스텔.wav","가양역7번출구.마포중고교 (1).wav","가양역7번출구.마포중고교.wav","가양역8번출구.마포중고교 (1).wav","가양역8번출구.마포중고교.wav","가양역9번출구.우성아파트 (1).wav","가양역9번출구.우성아파트.wav","가양한강타운아파트 (1).wav","가양한강타운아파트.wav","갈산초등학교후문 (1).wav","갈산초등학교후문.wav","강남성심병원.대림성모병원 (1).wav","강남성심병원.대림성모병원.wav","강서구청사거리.서울디지털대학교 (1).wav","강서구청사거리.서울디지털대학교 (2).wav","강서구청사거리.서울디지털대학교 (3).wav","강서구청사거리.서울디지털대학교.wav","강서면허시험장.강서농수산물시장 (1).wav","강서면허시험장.강서농수산물시장.wav","강서세무서 (1).wav","강서세무서 (2).wav","강서세무서.wav","개봉1동사거리.개봉푸르지오아파트 (1).wav","개봉1동사거리.개봉푸르지오아파트.wav","개봉역.영화아파트 (1).wav","개봉역.영화아파트 (2).wav","개봉역.영화아파트.wav","개봉푸르지오아파트 (1).wav","개봉푸르지오아파트 (2).wav","개봉푸르지오아파트.wav","개화119안전센터 (1).wav","개화119안전센터.wav","개화산역2번출구 (1).wav","개화산역2번출구.wav","개화역광역환승센터 (1).wav","개화역광역환승센터.wav","개화초교.개화산역2번출구 (1).wav","개화초교.개화산역2번출구.wav","경방타임스퀘어.신세계백화점 (1).wav","경방타임스퀘어.신세계백화점.wav","경복궁 (1).wav","경복궁.wav","경복비즈니스고등학교 (1).wav","경복비즈니스고등학교.wav","경인중학교 (1).wav","경인중학교.개봉사거리 (1).wav","경인중학교.개봉사거리.wav","경인중학교.wav","경인초교.목동아파트5.6단지사잇길.wav","고척근린공원 (1).wav","고척근린공원.wav","공덕역.공덕시장 (1).wav","공덕역.공덕시장.wav","공항동송정중학교 (1).wav","공항동송정중학교.wav","공항동천주교회 (1).wav","공항동천주교회.wav","공항시장 (1).wav","공항시장.wav","공항시장역.공항성산교회 (1).wav","공항시장역.공항성산교회.wav","공항시장역3번출구 (1).wav","공항시장역3번출구.wav","공항중학교.마곡엠밸리9,10단지 (1).wav","공항중학교.마곡엠밸리9,10단지.wav","관악고등학교 (1).wav","관악고등학교.wav","관악푸르지오아파트 (1).wav","관악푸르지오아파트.wav","교대역10번출구 (1).wav","교대역10번출구.wav","구로119안전센터 (1).wav","구로119안전센터.wav","구로구청 (1).wav","구로구청.wav","구로도서관.대성스카이렉스 (1).wav","구로도서관.대성스카이렉스.wav","구로디지털단지역 (1).wav","구로디지털단지역.wav","구로변전소.구로초등학교 (1).wav","구로변전소.구로초등학교.wav","구로보건소 (1).wav","구로보건소.wav","구로역 (1).wav","구로역.구로기계공구상가 (1).wav","구로역.구로기계공구상가.wav","구로역.wav","구로역·NC신구로점 (1).wav","구로역·NC신구로점.wav","구로중학교 (1).wav","구로중학교.wav","구일역.중앙유통상가.wav","국회의사당 (1).wav","국회의사당.wav","국회의사당역5번출구 (1).wav","국회의사당역5번출구.wav","궁동입구 (1).wav","궁동입구.wav","궁동청소년문화의집 (1).wav","궁동청소년문화의집.wav","그린빌라정문 (1).wav","그린빌라정문.wav","금호어울림.대원칸타빌아파트 (1).wav","금호어울림.대원칸타빌아파트.wav","기업은행구로중앙지점 (1).wav","기업은행구로중앙지점.wav","김안과병원 (1).wav","김안과병원.wav","김포공항국내선 (1).wav","김포공항국내선.wav","까치산역4번출구 (1).wav","까치산역4번출구.wav","낙성대입구 (1).wav","낙성대입구.wav","남부여성발전센터 (1).wav","남부여성발전센터.wav","남부지방법원등기국.구로세무서(에이스하이테크시티) (1).wav","남부지방법원등기국.구로세무서(에이스하이테크시티).wav","남성역 (1).wav","남성역.wav","남성역골목시장 (1).wav","남성역골목시장.wav","남성초등학교 (1).wav","남성초등학교.wav","내방역5번출구 (1).wav","내방역5번출구 (2).wav","내방역5번출구.wav","노들섬 (1).wav","노들섬.wav","노들역 (1).wav","노들역.wav","노량진수산시장.CTS기독교TV (1).wav","노량진수산시장.CTS기독교TV.wav","노량진역 (1).wav","노량진역.wav","노량진초등학교앞 (1).wav","노량진초등학교앞.wav","다음정류소.wav","당산119안전센터.당산역 (1).wav","당산119안전센터.당산역.wav","당산동삼익아파트 (1).wav","당산동삼익아파트.wav","당산동진로아파트 (1).wav","당산동진로아파트.wav","당산센트럴아이파크아파트 (1).wav","당산센트럴아이파크아파트.wav","당산신동아파밀리에 (1).wav","당산신동아파밀리에.wav","당산역.삼성래미안아파트 (1).wav","당산역.삼성래미안아파트.wav","당산역11번출구 (1).wav","당산역11번출구.wav","당산역13번출구 (1).wav","당산역13번출구.wav","당산역2번출구 (1).wav","당산역2번출구.wav","당산역삼성래미안아파트 (1).wav","당산역삼성래미안아파트.wav","당산유원제일1차아파트 (1).wav","당산유원제일1차아파트.wav","당산푸르지오아파트 (1).wav","당산푸르지오아파트.wav","대림역 (1).wav","대림역.wav","대림역3번출구 (1).wav","대림역3번출구.wav","대방역6번출구 (1).wav","대방역6번출구.wav","대법원앞 (1).wav","대법원앞.wav","대우효령아파트 (1).wav","대우효령아파트 (2).wav","대우효령아파트.wav","대원시장 (1).wav","대원시장.wav","대일고교.임광아파트.배광교회 (1).wav","대일고교.임광아파트.배광교회.wav","덕의초등학교 (1).wav","덕의초등학교.wav","덕일전자공업고등학교.wav","독산3동주민센터 (1).wav","독산3동주민센터.wav","독산4동주민센터 (1).wav","독산4동주민센터.wav","독산동성당앞 (1).wav","독산동성당앞 (2).wav","독산동성당앞.wav","독산동쌈지공원 (1).wav","독산동쌈지공원.wav","독산동정훈단지 (1).wav","독산동정훈단지.wav","독산보건지소.별빛남문시장.wav","동교동삼거리 (1).wav","동교동삼거리.wav","동산교회앞 (1).wav","동산교회앞.wav","동삼빌라 (1).wav","동삼빌라.wav","동아1차아파트102동 (1).wav","동아1차아파트102동.wav","동양미래대학.구로성심병원 (1).wav","동양미래대학.구로성심병원.wav","동양빌라 (1).wav","동양빌라.wav","동작구청.동작보건소건강관리청 (1).wav","동작구청.동작보건소건강관리청.wav","두암빌라 (1).wav","두암빌라.wav","등촌2동주민센터.등촌동대림아파트 (1).wav","등촌2동주민센터.등촌동대림아파트 (2).wav","등촌2동주민센터.등촌동대림아파트.wav","등촌3동5단지아파트.등촌고등학교 (1).wav","등촌3동5단지아파트.등촌고등학교.wav","등촌3동주공10단지아파트 (1).wav","등촌3동주공10단지아파트.wav","등촌3동주공4단지아파트 (1).wav","등촌3동주공4단지아파트.wav","등촌동대림아파트 (1).wav","등촌동대림아파트.wav","등촌동부영아파트 (1).wav","등촌동부영아파트.wav","등촌역.강서보건소 (1).wav","등촌역.강서보건소.wav","등촌역6번출구.목동깨비시장 (1).wav","등촌역6번출구.목동깨비시장.wav","등촌중학교.백석초등학교 (1) (1).wav","등촌중학교.백석초등학교 (1).wav","등촌중학교.백석초등학교.wav","등촌중학교.한국임업진흥원 (1).wav","등촌중학교.한국임업진흥원.wav","롯데마트맥스영등포점.wav","롯데백화점 (1).wav","롯데백화점.wav","마곡동로사거리 (1).wav","마곡동로사거리 (2).wav","마곡동로사거리.wav","마곡수명산파크2단지 (1).wav","마곡수명산파크2단지.wav","마곡수명산파크5단지6단지 (1).wav","마곡수명산파크5단지6단지.wav","마곡수명산파크7단지 (1).wav","마곡수명산파크7단지.wav","마곡엠밸리15단지아파트 (1).wav","마곡엠밸리15단지아파트.wav","마곡역 (1).wav","마곡역.wav","마곡역4번출구 (1).wav","마곡역4번출구.wav","마곡우촌아파트 (1).wav","마곡우촌아파트.wav","마포구청역6번출구 (1).wav","마포구청역6번출구.wav","마포구청역7번출구 (1).wav","마포구청역7번출구.wav","마포역 (1).wav","마포역.wav","마포중앙도서관 (1).wav","마포중앙도서관.wav","만리동고개 (1).wav","만리동고개.wav","명덕고등학교.서울스타병원 (1).wav","명덕고등학교.서울스타병원.wav","모두의학교.금천문화예술정보학교 - 복사본.wav","모두의학교.금천문화예술정보학교 (1).wav","모두의학교.금천문화예술정보학교.wav","목1동주민센터.양천소방서 (1).wav","목1동주민센터.양천소방서.wav","목3동주민센터.현대아이파크.실로암안과 (1).wav","목3동주민센터.현대아이파크.실로암안과.wav","목동1.2단지사잇길 (1).wav","목동1.2단지사잇길.wav","목동12.13단지사잇길 (1).wav","목동12.13단지사잇길.wav","목동14단지관리사무소앞 (1).wav","목동14단지관리사무소앞 (2).wav","목동14단지관리사무소앞.wav","목동14단지A상가.wav","목동14단지C상가앞 (1).wav","목동14단지C상가앞.wav","목동2단지 (1).wav","목동2단지.wav","목동2차성원아파트 (1).wav","목동2차성원아파트.wav","목동3.4단지사잇길 (1).wav","목동3.4단지사잇길.wav","목동3단지 (1).wav","목동3단지.wav","목동3단지후문.wav","목동4단지상가.목동종합운동장 (1).wav","목동4단지상가.목동종합운동장.wav","목동5단지B상가.목5동주민센터 (1).wav","목동5단지B상가.목5동주민센터.wav","목동5단지C상가.목동운동장북문.wav","목동7단지 (1).wav","목동7단지.종로학원 (1).wav","목동7단지.종로학원.wav","목동7단지.wav","목동7단지동문 (1).wav","목동7단지동문.wav","목동8단지.등촌지하차도 (1).wav","목동8단지.등촌지하차도.wav","목동8단지.한전 (1).wav","목동8단지.한전.wav","목동사거리 (1).wav","목동사거리.wav","목동스카이아파트.목동3단지 (1).wav","목동스카이아파트.목동3단지.wav","목동시장.대일고교.배광교회 (1).wav","목동시장.대일고교.배광교회.wav","목동아파트1332동앞 (1).wav","목동아파트1332동앞.wav","목동아파트1434동앞 (1).wav","목동아파트1434동앞.wav","목동아파트601동앞.이대병원 (1).wav","목동아파트601동앞.이대병원.wav","목동역.목동오거리.wav","목동역.홍익병원 (1).wav","목동역.홍익병원.wav","목동역3번출구.홍익병원 (1).wav","목동역3번출구.홍익병원.wav","목동역5번출구 (1).wav","목동역5번출구 (2).wav","목동역5번출구.wav","목동역8번출구.목동오거리 (1).wav","목동역8번출구.목동오거리.wav","목동운동장남문.아이스링크 (1).wav","목동운동장남문.아이스링크.wav","목동제일여성병원 (1).wav","목동제일여성병원.wav","목동중학교 (1).wav","목동중학교.서울출입국.외국인청 (1).wav","목동중학교.서울출입국.외국인청.wav","목동중학교.wav","목동파라곤 (1).wav","목동파라곤.wav","목동한신청구아파트 (1).wav","목동한신청구아파트.wav","목운초등학교.목운중학교 (1).wav","목운초등학교.목운중학교 (2).wav","목운초등학교.목운중학교.wav","목원초등학교.서울지방식품의약품안전청 (1).wav","목원초등학교.서울지방식품의약품안전청.wav","문래동국화아파트 (1).wav","문래동국화아파트.wav","문래동남성아파트 (1).wav","문래동남성아파트.wav","문래동종점 (1).wav","문래동종점.wav","문래역.문래자이아파트 (1).wav","문래역.문래자이아파트 (2).wav","문래역.문래자이아파트.wav","문래역3번출구 (1).wav","문래역3번출구.wav","문래중학교 (1).wav","문래중학교.wav","문래힐스테이트아파트 (1).wav","문래힐스테이트아파트.wav","발산역 (1).wav","발산역.우장산힐스테이트.wav","발산역.wav","발산역2번출구 (1).wav","발산역2번출구.wav","발산역3번출구 (1).wav","발산역3번출구.wav","발산역9번출구 (1).wav","발산역9번출구.wav","방배고개.방배초등학교 (1).wav","방배고개.방배초등학교.wav","방배역먹자골목.백석예술대학교.wav","방신전통시장정문.방화사거리 (1).wav","방신전통시장정문.방화사거리.wav","방화2동청성아파트.wav","방화2동청성아파트앞.wav","봉영여중.목동고입구.wav","봉천고개.관악현대아파트.wav","북창동.남대문시장.wav","사당중학교.wav","서울강서우체국 (1).wav","서울강서우체국.wav","서울남부지방법원.서울남부지방검찰청.wav","서울서진학교.wav","서울영림초등학교.wav","서울호서전문학교.등촌주공3단지아파트 (1).wav","서울호서전문학교.등촌주공3단지아파트 (2).wav","서울호서전문학교.등촌주공3단지아파트.wav","선유도공원.wav","성공회대학교.유한공고앞.wav","성산2교.wav","성석교회.wav","세곡초등학교.wav","송정역.wav","수궁동주민센터.wav","시흥초등학교.금천구보훈회관.wav","신길1동새마을금고.wav","신도림역.wav","신도림중학교.wav","신목동역2번출구 (1).wav","신목동역2번출구.wav","신목초등학교입구 (1).wav","신목초등학교입구.wav","신정역(은행정).신정4동주민센터.wav","안국동사거리.wav","안양천입구.wav","양강중학교.wav","양남사거리.wav","양천구민체육센터.양천일자리센터.wav","양천구청.wav","양천향교입구.wav","여의도순복음교회비전센터.wav","연세중앙교회.wav","염창역.서울도시가스.wav","영도중.강서고입구.기아양서대리점.wav","영등포구청.wav","영등포농협당산역지점.wav","영등포로터리 (1).wav","영등포로터리.wav","영등포시장.wav","영등포시장역3번출구.wav","영문초등학교.wav","영일고등학교.강서도서관.wav","오목교역.동신한방병원.wav","오목교역8번출구.대학빌딩.wav","용왕산.wav","우신중고등학교.wav","우장산역4번출구.wav","월촌중학교.목동1단지.wav","이대목동병원.목동6단지앞.wav","이번정류소.wav","이수역.wav","제과점앞.wav","종로교회.wav","청화병원.wav","퀸즈빌.wav","타임스퀘어.영등포소방서.wav","필립메디컬센터.wav","한강대교북단.LG유플러스.wav","한강아파트.wav","한겨레신문사.wav","한서고등학교.방화사거리 (1).wav","한서고등학교.방화사거리.wav","행운동주민센터.wav","현대6차아파트.wav","현대시장.시흥4동주민센터.wav","현대아파트.개봉중앙시장.wav","현대아파트.유한양행.wav","홍대입구역.wav","홍익병원목동관.wav","화곡역8번출구.wav","KBS.wav","KT강서지사 (1).wav","KT강서지사.wav","SBS공개홀 (1).wav","SBS공개홀.wav","thisstopis.wav"]</script>
 <script src="route-shapes.js?v=20260919-9"></script>
 <script src="route-geometry.js?v=20260925-48"></script>
 <script src="gyeonggi-data.js?v=20260925-48"></script>
@@ -2167,16 +2186,23 @@ async function loadRouteDispatchSummary(r){
   if(!r || r.region==='gyeonggi' || String(r.id).startsWith('G'))return;
   const key=String(r.id);
   if(routeDispatchHistory.has(key))return;
-  routeDispatchHistory.set(key,{loading:true});
-  updateRouteBusSummary(r);
+  // T-DATA does not grant browser CORS for this history service. GitHub Pages
+  // therefore must not call it directly: doing so only creates a console
+  // error and can never produce data. Keep the section hidden until the
+  // configured Worker explicitly supports the dispatch mode.
+  if(!busPosProxyUrl)return;
+  routeDispatchHistory.set(key,{loading:true});updateRouteBusSummary(r);
   try{
     let rows=[],date='';
     // 이 자료는 보통 1~2일 늦게 적재되므로 오늘부터 최근 7일까지 찾는다.
     for(let ago=0;ago<7&&!rows.length;ago++){
       date=seoulDateKey(ago);
-      const url=new URL(SEOUL_DISPATCH_HISTORY_URL);
-      url.search=new URLSearchParams({apikey:SEOUL_TDATA_KEY,stdrDe:date,routeId:key,startRow:'1',rowCnt:'1000'}).toString();
-      const data=await trafficFetchJson(url.toString());
+      const url=new URL(busPosProxyUrl);
+      url.search=new URLSearchParams({mode:'dispatch',apikey:SEOUL_TDATA_KEY,stdrDe:date,routeId:key,startRow:'1',rowCnt:'1000'}).toString();
+      const response=await fetch(url.toString(),{cache:'no-store'});
+      if(response.status===400||response.status===404){routeDispatchHistory.delete(key);return;}
+      if(!response.ok)throw new Error('배차 이력 프록시 응답 오류 ('+response.status+')');
+      const data=await response.json();
       rows=Array.isArray(data)?data:trafficItems(data);
     }
     if(!rows.length){routeDispatchHistory.set(key,{empty:true,message:'최근 7일 배차 이력 자료 없음'});return;}
@@ -2243,7 +2269,9 @@ function renderRouteSidebar(r){
   document.getElementById('routeMeta').textContent=
     `${r.routeName&&String(r.routeName)!==String(r.routeId)?'노선번호 '+esc(r.routeName)+' · ':''}ROUTE_ID ${esc(r.routeId||r.id)} · 경유정류소 ${r.nodes.length}개`;
   updateRouteBusSummary(r);
-  loadRouteDispatchSummary(r);
+  // 배차이력 서비스는 브라우저 CORS를 허용하지 않는다. 확인 불가능한
+  // 항목은 표시하지 않고 콘솔 오류도 만들지 않는다. 실시간 운행 대수는
+  // 위치 버튼을 켰을 때 실제 차량 응답으로 계속 표시한다.
   list.innerHTML='';
 
   // guideIdx counts only stops that actually resolved to a STOPS entry, in
@@ -3694,7 +3722,14 @@ function audioPaths(category,key){
     const catBase=AUDIO_BASE+category+'/'+encodeURIComponent(k);
     paths.push(flatBase+'.mp3', flatBase+'.wav', catBase+'.mp3', catBase+'.wav');
   });
-  return paths;
+  // The generated manifest contains the files actually deployed to GitHub
+  // Pages. Filtering here prevents Audio elements from issuing a burst of
+  // predictable 404 requests for guessed extensions and filename variants.
+  if(!audioPaths.manifest){
+    try{audioPaths.manifest=new Set(JSON.parse(document.getElementById('audioFileManifest')?.textContent||'[]'));}
+    catch(e){audioPaths.manifest=new Set();}
+  }
+  return paths.filter(p=>audioPaths.manifest.has(decodeURIComponent(p.replace(/^audio\//,''))));
 }
 
 /* Paths already known to 404 are remembered so we never pay the network-miss
@@ -3750,6 +3785,7 @@ function playClipAnyExt(paths){
   // Race every candidate extension in parallel (not one-after-another) so a
   // miss costs one wait, not one per extension stacked in series.
   return new Promise(resolve=>{
+    if(!paths.length){resolve(false);return;}
     let remaining=paths.length, settled=false;
     paths.forEach(p=>{
       playClip(p).then(ok=>{
@@ -4221,7 +4257,7 @@ function stopGuide(){
 <script src="planner.js?v=20260919-9"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
 <script src="./mobile-patch.js?v=56"></script>
-<script src="./traffic-map-patch.js?v=56"></script>
+<script src="./traffic-map-patch.js?v=62"></script>
 <script src="./utic-map-patch.js?v=59"></script>
 <script src="./ios-touch-patch.js?v=54"></script>
 <script src="./gapless-patch.js?v=57"></script>

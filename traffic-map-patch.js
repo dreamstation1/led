@@ -68,14 +68,16 @@
       // show live intersections even before a bus route has been chosen.
       if(typeof map==='undefined'||typeof L==='undefined')return;
       if(typeof trafficLightOn!=='undefined'&&!trafficLightOn){if(layer){map.removeLayer(layer);layer=null;}hidePanel();return;}
-      if(map.getZoom()<14){if(layer){map.removeLayer(layer);layer=null;}hidePanel();return;}
+      // Route links commonly open at z=13. Keeping the cutoff at 14 made the
+      // setting look broken even though the API was healthy.
+      if(map.getZoom()<13){if(layer){map.removeLayer(layer);layer=null;}hidePanel();return;}
       const center=map.getCenter(),source=sourceFor(center.lat,center.lng),all=await loadTrafficIntersections(source);if(gen!==generation)return;
       const b=map.getBounds().pad(0.10);let visible=all.filter(ix=>b.contains([ix.lat,ix.lng]));
       visible.sort((a,b)=>hav(center.lat,center.lng,a.lat,a.lng)-hav(center.lat,center.lng,b.lat,b.lng));
-      visible=visible.slice(0,isPhone()?20:32).map(ix=>({...ix,source:ix.source||source}));
+      visible=visible.slice(0,isPhone()?10:16).map(ix=>({...ix,source:ix.source||source}));
       if(layer){try{map.removeLayer(layer);}catch(e){}}
       layer=L.layerGroup().addTo(map);const nearest=nearestToCenter(visible,center),jobs=[];
-      for(const ix of visible){const near=nearest&&nearest.ix.crsrdId===ix.crsrdId;const m=L.marker([ix.lat,ix.lng],{icon:liveIcon(null,near,near),zIndexOffset:1000,keyboard:false}).addTo(layer);m.on('click',()=>showIntersection(ix));if(near)jobs.push({ix,m,near});}
+      for(const ix of visible){const near=nearest&&nearest.ix.crsrdId===ix.crsrdId;const m=L.marker([ix.lat,ix.lng],{icon:liveIcon(null,near,true),zIndexOffset:1000,keyboard:false}).addTo(layer);m.on('click',()=>showIntersection(ix));jobs.push({ix,m,near});}
       await loadLive(jobs,center,gen);
     }catch(e){console.warn('browse traffic refresh failed',e);}
   }
