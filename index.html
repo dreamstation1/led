@@ -2503,6 +2503,7 @@ const ITS_CCTV_API='https://openapi.its.go.kr:9443/cctvInfo';
 const ITS_CCTV_DEFAULT_KEY='b28e6942f09b43b986e733dd86b11583';
 const savedCctvSetting=lsGet('itsCctvOn');
 let itsCctvKey=lsGet('itsCctvKey')||ITS_CCTV_DEFAULT_KEY,cctvOn=savedCctvSetting==null?true:savedCctvSetting==='1',cctvMarkers=[],cctvLoadGeneration=0,cctvMoveTimer=null;
+let itsCctvCatalogPromise=null,persistentCctvHls=null;
 lsSet('itsCctvKey',itsCctvKey);
 if(savedCctvSetting==null)lsSet('itsCctvOn','1');
 function clearCctvMarkers(){cctvMarkers.forEach(m=>map.removeLayer(m));cctvMarkers=[];}
@@ -2520,14 +2521,21 @@ function cctvPopupHtml(row){
   const name=String(row.cctvname||'도로 CCTV').replace(/;+$/,'').trim();
   const rawUrl=String(row.cctvurl||'').trim();
   const safeUrl=/^https:\/\//i.test(rawUrl)?rawUrl:'';
-  return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div>${safeUrl?`<video controls autoplay muted playsinline preload="metadata" src="${esc(safeUrl)}"></video><a class="cctv-popup-link" href="${esc(safeUrl)}" target="_blank" rel="noopener">영상 새 창에서 열기</a>`:'<div class="popup-meta">HTTPS 영상 주소가 제공되지 않았습니다.</div>'}</div>`;
+  return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div>${safeUrl?`<video controls autoplay muted playsinline preload="metadata" data-hls-src="${esc(safeUrl)}"></video><a class="cctv-popup-link" href="${esc(safeUrl)}" target="_blank" rel="noopener">영상 새 창에서 열기</a>`:'<div class="popup-meta">HTTPS 영상 주소가 제공되지 않았습니다.</div>'}</div>`;
 }
 let persistentCctvPanel=null;
-function closePersistentCctv(){if(persistentCctvPanel){persistentCctvPanel.remove();persistentCctvPanel=null;}}
+function closePersistentCctv(){if(persistentCctvHls){try{persistentCctvHls.destroy();}catch(e){}persistentCctvHls=null;}if(persistentCctvPanel){persistentCctvPanel.remove();persistentCctvPanel=null;}}
 function openPersistentCctv(html){
+  if(persistentCctvHls){try{persistentCctvHls.destroy();}catch(e){}persistentCctvHls=null;}
   if(!persistentCctvPanel){persistentCctvPanel=document.createElement('div');persistentCctvPanel.className='persistent-cctv-panel';(document.getElementById('map')||document.body).appendChild(persistentCctvPanel);}
   persistentCctvPanel.innerHTML=`<button class="persistent-cctv-close" type="button" aria-label="CCTV 닫기">×</button><div class="persistent-cctv-body">${html}</div>`;
   persistentCctvPanel.querySelector('.persistent-cctv-close').onclick=closePersistentCctv;
+  const video=persistentCctvPanel.querySelector('video[data-hls-src]'),src=video?.dataset.hlsSrc;
+  if(video&&src){
+    if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=src;video.play().catch(()=>{});}
+    else if(window.Hls?.isSupported()){persistentCctvHls=new Hls({enableWorker:true,lowLatencyMode:true});persistentCctvHls.loadSource(src);persistentCctvHls.attachMedia(video);persistentCctvHls.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));}
+    else video.insertAdjacentHTML('afterend','<div class="popup-meta">이 브라우저는 HLS 영상을 재생할 수 없습니다. 새 창 링크를 이용해 주세요.</div>');
+  }
 }
 window.openPersistentCctv=openPersistentCctv;window.closePersistentCctv=closePersistentCctv;
 async function refreshCctvLayer(){
@@ -2540,17 +2548,20 @@ async function refreshCctvLayer(){
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
     let response,data;
     try{
-      response=await fetch(url.toString(),{signal:controller.signal,cache:'no-store'});
-      if(!response.ok)throw new Error(response.status===401||response.status===403
-        ?'ITS CCTV 인증키 승인 대기 중입니다'
-        :`ITS CCTV HTTP 오류 (${response.status})`);
-      data=await response.json();
+      if(!itsCctvCatalogPromise)itsCctvCatalogPromise=fetch('./cctv-data.json',{cache:'no-cache'}).then(r=>{if(!r.ok)throw new Error('저장된 CCTV 목록 없음');return r.json();});
+      try{data=await itsCctvCatalogPromise;}
+      catch(staticError){
+        itsCctvCatalogPromise=null;
+        response=await fetch(url.toString(),{signal:controller.signal,cache:'no-store'});
+        if(!response.ok)throw new Error(response.status===401||response.status===403?'ITS CCTV 인증키 승인 대기 중입니다':`ITS CCTV HTTP 오류 (${response.status})`);
+        data=await response.json();
+      }
     }finally{clearTimeout(timer);}
     if(generation!==cctvLoadGeneration||!cctvOn)return;
     const rows=cctvRows(data);clearCctvMarkers();
-    for(const row of rows.slice(0,250)){
+    for(const row of rows){
       const lat=Number(String(row.coordy||'').replace(/;/g,'')),lng=Number(String(row.coordx||'').replace(/;/g,''));
-      if(!Number.isFinite(lat)||!Number.isFinite(lng))continue;
+      if(!Number.isFinite(lat)||!Number.isFinite(lng)||!b.pad(.15).contains([lat,lng]))continue;
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'cctv-map-icon',html:'📹',iconSize:[30,30],iconAnchor:[15,15]}),zIndexOffset:700}).addTo(map);
       marker.on('click',()=>openPersistentCctv(cctvPopupHtml(row)));marker.bindTooltip(String(row.cctvname||'도로 CCTV').replace(/;+$/,'').trim());cctvMarkers.push(marker);
     }
@@ -4208,6 +4219,7 @@ function stopGuide(){
 
 </script>
 <script src="planner.js?v=20260919-9"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
 <script src="./mobile-patch.js?v=56"></script>
 <script src="./traffic-map-patch.js?v=56"></script>
 <script src="./utic-map-patch.js?v=59"></script>

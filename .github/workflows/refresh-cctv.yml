@@ -1,0 +1,32 @@
+name: Refresh Seoul CCTV catalog
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 18 * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download approved ITS Seoul CCTV catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --retry 2 --max-time 30 \
+            'https://openapi.its.go.kr:9443/cctvInfo?apiKey=b28e6942f09b43b986e733dd86b11583&type=all&cctvType=4&minX=126.75&maxX=127.20&minY=37.40&maxY=37.72&getType=json' \
+            --output cctv-data.json
+          python -m json.tool cctv-data.json >/dev/null
+      - name: Commit when catalog changed
+        shell: bash
+        run: |
+          if git diff --quiet -- cctv-data.json; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cctv-data.json
+          git commit -m 'Refresh Seoul CCTV catalog'
+          git push
