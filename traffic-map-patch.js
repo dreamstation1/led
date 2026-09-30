@@ -1,24 +1,25 @@
 (function(){
-  if(window.__trafficMapPatchV56)return;
-  window.__trafficMapPatchV56=true;
+  if(window.__trafficMapPatchV63)return;
+  window.__trafficMapPatchV63=true;
 
   let layer=null,refreshTimer=null,generation=0,selected=null;
   const liveCache=new Map();
 
   const style=document.createElement('style');
   style.textContent=`
-    .live-signal-pill{display:flex;align-items:center;gap:4px;padding:4px 7px;border-radius:999px;background:#11161c;border:1.5px solid #728191;box-shadow:0 2px 8px #0009;white-space:nowrap;transform:translate(-50%,-50%)}
-    .live-signal-pill.near{border-color:#ffd84a;box-shadow:0 0 0 3px #ffd84a40,0 2px 8px #0009}
+    .live-signal-pill{display:flex;align-items:center;gap:3px;padding:4px 5px;border-radius:5px;background:linear-gradient(#20262b,#080b0e);border:2px solid #424b52;box-shadow:0 3px 8px #000c,inset 0 0 0 1px #050607;white-space:nowrap;transform:translate(-50%,-50%)}
+    .live-signal-pill.near{border-color:#f4c542;box-shadow:0 0 0 3px #ffd84a50,0 3px 9px #000d}
     .live-signal-pill.loading{opacity:.58}
-    .sig-lamp{width:11px;height:11px;border-radius:50%;background:#2b3036;box-shadow:inset 0 0 0 1px #424b55}
-    .sig-lamp.red.on{background:#ff3b3b;box-shadow:0 0 8px #ff3b3b}
-    .sig-lamp.yellow.on{background:#ffd43b;box-shadow:0 0 8px #ffd43b}
-    .sig-lamp.green.on{background:#31e58c;box-shadow:0 0 8px #31e58c}
-    .sig-left{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#2b3036;color:#66717d;font-size:14px;font-weight:900;box-shadow:inset 0 0 0 1px #424b55}
-    .sig-left.red{background:#672127;color:#ff7b7b}.sig-left.yellow{background:#705d18;color:#ffe066}.sig-left.green{background:#153e2c;color:#4cf0a1;box-shadow:0 0 8px #31e58c}
+    .sig-lamp,.sig-left{width:17px;height:17px;box-sizing:border-box;border-radius:50%;background:#090c0e;border:1px solid #313940;box-shadow:inset 0 0 4px #000;flex:0 0 17px}
+    .sig-lamp.red.on{background:#ff2d37;border-color:#ff6d73;box-shadow:0 0 9px #ff2430,inset 0 0 3px #fff8}
+    .sig-lamp.yellow.on{background:#ffbf16;border-color:#ffe06a;box-shadow:0 0 9px #ffb000,inset 0 0 3px #fff8}
+    .sig-lamp.green.on{background:#17e6ad;border-color:#70ffda;box-shadow:0 0 9px #00dca0,inset 0 0 3px #fff8}
+    .sig-left{display:flex;align-items:center;justify-content:center;color:#1f2b2b;font-size:15px;line-height:1;font-weight:1000;text-shadow:none}
+    .sig-left.on.green{color:#28f0c0;border-color:#70ffda;text-shadow:0 0 6px #00e3aa;box-shadow:0 0 9px #00dca0,inset 0 0 3px #124}
+    .sig-left.on.yellow{color:#ffd04a;border-color:#ffe06a;text-shadow:0 0 6px #ffb000;box-shadow:0 0 8px #ffb000,inset 0 0 3px #421}
     .route-signal-icon{display:none!important;pointer-events:none!important;width:0!important;height:0!important;border:0!important;overflow:hidden!important}
     #browseTrafficPanel{position:absolute;z-index:950;right:10px;top:72px;max-width:min(340px,calc(100vw - 20px));padding:8px 10px;border-radius:10px;background:#111820e8;color:#eef6ff;font-size:12px;line-height:1.4;box-shadow:0 3px 12px #0007;backdrop-filter:blur(6px);display:none;pointer-events:none}
-    @media(max-width:768px){#browseTrafficPanel{display:none!important}.live-signal-pill{padding:4px 6px;gap:3px}.sig-lamp{width:10px;height:10px}.sig-left{width:16px;height:16px;font-size:12px}}
+    @media(max-width:768px){#browseTrafficPanel{display:none!important}.live-signal-pill{padding:3px 4px;gap:2px}.sig-lamp,.sig-left{width:15px;height:15px;flex-basis:15px}.sig-left{font-size:13px}}
   `;
   document.head.appendChild(style);
 
@@ -40,8 +41,9 @@
   function markerHtml(state,near=false,loading=false){
     const c=state?.straight?.color||null;
     const lamp=n=>'<span class="sig-lamp '+n+(c===n?' on':'')+'"></span>';
-    const left=state?.left?.exists?'<span class="sig-left '+(state.left.color||'')+'">←</span>':'';
-    return '<div class="live-signal-pill'+(near?' near':'')+(loading?' loading':'')+'">'+lamp('red')+lamp('yellow')+lamp('green')+left+'</div>';
+    const leftColor=state?.left?.exists?state.left.color:null;
+    const left='<span class="sig-left'+(leftColor==='green'||leftColor==='yellow'?' on '+leftColor:'')+'">←</span>';
+    return '<div class="live-signal-pill'+(near?' near':'')+(loading?' loading':'')+'">'+lamp('red')+lamp('yellow')+left+lamp('green')+'</div>';
   }
   function liveIcon(state,near=false,loading=false){return L.divIcon({className:'',html:markerHtml(state,near,loading),iconSize:[1,1],iconAnchor:[0,0]});}
 
