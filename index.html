@@ -873,6 +873,18 @@ body.light-ui .route{color:#fff}
       <label class="setting-desc" for="itsCctvKeyInput">ITS Open API 인증키</label>
       <input type="password" id="itsCctvKeyInput" class="setting-select" autocomplete="off" placeholder="발급받은 ITS 인증키">
     </div>
+    <div class="setting-block" id="uticSettingsBlock">
+      <div class="setting-row">
+        <div>
+          <div class="setting-title">UTIC 돌발정보 표시</div>
+          <div class="setting-desc">경찰청 도시교통정보센터의 사고·공사·통제 정보를 지도에 표시합니다. 등록한 IP에서만 조회됩니다.</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="uticIncidentToggle"><span></span></label>
+      </div>
+      <label class="setting-desc" for="uticKeyInput">UTIC 돌발·CCTV·신호정보 인증키</label>
+      <input type="password" id="uticKeyInput" class="setting-select" autocomplete="off" placeholder="UTIC 인증키">
+      <div class="setting-desc" style="margin-top:7px">CCTV는 위의 ‘도로 CCTV 표시’를 함께 사용합니다. UTIC 신호자료는 인천·대전·대구의 일 1회 TOD 자료이며 서울 실시간 신호를 대체하지 않습니다.</div>
+    </div>
     <div class="setting-block">
       <div class="setting-title">지도 테마</div>
       <select id="mapThemeSelect" class="setting-select">
@@ -4147,6 +4159,7 @@ function stopGuide(){
 <script src="planner.js?v=20260919-9"></script>
 <script src="./mobile-patch.js?v=56"></script>
 <script src="./traffic-map-patch.js?v=56"></script>
+<script src="./utic-map-patch.js?v=59"></script>
 <script src="./ios-touch-patch.js?v=54"></script>
 <script src="./gapless-patch.js?v=57"></script>
 </body>

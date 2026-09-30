@@ -1,12 +1,12 @@
-// App shell v58: phone-safe same-origin bridge for the physical LED sign.
-const CACHE_NAME='bus-map-shell-v58-20260925-phone-led-bridge';
-const SHELL_FILES=['./','./index.html','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./traffic-intersections.js','./ios-touch-patch.js','./gyeonggi-stops-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
+// App shell v59: UTIC incident and urban CCTV map layers.
+const CACHE_NAME='bus-map-shell-v59-20260930-utic-map';
+const SHELL_FILES=['./','./index.html','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./utic-map-patch.js','./traffic-intersections.js','./ios-touch-patch.js','./gyeonggi-stops-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(f=>new URL(f,self.registration.scope).href));
-const PATCH_URLS=new Set(['request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','ios-touch-patch.js','gyeonggi-stops-patch.js'].map(f=>new URL('./'+f,self.registration.scope).href));
-const PAGE_PATCH='<script src="./request-guard.js?v=47"></script><script src="./mobile-patch.js?v=56"></script><script src="./gapless-patch.js?v=57"></script><script src="./traffic-map-patch.js?v=56"></script><script src="./ios-touch-patch.js?v=54"></script><script src="./gyeonggi-stops-patch.js?v=47"></script>';
+const PATCH_URLS=new Set(['request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','utic-map-patch.js','ios-touch-patch.js','gyeonggi-stops-patch.js'].map(f=>new URL('./'+f,self.registration.scope).href));
+const PAGE_PATCH='<script src="./request-guard.js?v=47"></script><script src="./mobile-patch.js?v=56"></script><script src="./gapless-patch.js?v=57"></script><script src="./traffic-map-patch.js?v=56"></script><script src="./utic-map-patch.js?v=59"></script><script src="./ios-touch-patch.js?v=54"></script><script src="./gyeonggi-stops-patch.js?v=47"></script>';
 async function patchedHtmlResponse(response){
  let text=await response.text();
- text=text.replace(/<script src="\.\/(?:request-guard|mobile-patch|gapless-patch|traffic-map-patch|ios-touch-patch|gyeonggi-stops-patch)\.js\?v=\d+"><\/script>/g,'');
+ text=text.replace(/<script src="\.\/(?:request-guard|mobile-patch|gapless-patch|traffic-map-patch|utic-map-patch|ios-touch-patch|gyeonggi-stops-patch)\.js\?v=\d+"><\/script>/g,'');
  if(!text.includes('ios-touch-patch.js?v=54'))text=/<\/body>/i.test(text)?text.replace(/<\/body>/i,PAGE_PATCH+'</body>'):text+PAGE_PATCH;
  const h=new Headers(response.headers);h.set('content-type','text/html; charset=utf-8');h.delete('content-length');
  return new Response(text,{status:response.status,statusText:response.statusText,headers:h});
