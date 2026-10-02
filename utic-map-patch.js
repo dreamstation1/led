@@ -1,10 +1,10 @@
 (function(){
-  if(window.__uticMapPatchV60)return;
-  window.__uticMapPatchV60=true;
+  if(window.__uticMapPatchV61)return;
+  window.__uticMapPatchV61=true;
 
   const DEFAULT_KEY='f3boGzQFKO7tHkA0qQxa5DE9oUhn07GF6LiZ1MIi8';
   const INCIDENT_URL='https://www.utic.go.kr/guide/imsOpenData.do';
-  const CCTV_URL='https://www.utic.go.kr/map/mapcctv.do';
+  const CCTV_URL='./utic-cctv-data.json';
   const INCIDENT_TTL=2*60*1000,CCTV_TTL=24*60*60*1000;
   let incidentLayer=null,cctvLayer=null,moveTimer=null,incidentCache=null,cctvCache=null;
   let key=lsGet('uticKey')||DEFAULT_KEY;
@@ -13,7 +13,7 @@
   if(lsGet('uticIncidentOn')==null)lsSet('uticIncidentOn','1');
 
   const style=document.createElement('style');
-  style.textContent=`.utic-incident-icon,.utic-cctv-icon{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;box-shadow:0 2px 8px #0009;border:2px solid #fff}.utic-incident-icon{background:#e34234}.utic-cctv-icon{background:#245a9b}.utic-source{margin-top:7px;color:#8d9aaa;font-size:11px}`;
+  style.textContent=`.utic-incident-icon,.utic-cctv-icon{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;box-shadow:0 2px 8px #0009;border:2px solid #fff}.utic-incident-icon{background:#e34234}.utic-cctv-icon{background:#245a9b}.utic-source{margin-top:7px;color:#8d9aaa;font-size:11px}.utic-cctv-frame{display:block;width:100%;height:min(390px,55vh);margin-top:9px;border:0;border-radius:9px;background:#05070a}`;
   document.head.appendChild(style);
 
   const keyInput=document.getElementById('uticKeyInput');
@@ -37,6 +37,7 @@
     return [...doc.querySelectorAll('record')].map(node=>Object.fromEntries([...node.children].map(x=>[x.tagName,x.textContent])));
   }
   async function fetchRows(url){
+    if(url===CCTV_URL){const response=await fetch(url,{cache:'force-cache'});if(!response.ok)throw new Error('UTIC CCTV 목록을 불러오지 못했습니다');const data=await response.json();return Array.isArray(data?.rows)?data.rows:[];}
     if(!key)throw new Error('설정에서 UTIC 인증키를 입력해 주세요');
     const endpoint=new URL(url);endpoint.searchParams.set('key',key);
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),25000);
@@ -68,12 +69,11 @@
     return `<div class="popup-name">⚠️ ${esc(title)}</div>${road?`<div class="popup-meta">${esc(road)}</div>`:''}${control?`<div class="popup-meta">${esc(control)}</div>`:''}${time?`<div class="popup-meta">${esc(time)}</div>`:''}<div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공</div>`;
   }
   function cctvPopup(row){
-    const name=clean(row.CCTVNAME||row.cctvName||row.cctvname||row.CCTV_NAME||row.name||'UTIC CCTV');
-    const cctvId=clean(row.CCTVID||row.cctvId||row.cctvid);
-    const ip=clean(row.cctvIp||row.cctvip||row.CCTV_IP||row.id);
-    const direct=clean(row.cctvUrl||row.cctvurl||row.CCTV_URL||row.url);
-    const stream=/^https?:\/\//i.test(direct)?direct:(cctvId?`https://www.utic.go.kr/guide/cctvOpenData.do?key=${encodeURIComponent(key)}#${encodeURIComponent(cctvId)}`:(ip?`https://www.utic.go.kr/map/getGyeonggiCctvUrl.do?cctvIp=${encodeURIComponent(ip)}`:''));
-    return `<div class="popup-name">📹 ${esc(name)}</div>${stream?`<a class="cctv-popup-link" href="${esc(stream)}" target="_blank" rel="noopener">UTIC CCTV 열기</a>`:'<div class="popup-meta">현재 영상 주소가 없습니다.</div>'}<div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공</div>`;
+    const rawName=clean(row.CCTVNAME||row.cctvName||row.cctvname||row.CCTV_NAME||row.name),cctvId=clean(row.CCTVID||row.cctvId||row.cctvid),name=rawName&&!rawName.includes('�')?rawName:(cctvId||'UTIC CCTV');
+    if(!cctvId)return `<div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">CCTV 식별정보가 없습니다.</div>`;
+    const params=new URLSearchParams({key,cctvid:cctvId,cctvName:name,kind:clean(row.KIND),cctvip:clean(row.CCTVIP),cctvch:clean(row.CH),id:clean(row.ID),cctvpasswd:clean(row.PASSWD),cctvport:clean(row.PORT)});
+    const stream=`https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?${params}`;
+    return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><iframe class="utic-cctv-frame" src="${esc(stream)}" title="${esc(name)} CCTV 영상" allow="autoplay; fullscreen" referrerpolicy="no-referrer-when-downgrade"></iframe><a class="cctv-popup-link" href="${esc(stream)}" target="_blank" rel="noopener">영상 새 창에서 열기</a><div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공 · 등록 IP에서 재생</div></div>`;
   }
   async function drawIncidents(bounds,force){
     if(!incidentOn){clearLayer('incident');return 0;}
@@ -93,7 +93,7 @@
       const lat=number(row,['YCOORD','coordY','coordy','yCoord','cctvY','locationDataY','lat','latitude']),lng=number(row,['XCOORD','coordX','coordx','xCoord','cctvX','locationDataX','lng','longitude']);
       if(!inBounds(lat,lng,bounds))continue;
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:'<div class="utic-cctv-icon">📹</div>',iconSize:[30,30],iconAnchor:[15,15]}),zIndexOffset:700}).addTo(cctvLayer);
-      marker.on('click',()=>window.openPersistentCctv?.(cctvPopup(row)));marker.bindTooltip(clean(row.CCTVNAME||row.cctvName||row.cctvname||row.CCTV_NAME||row.name||'UTIC CCTV'));count++;
+      marker.on('click',()=>window.openPersistentCctv?.(cctvPopup(row)));const rawName=clean(row.CCTVNAME||row.cctvName||row.cctvname||row.CCTV_NAME||row.name),label=rawName&&!rawName.includes('�')?rawName:clean(row.CCTVID||'UTIC CCTV');marker.bindTooltip(label);count++;
     }return count;
   }
   async function refresh(force=false){
