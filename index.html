@@ -3107,7 +3107,7 @@ const SEOUL_TDATA_URL='https://t-data.seoul.go.kr/apig/apiman-gateway/tapi/v2xSi
 const SEOUL_TDATA_TIMING_URL='https://t-data.seoul.go.kr/apig/apiman-gateway/tapi/v2xSignalPhaseTimingCurrentInfo/1.0';
 const SEOUL_TDATA_PHASE_URL='https://t-data.seoul.go.kr/apig/apiman-gateway/tapi/v2xSignalPhaseCurrentInfo/1.0';
 const SEOUL_TRAFFIC_MAP_URL='https://t-data.seoul.go.kr/apig/apiman-gateway/tapi/v2xCrossroadMapInformation/1.0';
-const TRAFFIC_MATCH_RADIUS_M=120, TRAFFIC_POLL_MS=10000, TRAFFIC_MAX_AGE_MS=15000;
+const TRAFFIC_MATCH_RADIUS_M=120, TRAFFIC_POLL_MS=15000, TRAFFIC_MAX_AGE_MS=15000, TRAFFIC_LIVE_CACHE_MS=90000;
 const SEOUL_TRAFFIC_MAP_CACHE_KEY='seoulTrafficIntersectionMapV2';
 const SEOUL_TRAFFIC_MAP_CACHE_MAX_AGE=30*24*60*60*1000;
 const TRAFFIC_RATE_LIMIT_BACKOFF=30*60*1000;
@@ -3302,12 +3302,17 @@ async function fetchTrafficLiveSeoul(itstId){
   return [merged];
 }
 const trafficLiveRequests=new Map(),trafficLiveCache=new Map(),trafficLiveFailures=new Map();
+let seoulTrafficLastNetworkAt=0;
 async function fetchTrafficLiveRecord(intersection,force=false){
   const key=(intersection.source||'')+':'+intersection.crsrdId,now=Date.now(),cached=trafficLiveCache.get(key),failure=trafficLiveFailures.get(key);
-  if(!force&&cached&&now-cached.at<8000)return cached.rec;
+  if(!force&&cached&&now-cached.at<TRAFFIC_LIVE_CACHE_MS)return cached.rec;
   if(failure&&now-failure.at<(failure.error?.status===429?TRAFFIC_RATE_LIMIT_BACKOFF:60000)&&(!force||failure.error?.status===429))throw failure.error;
   if(trafficLiveRequests.has(key))return trafficLiveRequests.get(key);
   const task=(async()=>{
+    if(intersection.source==='seoul'&&!force&&now-seoulTrafficLastNetworkAt<TRAFFIC_LIVE_CACHE_MS){
+      const error=new Error('서울 신호 API 호출 간격을 조절하는 중입니다');error.status=425;throw error;
+    }
+    if(intersection.source==='seoul')seoulTrafficLastNetworkAt=Date.now();
     const rows=intersection.source==='seoul'?await fetchTrafficLiveSeoul(intersection.crsrdId):await fetchTrafficLiveNationwide(intersection);
     const matching=rows.filter(it=>intersection.source==='seoul'
       ?String(it.itstId)===intersection.crsrdId
@@ -4308,7 +4313,7 @@ function stopGuide(){
 <script src="planner.js?v=20260919-9"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
 <script src="./mobile-patch.js?v=56"></script>
-<script src="./traffic-map-patch.js?v=74"></script>
+<script src="./traffic-map-patch.js?v=75"></script>
 <script src="./utic-map-patch.js?v=61"></script>
 <script src="./ios-touch-patch.js?v=54"></script>
 <script src="./gapless-patch.js?v=57"></script>
