@@ -3172,7 +3172,13 @@ async function trafficFetchJson(url){
     try{return await res.json();}catch(e){throw new Error('신호 API가 올바른 JSON을 보내지 않았습니다');}
   }catch(e){
     if(e.name==='AbortError')throw new Error('신호 API 응답 시간이 초과됐습니다');
-    if(e instanceof TypeError)throw new Error('신호 API 연결 실패 · 네트워크 또는 교차 출처(CORS) 허용을 확인해 주세요');
+    if(e instanceof TypeError){
+      const error=new Error(String(url).startsWith('https://t-data.seoul.go.kr/')
+        ?'서울 신호 API 호출 한도 초과 또는 CORS 차단 · 30분 후 자동 재시도합니다'
+        :'신호 API 연결 실패 · 네트워크 또는 교차 출처(CORS) 허용을 확인해 주세요');
+      if(String(url).startsWith('https://t-data.seoul.go.kr/'))error.status=429;
+      throw error;
+    }
     throw e;
   }finally{clearTimeout(timer);}
 }
@@ -3299,7 +3305,7 @@ const trafficLiveRequests=new Map(),trafficLiveCache=new Map(),trafficLiveFailur
 async function fetchTrafficLiveRecord(intersection,force=false){
   const key=(intersection.source||'')+':'+intersection.crsrdId,now=Date.now(),cached=trafficLiveCache.get(key),failure=trafficLiveFailures.get(key);
   if(!force&&cached&&now-cached.at<8000)return cached.rec;
-  if(!force&&failure&&now-failure.at<(failure.error?.status===429?TRAFFIC_RATE_LIMIT_BACKOFF:60000))throw failure.error;
+  if(failure&&now-failure.at<(failure.error?.status===429?TRAFFIC_RATE_LIMIT_BACKOFF:60000)&&(!force||failure.error?.status===429))throw failure.error;
   if(trafficLiveRequests.has(key))return trafficLiveRequests.get(key);
   const task=(async()=>{
     const rows=intersection.source==='seoul'?await fetchTrafficLiveSeoul(intersection.crsrdId):await fetchTrafficLiveNationwide(intersection);
