@@ -2533,6 +2533,7 @@ const ITS_CCTV_DEFAULT_KEY='b28e6942f09b43b986e733dd86b11583';
 const savedCctvSetting=lsGet('itsCctvOn');
 let itsCctvKey=lsGet('itsCctvKey')||ITS_CCTV_DEFAULT_KEY,cctvOn=savedCctvSetting==null?true:savedCctvSetting==='1',cctvMarkers=[],cctvLoadGeneration=0,cctvMoveTimer=null;
 let itsCctvCatalogPromise=null,persistentCctvHls=null;
+const freshCctvStreams=new Map();
 lsSet('itsCctvKey',itsCctvKey);
 if(savedCctvSetting==null)lsSet('itsCctvOn','1');
 function clearCctvMarkers(){cctvMarkers.forEach(m=>map.removeLayer(m));cctvMarkers=[];}
@@ -2552,6 +2553,20 @@ function cctvPopupHtml(row){
   const safeUrl=/^https:\/\//i.test(rawUrl)?rawUrl:'';
   return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div>${safeUrl?`<video controls autoplay muted playsinline preload="metadata" data-hls-src="${esc(safeUrl)}"></video><a class="cctv-popup-link" href="${esc(safeUrl)}" target="_blank" rel="noopener">영상 새 창에서 열기</a>`:'<div class="popup-meta">HTTPS 영상 주소가 제공되지 않았습니다.</div>'}</div>`;
 }
+async function freshCctvRow(row){
+  const lat=Number(String(row.coordy||'').replace(/;/g,'')),lng=Number(String(row.coordx||'').replace(/;/g,'')),key=lat.toFixed(5)+','+lng.toFixed(5),cached=freshCctvStreams.get(key);
+  if(cached&&Date.now()-cached.at<60000)return cached.row;
+  if(!Number.isFinite(lat)||!Number.isFinite(lng))throw new Error('CCTV 좌표가 없습니다');
+  const delta=.004,url=new URL(ITS_CCTV_API);url.search=new URLSearchParams({apiKey:itsCctvKey,type:'all',cctvType:'4',minX:String(lng-delta),maxX:String(lng+delta),minY:String(lat-delta),maxY:String(lat+delta),getType:'json'}).toString();
+  const response=await fetch(url.toString(),{cache:'no-store'});if(!response.ok)throw new Error(`최신 CCTV 주소 조회 실패 (${response.status})`);
+  const rows=cctvRows(await response.json()).filter(x=>/^https:\/\//i.test(String(x.cctvurl||'')));if(!rows.length)throw new Error('최신 CCTV 영상 주소가 없습니다');
+  rows.sort((a,b)=>hav(lat,lng,Number(a.coordy),Number(a.coordx))-hav(lat,lng,Number(b.coordy),Number(b.coordx)));
+  const fresh={...row,...rows[0],cctvname:row.cctvname||rows[0].cctvname};freshCctvStreams.set(key,{at:Date.now(),row:fresh});return fresh;
+}
+async function openRoadCctv(row){
+  const name=String(row.cctvname||'도로 CCTV').replace(/;+$/,'').trim();openPersistentCctv(`<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">최신 영상 주소를 불러오는 중…</div></div>`);
+  try{openPersistentCctv(cctvPopupHtml(await freshCctvRow(row)));}catch(e){openPersistentCctv(`<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">${esc(e.message||'CCTV 영상을 불러오지 못했습니다')}</div></div>`);}
+}
 let persistentCctvPanel=null;
 function closePersistentCctv(){if(persistentCctvHls){try{persistentCctvHls.destroy();}catch(e){}persistentCctvHls=null;}if(persistentCctvPanel){persistentCctvPanel.remove();persistentCctvPanel=null;}}
 function openPersistentCctv(html){
@@ -2561,8 +2576,12 @@ function openPersistentCctv(html){
   persistentCctvPanel.querySelector('.persistent-cctv-close').onclick=closePersistentCctv;
   const video=persistentCctvPanel.querySelector('video[data-hls-src]'),src=video?.dataset.hlsSrc;
   if(video&&src){
-    if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=src;video.play().catch(()=>{});}
-    else if(window.Hls?.isSupported()){persistentCctvHls=new Hls({enableWorker:true,lowLatencyMode:true});persistentCctvHls.loadSource(src);persistentCctvHls.attachMedia(video);persistentCctvHls.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));}
+    if(window.Hls?.isSupported()){
+      persistentCctvHls=new Hls({enableWorker:true,lowLatencyMode:true,manifestLoadingTimeOut:12000,fragLoadingTimeOut:12000});
+      persistentCctvHls.loadSource(src);persistentCctvHls.attachMedia(video);
+      persistentCctvHls.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));
+      persistentCctvHls.on(Hls.Events.ERROR,(_,data)=>{if(!data?.fatal)return;if(data.type===Hls.ErrorTypes.NETWORK_ERROR){persistentCctvHls?.startLoad();}else if(data.type===Hls.ErrorTypes.MEDIA_ERROR){persistentCctvHls?.recoverMediaError();}else{try{persistentCctvHls?.destroy();}catch(e){}persistentCctvHls=null;video.insertAdjacentHTML('afterend','<div class="popup-meta">영상 서버 연결에 실패했습니다. 새 창 링크로 다시 시도해 주세요.</div>');}});
+    }else if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=src;video.play().catch(()=>{});}
     else video.insertAdjacentHTML('afterend','<div class="popup-meta">이 브라우저는 HLS 영상을 재생할 수 없습니다. 새 창 링크를 이용해 주세요.</div>');
   }
 }
@@ -2592,7 +2611,7 @@ async function refreshCctvLayer(){
       const lat=Number(String(row.coordy||'').replace(/;/g,'')),lng=Number(String(row.coordx||'').replace(/;/g,''));
       if(!Number.isFinite(lat)||!Number.isFinite(lng)||!b.pad(.15).contains([lat,lng]))continue;
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'cctv-map-icon',html:'📹',iconSize:[30,30],iconAnchor:[15,15]}),zIndexOffset:700}).addTo(map);
-      marker.on('click',()=>openPersistentCctv(cctvPopupHtml(row)));marker.bindTooltip(String(row.cctvname||'도로 CCTV').replace(/;+$/,'').trim());cctvMarkers.push(marker);
+      marker.on('click',()=>openRoadCctv(row));marker.bindTooltip(String(row.cctvname||'도로 CCTV').replace(/;+$/,'').trim());cctvMarkers.push(marker);
     }
     document.getElementById('status').textContent=`현재 지도 영역 CCTV ${cctvMarkers.length}개`;
   }catch(e){
@@ -3267,7 +3286,7 @@ const trafficLiveRequests=new Map(),trafficLiveCache=new Map(),trafficLiveFailur
 async function fetchTrafficLiveRecord(intersection,force=false){
   const key=(intersection.source||'')+':'+intersection.crsrdId,now=Date.now(),cached=trafficLiveCache.get(key),failure=trafficLiveFailures.get(key);
   if(!force&&cached&&now-cached.at<8000)return cached.rec;
-  if(failure&&now-failure.at<(failure.error?.status===429?TRAFFIC_RATE_LIMIT_BACKOFF:60000))throw failure.error;
+  if(!force&&failure&&now-failure.at<(failure.error?.status===429?TRAFFIC_RATE_LIMIT_BACKOFF:60000))throw failure.error;
   if(trafficLiveRequests.has(key))return trafficLiveRequests.get(key);
   const task=(async()=>{
     const rows=intersection.source==='seoul'?await fetchTrafficLiveSeoul(intersection.crsrdId):await fetchTrafficLiveNationwide(intersection);
@@ -4270,7 +4289,7 @@ function stopGuide(){
 <script src="planner.js?v=20260919-9"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
 <script src="./mobile-patch.js?v=56"></script>
-<script src="./traffic-map-patch.js?v=68"></script>
+<script src="./traffic-map-patch.js?v=69"></script>
 <script src="./utic-map-patch.js?v=59"></script>
 <script src="./ios-touch-patch.js?v=54"></script>
 <script src="./gapless-patch.js?v=57"></script>
