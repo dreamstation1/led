@@ -1,6 +1,6 @@
 (function(){
-  if(window.__trafficMapPatchV71)return;
-  window.__trafficMapPatchV71=true;
+  if(window.__trafficMapPatchV72)return;
+  window.__trafficMapPatchV72=true;
   let layer=null,refreshTimer=null,livePollTimer=null,livePaintTimer=null,popupTicker=null,generation=0,currentNearestJob=null,openMarker=null,openIx=null,currentJobs=[],manualRefreshing=false,manualRefreshLabel='↻ 지금 신호 조회';
   const liveCache=new Map(),transitionFetchAt=new Map(),POLL_MS=15000,DEFAULT_YELLOW_SEC=3.5,isPhone=()=>matchMedia('(max-width:768px)').matches;
   let yellowHistory={};try{yellowHistory=JSON.parse(localStorage.getItem('trafficYellowDurationsV1')||'{}')||{};}catch(e){}
@@ -22,7 +22,7 @@
     return{exists:true,color,seconds,predicted,actualColor,learnKey};
   }
   function stateFor(rec,ix,center){if(!rec)return null;const dir=directionFor(ix,center);let straight=movement(rec,dir,'St',ix.source,ix),bus=movement(rec,dir,'Bs',ix.source,ix);if(!straight.exists&&bus.exists)straight=bus;const state={dir,straight,left:movement(rec,dir,'Lt',ix.source,ix),uTurn:movement(rec,dir,'Ut',ix.source,ix),bus,pedestrian:movement(rec,dir,'Pd',ix.source,ix)};state.predicted=Object.values(state).some(v=>v&&typeof v==='object'&&v.predicted);return state;}
-  function markerHtml(state,near=false,loading=false){const c=state?.straight?.color||null,hasLeft=!!state?.left?.exists,lc=hasLeft?state.left.color:null,leftTransition=hasLeft&&lc==='yellow',lamp=n=>'<span class="sig-lamp '+n+((leftTransition?(n==='red'||n==='yellow'):c===n)?' on':'')+'"></span>',left=hasLeft?'<span class="sig-left'+(lc==='green'?' on green':'')+'"><svg viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><circle cx="4" cy="10" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="13" cy="10" r="1.5"/><circle cx="16" cy="10" r="1.5"/><circle cx="6" cy="7" r="1.5"/><circle cx="8" cy="5" r="1.5"/><circle cx="6" cy="13" r="1.5"/><circle cx="8" cy="15" r="1.5"/></g></svg></span>':'';return'<div class="live-signal-pill'+(hasLeft?' four':'')+(near?' near':'')+(loading?' loading':'')+'">'+lamp('red')+lamp('yellow')+left+lamp('green')+'</div>';}
+  function markerHtml(state,near=false,loading=false){const c=state?.straight?.color||null,hasLeft=!!state?.left?.exists,lc=hasLeft?state.left.color:null,leftTransition=hasLeft&&lc==='yellow',lamp=n=>'<span class="sig-lamp '+n+((leftTransition?n==='yellow':c===n)?' on':'')+'"></span>',left=hasLeft?'<span class="sig-left'+(lc==='green'?' on green':'')+'"><svg viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><circle cx="4" cy="10" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="13" cy="10" r="1.5"/><circle cx="16" cy="10" r="1.5"/><circle cx="6" cy="7" r="1.5"/><circle cx="8" cy="5" r="1.5"/><circle cx="6" cy="13" r="1.5"/><circle cx="8" cy="15" r="1.5"/></g></svg></span>':'';return'<div class="live-signal-pill'+(hasLeft?' four':'')+(near?' near':'')+(loading?' loading':'')+'">'+lamp('red')+lamp('yellow')+left+lamp('green')+'</div>';}
   function liveIcon(state,near=false,loading=false){const hasLeft=!!state?.left?.exists,size=isPhone()?(hasLeft?[88,30]:[68,30]):(hasLeft?[104,34]:[80,34]);return L.divIcon({className:'leaflet-signal-icon',html:markerHtml(state,near,loading),iconSize:size,iconAnchor:[size[0]/2,size[1]/2],popupAnchor:[0,-size[1]/2]});}
   const stateName=m=>!m?.exists?'정보 없음':m.color==='red'?'정지':m.color==='yellow'?'전환':m.color==='green'?'진행':'상태 확인 중';
   function moveValue(m){return stateName(m)+(m?.seconds!=null?' · '+m.seconds+'초':'');}
