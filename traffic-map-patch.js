@@ -1,6 +1,6 @@
 (function(){
-  if(window.__trafficMapPatchV69)return;
-  window.__trafficMapPatchV69=true;
+  if(window.__trafficMapPatchV70)return;
+  window.__trafficMapPatchV70=true;
   let layer=null,refreshTimer=null,livePollTimer=null,livePaintTimer=null,popupTicker=null,generation=0,currentNearestJob=null,openMarker=null,openIx=null,currentJobs=[],manualRefreshing=false,manualRefreshLabel='↻ 지금 신호 조회';
   const liveCache=new Map(),transitionFetchAt=new Map(),POLL_MS=15000,DEFAULT_YELLOW_SEC=3.5,isPhone=()=>matchMedia('(max-width:768px)').matches;
   let yellowHistory={};try{yellowHistory=JSON.parse(localStorage.getItem('trafficYellowDurationsV1')||'{}')||{};}catch(e){}
@@ -18,7 +18,7 @@
     const actualColor=trafficStatusColor(raw),remain=rec?.[stem+(source==='seoul'?'RmdrCs':'RmndCs')],base=trafficRecordTime(rec),duration=remain==null||remain===''?null:Number(remain)/(source==='seoul'?10:1000),expiresAt=Number.isFinite(duration)&&Number.isFinite(base)?base+duration*1000:null,learnKey=(ix?.source||source)+':'+(ix?.crsrdId||'')+':'+dir.key+':'+type;
     if(actualColor==='yellow'&&Number.isFinite(duration)&&duration>=2&&duration<=8){const prior=Number(yellowHistory[learnKey]||0),learned=Math.max(prior,duration);if(Math.abs(learned-prior)>.05){yellowHistory[learnKey]=Math.round(learned*10)/10;saveYellowHistory();}}
     let color=actualColor,seconds=expiresAt==null?null:Math.max(0,Math.ceil((expiresAt-Date.now())/1000)),predicted=false;
-    if(expiresAt!=null&&Date.now()>=expiresAt){const elapsed=(Date.now()-expiresAt)/1000,yellowSec=Number(yellowHistory[learnKey])||DEFAULT_YELLOW_SEC;if(actualColor==='green'){color=elapsed<yellowSec?'yellow':'red';seconds=color==='yellow'?Math.max(0,Math.ceil(yellowSec-elapsed)):null;predicted=true;}else if(actualColor==='yellow'){color='red';seconds=null;predicted=true;}}
+    if(expiresAt!=null&&Date.now()>=expiresAt){const elapsed=(Date.now()-expiresAt)/1000,yellowSec=Number(yellowHistory[learnKey])||DEFAULT_YELLOW_SEC;if(actualColor==='green'){color=elapsed<yellowSec?'yellow':'red';seconds=color==='yellow'?Math.max(0,Math.ceil(yellowSec-elapsed)):null;predicted=true;}else if(actualColor==='yellow'){color='red';seconds=null;predicted=true;}else if(actualColor==='red'){color='green';seconds=null;predicted=true;}}
     return{exists:true,color,seconds,predicted,actualColor,learnKey};
   }
   function stateFor(rec,ix,center){if(!rec)return null;const dir=directionFor(ix,center);let straight=movement(rec,dir,'St',ix.source,ix),bus=movement(rec,dir,'Bs',ix.source,ix);if(!straight.exists&&bus.exists)straight=bus;const state={dir,straight,left:movement(rec,dir,'Lt',ix.source,ix),uTurn:movement(rec,dir,'Ut',ix.source,ix),bus,pedestrian:movement(rec,dir,'Pd',ix.source,ix)};state.predicted=Object.values(state).some(v=>v&&typeof v==='object'&&v.predicted);return state;}

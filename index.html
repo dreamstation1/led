@@ -1783,10 +1783,23 @@ function prevStopNameFor(nextStId){
 // 순서로 다시 대조해 양방향 차량을 분리한다.
 function busSectionFor(it){
   const nodes=currentRoute?.nodes||[];
-  const last=String(it.lastStnId||''),next=String(it.nextStId||'');
-  const li=nodes.indexOf(last),ni=nodes.indexOf(next);
-  if(li>=0&&ni>=0&&li!==ni)return {from:last,to:next,fromIndex:li,toIndex:ni,reverse:ni<li};
-  const ord=parseInt(it.sectOrd,10);
+  if(!nodes.length)return null;
+  const last=String(it.lastStnId||''),reportedNext=String(it.nextStId||''),ord=parseInt(it.sectOrd,10);
+  // 같은 NODE가 회차 전후에 다시 나올 수 있으므로 첫 항목만 고르지 않고,
+  // API 순번과 가장 가까운 출현 위치를 현재 정류소로 선택한다.
+  const occurrences=node=>{const out=[];nodes.forEach((n,i)=>{if(String(n)===node)out.push(i);});return out;};
+  const chooseNear=(list,target)=>list.length?list.reduce((a,b)=>Math.abs(b-target)<Math.abs(a-target)?b:a):-1;
+  const ordIndex=Number.isInteger(ord)?Math.max(0,Math.min(nodes.length-1,ord-1)):0;
+  const li=last?chooseNear(occurrences(last),ordIndex):-1;
+  if(li>=0){
+    // nextStId가 몇 정류장을 건너뛴 값을 보내더라도 방향 판정에만 사용하고,
+    // 화면 문구와 노선도 이동 대상은 현재 순번 바로 다음 NODE로 고정한다.
+    const nextMatches=reportedNext?occurrences(reportedNext):[],ni=chooseNear(nextMatches,li);
+    let step=ni>=0&&ni!==li?(ni>li?1:-1):1;
+    if(li+step<0||li+step>=nodes.length)step=-step;
+    const toIndex=li+step;
+    if(toIndex>=0&&toIndex<nodes.length)return {from:nodes[li],to:nodes[toIndex],fromIndex:li,toIndex,reverse:step<0};
+  }
   if(Number.isInteger(ord)&&ord>0&&ord<nodes.length)
     return {from:nodes[ord-1],to:nodes[ord],fromIndex:ord-1,toIndex:ord,reverse:false};
   return null;
@@ -4289,7 +4302,7 @@ function stopGuide(){
 <script src="planner.js?v=20260919-9"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
 <script src="./mobile-patch.js?v=56"></script>
-<script src="./traffic-map-patch.js?v=69"></script>
+<script src="./traffic-map-patch.js?v=70"></script>
 <script src="./utic-map-patch.js?v=59"></script>
 <script src="./ios-touch-patch.js?v=54"></script>
 <script src="./gapless-patch.js?v=57"></script>
