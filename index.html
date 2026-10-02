@@ -3264,9 +3264,9 @@ async function fetchTrafficLiveSeoul(itstId){
   return [merged];
 }
 const trafficLiveRequests=new Map(),trafficLiveCache=new Map(),trafficLiveFailures=new Map();
-async function fetchTrafficLiveRecord(intersection){
+async function fetchTrafficLiveRecord(intersection,force=false){
   const key=(intersection.source||'')+':'+intersection.crsrdId,now=Date.now(),cached=trafficLiveCache.get(key),failure=trafficLiveFailures.get(key);
-  if(cached&&now-cached.at<8000)return cached.rec;
+  if(!force&&cached&&now-cached.at<8000)return cached.rec;
   if(failure&&now-failure.at<(failure.error?.status===429?TRAFFIC_RATE_LIMIT_BACKOFF:60000))throw failure.error;
   if(trafficLiveRequests.has(key))return trafficLiveRequests.get(key);
   const task=(async()=>{
@@ -4270,7 +4270,7 @@ function stopGuide(){
 <script src="planner.js?v=20260919-9"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
 <script src="./mobile-patch.js?v=56"></script>
-<script src="./traffic-map-patch.js?v=67"></script>
+<script src="./traffic-map-patch.js?v=68"></script>
 <script src="./utic-map-patch.js?v=59"></script>
 <script src="./ios-touch-patch.js?v=54"></script>
 <script src="./gapless-patch.js?v=57"></script>
