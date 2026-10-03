@@ -1,6 +1,6 @@
 (function(){
-  if(window.__trafficMapPatchV75)return;
-  window.__trafficMapPatchV75=true;
+  if(window.__trafficMapPatchV76)return;
+  window.__trafficMapPatchV76=true;
   let layer=null,refreshTimer=null,livePollTimer=null,livePaintTimer=null,popupTicker=null,generation=0,currentNearestJob=null,openMarker=null,openIx=null,currentJobs=[],manualRefreshing=false,manualRefreshLabel='↻ 지금 신호 조회';
   const liveCache=new Map(),transitionFetchAt=new Map(),POLL_MS=15000,DEFAULT_YELLOW_SEC=3.5,isPhone=()=>matchMedia('(max-width:768px)').matches;
   let yellowHistory={};try{yellowHistory=JSON.parse(localStorage.getItem('trafficYellowDurationsV1')||'{}')||{};}catch(e){}
