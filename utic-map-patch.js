@@ -1,6 +1,6 @@
 (function(){
-  if(window.__uticMapPatchV63)return;
-  window.__uticMapPatchV63=true;
+  if(window.__uticMapPatchV64)return;
+  window.__uticMapPatchV64=true;
 
   const DEFAULT_KEY='f3boGzQFKO7tHkA0qQxa5DE9oUhn07GF6LiZ1MIi8';
   const INCIDENT_URL='https://www.utic.go.kr/guide/imsOpenData.do';
@@ -71,8 +71,6 @@
   function cctvPopup(row){
     const rawName=clean(row.CCTVNAME||row.cctvName||row.cctvname||row.CCTV_NAME||row.name),cctvId=clean(row.CCTVID||row.cctvId||row.cctvid),name=rawName&&!rawName.includes('�')?rawName:(cctvId||'UTIC CCTV');
     if(!cctvId)return `<div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">CCTV 식별정보가 없습니다.</div>`;
-    if(clean(row.KIND)==='EC')return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">인증은 정상이지만 UTIC가 이 서울 CCTV의 영상 재생 화면을 제공하지 않습니다.</div><div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공처 응답</div></div>`;
-    if(cctvId.startsWith('L01'))return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">이 서울 CCTV는 UTIC가 Flash·RTMP 방식으로만 제공하여 현재 Chrome, Safari 및 모바일 브라우저에서 재생할 수 없습니다.</div><div class="utic-source">경찰청 도시교통정보센터(UTIC) 구형 스트림</div></div>`;
     const params=new URLSearchParams({key,cctvid:cctvId,cctvName:name,kind:clean(row.KIND),cctvip:clean(row.CCTVIP),cctvch:clean(row.CH),id:clean(row.ID),cctvpasswd:clean(row.PASSWD),cctvport:clean(row.PORT)});
     const stream=`https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?${params}`;
     return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><iframe class="utic-cctv-frame" src="${esc(stream)}" title="${esc(name)} CCTV 영상" allow="autoplay; fullscreen" referrerpolicy="no-referrer-when-downgrade"></iframe><a class="cctv-popup-link" href="${esc(stream)}" target="_blank" rel="noopener">영상 새 창에서 열기</a><div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공 · 등록 IP에서 재생</div></div>`;
