@@ -1,11 +1,11 @@
 (function(){
-  if(window.__uticMapPatchV61)return;
-  window.__uticMapPatchV61=true;
+  if(window.__uticMapPatchV62)return;
+  window.__uticMapPatchV62=true;
 
   const DEFAULT_KEY='f3boGzQFKO7tHkA0qQxa5DE9oUhn07GF6LiZ1MIi8';
   const INCIDENT_URL='https://www.utic.go.kr/guide/imsOpenData.do';
   const CCTV_URL='./utic-cctv-data.json';
-  const INCIDENT_TTL=2*60*1000,CCTV_TTL=24*60*60*1000;
+  const INCIDENT_TTL=2*60*1000,CCTV_TTL=24*60*60*1000,CCTV_MIN_ZOOM=17;
   let incidentLayer=null,cctvLayer=null,moveTimer=null,incidentCache=null,cctvCache=null;
   let key=lsGet('uticKey')||DEFAULT_KEY;
   let incidentOn=lsGet('uticIncidentOn')!=='0';
@@ -71,6 +71,7 @@
   function cctvPopup(row){
     const rawName=clean(row.CCTVNAME||row.cctvName||row.cctvname||row.CCTV_NAME||row.name),cctvId=clean(row.CCTVID||row.cctvId||row.cctvid),name=rawName&&!rawName.includes('�')?rawName:(cctvId||'UTIC CCTV');
     if(!cctvId)return `<div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">CCTV 식별정보가 없습니다.</div>`;
+    if(clean(row.KIND)==='EC')return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">인증은 정상이지만 UTIC가 이 서울 CCTV의 영상 재생 화면을 제공하지 않습니다.</div><div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공처 응답</div></div>`;
     const params=new URLSearchParams({key,cctvid:cctvId,cctvName:name,kind:clean(row.KIND),cctvip:clean(row.CCTVIP),cctvch:clean(row.CH),id:clean(row.ID),cctvpasswd:clean(row.PASSWD),cctvport:clean(row.PORT)});
     const stream=`https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?${params}`;
     return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><iframe class="utic-cctv-frame" src="${esc(stream)}" title="${esc(name)} CCTV 영상" allow="autoplay; fullscreen" referrerpolicy="no-referrer-when-downgrade"></iframe><a class="cctv-popup-link" href="${esc(stream)}" target="_blank" rel="noopener">영상 새 창에서 열기</a><div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공 · 등록 IP에서 재생</div></div>`;
@@ -88,6 +89,7 @@
   async function drawCctv(bounds,force){
     const enabled=document.getElementById('cctvToggle')?.checked;
     if(!enabled){clearLayer('cctv');return 0;}
+    if(map.getZoom()<CCTV_MIN_ZOOM){clearLayer('cctv');return 0;}
     const rows=await cachedRows('cctv',force);clearLayer('cctv');cctvLayer=L.layerGroup().addTo(map);let count=0;
     for(const row of rows){
       const lat=number(row,['YCOORD','coordY','coordy','yCoord','cctvY','locationDataY','lat','latitude']),lng=number(row,['XCOORD','coordX','coordx','xCoord','cctvX','locationDataX','lng','longitude']);
