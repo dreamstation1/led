@@ -1649,7 +1649,7 @@ function routeLiveMetaHtml(it,routeName){
 }
 function arrivalVehicleInfo(routeName,it,n){
   const msg=String(it?.['arrmsg'+n]||'').trim();
-  if(!msg||msg==='운행종료'||/차고지\s*출발|출발\s*예정/.test(msg))return null;
+  if(!msg||msg==='운행종료')return null;
   const view={...it,
     congetion1:it?.['congetion'+n]??it?.['congestion'+n],
     reride_Num1:it?.['reride_Num'+n]??it?.['rerideNum'+n],
@@ -1659,11 +1659,16 @@ function arrivalVehicleInfo(routeName,it,n){
   const plate=String(it?.['plainNo'+n]||''),short=(plate.match(/(\d{4})\s*$/)||[])[1]||'';
   const wanted=RESERVE_BUS_NUMBERS[String(routeName)]||[];
   const reserve=reserveFlag==='1'||reserveFlag==='Y'||wanted.includes(short)||(String(routeName)==='5620'&&type==='일반');
-  return {msg,crowd,type,reserve};
+  return {msg,crowd,type,reserve,n,depot:/차고지\s*출발|출발\s*예정/.test(msg)};
+}
+function orderedArrivalVehicles(routeName,it){
+  const all=[];for(let n=1;n<=5;n++){const v=arrivalVehicleInfo(routeName,it,n);if(v)all.push(v);}
+  const timed=all.filter(v=>!v.depot);
+  return timed.length?timed:all;
 }
 function showArrivalDetails(routeName,it){
   document.querySelector('.arrival-detail-panel')?.remove();
-  const vehicles=[];for(let n=1;n<=5;n++){const v=arrivalVehicleInfo(routeName,it,n);if(v)vehicles.push(v);}
+  const vehicles=orderedArrivalVehicles(routeName,it);
   const panel=document.createElement('div');panel.className='arrival-detail-panel';
   panel.innerHTML=`<section class="arrival-detail-card" role="dialog" aria-modal="true" aria-label="${esc(routeName)} 도착 차량"><div class="arrival-detail-head"><div><b>${esc(routeName)}번</b><div class="setting-desc">이 정류장에 도착할 차량</div></div><button type="button" aria-label="닫기">×</button></div>${vehicles.length?vehicles.map((v,i)=>`<div class="arrival-vehicle"><strong>${i+1}번째 차량 · ${esc(v.msg)}</strong><div class="arrival-vehicle-meta">${!isVillageRouteName(routeName)&&v.crowd?`<span class="route-live-badge ${congestionBadgeClass(v.crowd)}">${esc(congestionLabel(v.crowd))}</span>`:''}${v.type?`<span class="route-live-badge ${v.type==='저상'?'type-low':''}">${v.type==='저상'?'♿ ':''}${esc(v.type)}</span>`:''}<span class="route-live-badge">${v.reserve?'예비차':'일반차'}</span></div></div>`).join(''):'<div class="search-empty">현재 제공되는 후속 차량 정보가 없습니다.</div>'}</section>`;
   const close=()=>panel.remove();panel.onclick=e=>{if(e.target===panel)close()};panel.querySelector('button').onclick=close;document.body.appendChild(panel);
@@ -1681,7 +1686,7 @@ function annotateArrivalTimes(arsId){
       let badge=el.querySelector('.route-arrival'),meta=el.querySelector('.route-live-meta'),more=el.querySelector('.route-arrival-more');
       if(!it){ if(badge)badge.remove();if(meta)meta.remove();if(more)more.remove();return; }
       let first=null;
-      for(let n=1;n<=5;n++){const v=arrivalVehicleInfo(name,it,n);if(v){first={...v,n};break;}}
+      for(const v of orderedArrivalVehicles(name,it)){first=v;break;}
       const msg=first?.msg||'';
       // 운행종료는 굳이 칩마다 안 붙임 - 칩 자체가 그 노선이 있다는 뜻이라 중복 정보
       if(!msg || msg==='운행종료'){ if(badge)badge.remove();if(meta)meta.remove();if(more)more.remove();return; }
