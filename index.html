@@ -254,6 +254,7 @@ button:hover{background:#2a3039}
 }
 .route-stop-startbtn:hover{color:#fff;border-color:#5a6478;}
 .route-stop-startbtn.chosen{background:#ff5a36;border-color:#ff5a36;color:#fff;}
+.route-stop-terminal-note{margin-left:auto;color:#8893a5;font-size:11px;font-weight:700;white-space:nowrap;}
 /* 버스 카드가 있는 줄만 flex 자식으로 끼워 넣었더니, 그 줄만 선/점이
    오른쪽으로 밀리고 카드 없는 줄은 안 밀려서 세로선이 지그재그로
    꺾여 보이는 문제가 있었다(사용자 스크린샷으로 지적받음) - 카드를
@@ -1033,7 +1034,11 @@ STOPS.forEach(s=>{
 const STOP_NAME_OVERRIDE={'화곡동유림아파트':'유림노르웨이숲.까치산지구대'};
 STOPS.forEach(s=>{
   const noSpace=s.name.replace(/\s+/g,'');
-  if(STOP_NAME_OVERRIDE[noSpace])s.name=STOP_NAME_OVERRIDE[noSpace];
+  if(STOP_NAME_OVERRIDE[noSpace]){
+    s.name=STOP_NAME_OVERRIDE[noSpace];
+    // 새 이름으로 녹음 파일이 올라온 정류소는 옛 데이터명이 아닌 새 파일을 재생한다.
+    if(s.name==='유림노르웨이숲.까치산지구대')s.audioName=s.name;
+  }
 });
 // Registering from file:// (no server) always rejects - that's expected and
 // fine, the app works the same either way, this only adds the offline-cache/
@@ -2377,6 +2382,31 @@ function updateRouteBusSummary(r,items){
     if(Number.isFinite(lat)&&Number.isFinite(lng))map.setView([lat,lng],Math.max(map.getZoom(),17),{animate:true});
   });
 }
+function isGuideVirtualTerminal(r,idx){
+  if(!r?.nodes?.length || (idx!==0 && idx!==r.nodes.length-1))return false;
+  const si=STOP_BY_NODE.get(String(r.nodes[idx]));
+  if(si==null || STOPS[si]?.name!=='신월동기점')return false;
+  const neighborIdx=idx===0?1:r.nodes.length-2;
+  const ni=STOP_BY_NODE.get(String(r.nodes[neighborIdx]));
+  return ni!=null && STOPS[ni]?.name==='강서한방병원';
+}
+function trimGuideRoutePath(r,roadPts){
+  if(!roadPts?.length || currentGuideStops.length<2 ||
+     (!isGuideVirtualTerminal(r,0)&&!isGuideVirtualTerminal(r,r.nodes.length-1)))return roadPts;
+  const first=currentGuideStops[0],last=currentGuideStops[currentGuideStops.length-1];
+  const mid=Math.floor(roadPts.length/2);
+  let start=0,startDist=Infinity;
+  for(let i=0;i<=mid;i++){
+    const d=hav(first.lat,first.lng,roadPts[i][0],roadPts[i][1]);
+    if(d<startDist){startDist=d;start=i;}
+  }
+  let end=roadPts.length-1,endDist=Infinity;
+  for(let i=roadPts.length-1;i>=mid;i--){
+    const d=hav(last.lat,last.lng,roadPts[i][0],roadPts[i][1]);
+    if(d<endDist){endDist=d;end=i;}
+  }
+  return end>start?roadPts.slice(start,end+1):roadPts;
+}
 function renderRouteSidebar(r){
   const side=document.getElementById('routeSidebar');
   const list=document.getElementById('routeStops');
@@ -2403,16 +2433,18 @@ function renderRouteSidebar(r){
     const si=STOP_BY_NODE.get(String(node));
     if(si==null)return;
     const s=STOPS[si];
-    const gIdx=guideIdx++;
+    const excluded=isGuideVirtualTerminal(r,idx);
+    const gIdx=excluded?-1:guideIdx++;
     const item=document.createElement('div');
     item.className='route-stop'+(si===selectedIdx?' active':'');
     item.dataset.stopIndex=si;
+    item.dataset.guideIndex=String(gIdx);
 
     item.innerHTML=`
       <div class="route-stop-line"><div class="route-stop-dot"></div></div>
       <div class="route-stop-content">
         <div class="route-stop-name"><span class="route-stop-seq">${idx+1}</span>${esc(s.name)}<span class="route-stop-lines">${subwayHtmlForStop(s)}</span>
-          <button type="button" class="route-stop-startbtn${gIdx===guideStartIdx?' chosen':''}" data-guide-idx="${gIdx}" title="여기를 시뮬레이션/실시간 안내 출발점으로">${gIdx===guideStartIdx?'▶ 출발점':'출발점으로'}</button>
+          ${excluded?'<span class="route-stop-terminal-note">운행정보 전용</span>':`<button type="button" class="route-stop-startbtn${gIdx===guideStartIdx?' chosen':''}" data-guide-idx="${gIdx}" title="여기를 시뮬레이션/실시간 안내 출발점으로">${gIdx===guideStartIdx?'▶ 출발점':'출발점으로'}</button>`}
         </div>
         <div class="route-stop-sub">ARS ${esc(s.ars||'-')} · NODE ${esc(s.node)}</div>
       </div>`;
@@ -2426,7 +2458,8 @@ function renderRouteSidebar(r){
         if(active) active.scrollIntoView({block:'center',behavior:'smooth'});
       },80);
     };
-    item.querySelector('.route-stop-startbtn').onclick=(e)=>{
+    const startButton=item.querySelector('.route-stop-startbtn');
+    if(startButton)startButton.onclick=(e)=>{
       e.stopPropagation();
       guideStartIdx=gIdx;
       status.textContent=`${s.name} · 다음 시뮬레이션/실시간 안내는 여기서부터 시작합니다`;
@@ -2471,9 +2504,12 @@ function showRoute(nameOrId){
   const pts=[];
   currentGuideStops=[];
   guideStartIdx=0;
-  r.nodes.forEach(node=>{
+  r.nodes.forEach((node,idx)=>{
     const i=STOP_BY_NODE.get(String(node));
-    if(i!=null){pts.push([STOPS[i].lat,STOPS[i].lng]);currentGuideStops.push(STOPS[i]);}
+    if(i!=null){
+      pts.push([STOPS[i].lat,STOPS[i].lng]);
+      if(!isGuideVirtualTerminal(r,idx))currentGuideStops.push(STOPS[i]);
+    }
   });
   stopGuide();
   currentRoutePath=[];
@@ -2494,7 +2530,7 @@ function showRoute(nameOrId){
     if(currentRoute!==thisRouteToken || routeLayer!==thisRouteLayer || !map.hasLayer(thisRouteLayer) || !roadPts || roadPts.length<2)return;
     thisRouteLayer.setLatLngs(roadPts);
     if(routeHitLayer)routeHitLayer.setLatLngs(roadPts);
-    currentRoutePath=roadPts;
+    currentRoutePath=trimGuideRoutePath(r,roadPts);
   }).catch(err=>{
     console.warn('도로 경로를 불러오지 못했습니다.',err);
     if(currentRoute===thisRouteToken)status.textContent=`${r.name} · 도로 경로 조회 실패 (잠시 후 다시 시도)`;
@@ -3707,6 +3743,11 @@ function setSimSpeed(v){
    line, not for audio - no English stop-name clips are played. */
 const AUDIO_BASE='audio/';
 const STOP_NAME_EN={}; // e.g. {"101000226":"Gwanghwamun"} - overrides the auto-romanized name below when you have a real official one, used for the LED sign's English line only
+const STOP_TEXT_EN={
+  '까치산시장':'Kkachisan Market',
+  '화곡8동주민센터.까치산시장':'Hwagok 8-dong Community Center. Kkachisan Market',
+  '유림노르웨이숲.까치산지구대':'Yurim Norway Forest. Kkachisan Police Box'
+};
 
 /* Revised-Romanization-style Hangul -> Latin conversion, used only as a
    fallback so the English announcement is an actual pronounceable place name
@@ -3823,7 +3864,17 @@ async function fetchGoogleTranslate(text){
 }
 async function translateStationName(name){
   if(!name)return name;
+  if(STOP_TEXT_EN[name])return STOP_TEXT_EN[name];
   if(stationTranslateCache.has(name))return stationTranslateCache.get(name);
+  if(name.includes('까치산시장')){
+    const parts=await Promise.all(name.split('.').map(async part=>{
+      if(part==='까치산시장')return 'Kkachisan Market';
+      return STOP_TEXT_EN[part] || await fetchGoogleTranslate(part) || hybridRomanizeFallback(part);
+    }));
+    const result=parts.join('. ');
+    stationTranslateCache.set(name,result);
+    return result;
+  }
   const translated=await fetchGoogleTranslate(name);
   const result=translated || hybridRomanizeFallback(name);
   stationTranslateCache.set(name,result);
@@ -4097,9 +4148,10 @@ function setGuideDistance(m){
 }
 
 function markGuideProgress(){
-  document.querySelectorAll('#routeStops .route-stop').forEach((el,i)=>{
-    el.classList.toggle('passed', guideActive && i<guideNextIndex);
-    el.classList.toggle('next', guideActive && i===guideNextIndex);
+  document.querySelectorAll('#routeStops .route-stop').forEach(el=>{
+    const i=Number(el.dataset.guideIndex);
+    el.classList.toggle('passed', guideActive && i>=0 && i<guideNextIndex);
+    el.classList.toggle('next', guideActive && i>=0 && i===guideNextIndex);
   });
 }
 
