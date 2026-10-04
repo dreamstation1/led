@@ -1638,15 +1638,18 @@ function arrivalCongestionCode(it){
 function arrivalBusTypeLabel(it){
   return busTypeLabel(String(it?.busType1??it?.busType??'').trim());
 }
-function routeLiveMetaHtml(it){
-  const crowd=arrivalCongestionCode(it),type=arrivalBusTypeLabel(it),bits=[];
+function isVillageRouteName(routeName){
+  return routeCategory(String(routeName||''))==='마을';
+}
+function routeLiveMetaHtml(it,routeName){
+  const crowd=isVillageRouteName(routeName)?'':arrivalCongestionCode(it),type=arrivalBusTypeLabel(it),bits=[];
   if(crowd)bits.push(`<span class="route-live-badge ${congestionBadgeClass(crowd)}">${esc(congestionLabel(crowd))}</span>`);
   if(type)bits.push(`<span class="route-live-badge ${type==='저상'?'type-low':''}">${type==='저상'?'♿ ':''}${esc(type)}</span>`);
   return bits.length?`<span class="route-live-meta">${bits.join('')}</span>`:'';
 }
 function arrivalVehicleInfo(routeName,it,n){
   const msg=String(it?.['arrmsg'+n]||'').trim();
-  if(!msg||msg==='운행종료')return null;
+  if(!msg||msg==='운행종료'||/차고지\s*출발|출발\s*예정/.test(msg))return null;
   const view={...it,
     congetion1:it?.['congetion'+n]??it?.['congestion'+n],
     reride_Num1:it?.['reride_Num'+n]??it?.['rerideNum'+n],
@@ -1662,7 +1665,7 @@ function showArrivalDetails(routeName,it){
   document.querySelector('.arrival-detail-panel')?.remove();
   const vehicles=[];for(let n=1;n<=5;n++){const v=arrivalVehicleInfo(routeName,it,n);if(v)vehicles.push(v);}
   const panel=document.createElement('div');panel.className='arrival-detail-panel';
-  panel.innerHTML=`<section class="arrival-detail-card" role="dialog" aria-modal="true" aria-label="${esc(routeName)} 도착 차량"><div class="arrival-detail-head"><div><b>${esc(routeName)}번</b><div class="setting-desc">이 정류장에 도착할 차량</div></div><button type="button" aria-label="닫기">×</button></div>${vehicles.length?vehicles.map((v,i)=>`<div class="arrival-vehicle"><strong>${i+1}번째 차량 · ${esc(v.msg)}</strong><div class="arrival-vehicle-meta">${v.crowd?`<span class="route-live-badge ${congestionBadgeClass(v.crowd)}">${esc(congestionLabel(v.crowd))}</span>`:''}${v.type?`<span class="route-live-badge ${v.type==='저상'?'type-low':''}">${v.type==='저상'?'♿ ':''}${esc(v.type)}</span>`:''}<span class="route-live-badge">${v.reserve?'예비차':'일반차'}</span></div></div>`).join(''):'<div class="search-empty">현재 제공되는 후속 차량 정보가 없습니다.</div>'}</section>`;
+  panel.innerHTML=`<section class="arrival-detail-card" role="dialog" aria-modal="true" aria-label="${esc(routeName)} 도착 차량"><div class="arrival-detail-head"><div><b>${esc(routeName)}번</b><div class="setting-desc">이 정류장에 도착할 차량</div></div><button type="button" aria-label="닫기">×</button></div>${vehicles.length?vehicles.map((v,i)=>`<div class="arrival-vehicle"><strong>${i+1}번째 차량 · ${esc(v.msg)}</strong><div class="arrival-vehicle-meta">${!isVillageRouteName(routeName)&&v.crowd?`<span class="route-live-badge ${congestionBadgeClass(v.crowd)}">${esc(congestionLabel(v.crowd))}</span>`:''}${v.type?`<span class="route-live-badge ${v.type==='저상'?'type-low':''}">${v.type==='저상'?'♿ ':''}${esc(v.type)}</span>`:''}<span class="route-live-badge">${v.reserve?'예비차':'일반차'}</span></div></div>`).join(''):'<div class="search-empty">현재 제공되는 후속 차량 정보가 없습니다.</div>'}</section>`;
   const close=()=>panel.remove();panel.onclick=e=>{if(e.target===panel)close()};panel.querySelector('button').onclick=close;document.body.appendChild(panel);
 }
 function annotateArrivalTimes(arsId){
@@ -1677,7 +1680,9 @@ function annotateArrivalTimes(arsId){
        const compactPopup=el.classList.contains('popup-route');
       let badge=el.querySelector('.route-arrival'),meta=el.querySelector('.route-live-meta'),more=el.querySelector('.route-arrival-more');
       if(!it){ if(badge)badge.remove();if(meta)meta.remove();if(more)more.remove();return; }
-      const msg=(it.arrmsg1||'').trim();
+      let first=null;
+      for(let n=1;n<=5;n++){const v=arrivalVehicleInfo(name,it,n);if(v){first={...v,n};break;}}
+      const msg=first?.msg||'';
       // 운행종료는 굳이 칩마다 안 붙임 - 칩 자체가 그 노선이 있다는 뜻이라 중복 정보
       if(!msg || msg==='운행종료'){ if(badge)badge.remove();if(meta)meta.remove();if(more)more.remove();return; }
       if(!badge){
@@ -1687,7 +1692,8 @@ function annotateArrivalTimes(arsId){
       }
        badge.textContent=' · '+msg; // 지도 말풍선과 사이드바 모두 기본 상태는 첫 차량만
       if(meta)meta.remove();
-      const holder=document.createElement('span');holder.innerHTML=routeLiveMetaHtml(it);
+      const metaSource=first?{...it,congetion1:it['congetion'+first.n]??it['congestion'+first.n],reride_Num1:it['reride_Num'+first.n]??it['rerideNum'+first.n],busType1:it['busType'+first.n]}:it;
+      const holder=document.createElement('span');holder.innerHTML=routeLiveMetaHtml(metaSource,name);
       if(holder.firstElementChild)el.appendChild(holder.firstElementChild);
        if(!compactPopup){
          if(!more){more=document.createElement('button');more.type='button';more.className='route-arrival-more';more.textContent='다음차들';el.appendChild(more);}
