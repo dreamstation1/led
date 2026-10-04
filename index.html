@@ -399,6 +399,7 @@ button:hover{background:#2a3039}
 .popup-route{cursor:pointer}
 .route-arrival{color:#8fb8ff;font-weight:700;}
 .route-direction{display:block;color:#aeb9c7;font-size:10px;font-weight:650;margin-top:2px;}
+.route-direction:empty{display:none;}
 .popup-route{white-space:normal;line-height:1.25;}
 .popup-route .route-direction{display:none;}
 .popup-route .route-arrival{font-size:10px;white-space:nowrap;}
@@ -1534,6 +1535,10 @@ function routeDirectionLabel(route,node){
   }
   return '회차 방면';
 }
+function groupedRouteDirection(grouped,route,stop){
+  const same=grouped.filter(x=>String(x.route.id)===String(route.id));
+  return same.length>1?routeDirectionLabel(route,stop.node):'';
+}
 
 function popupHtml(s){
   const idx=STOPS.indexOf(s),groups=groupedStopRoutes(idx);
@@ -1542,7 +1547,7 @@ function popupHtml(s){
     <span class="popup-star" data-fav-node="${esc(s.node)}">${isFavorite(s.node)?'★':'☆'}</span>
   </div>
   <div class="popup-meta">ARS ID: ${esc(s.ars)}<br>NODE ID: ${esc(s.node)}<br>정차 노선: ${groups.length}개</div>
-  <div class="popup-routes">${groups.map(({route:r,stop})=>`<span class="popup-route" data-ars="${esc(stop.ars)}" data-route="${esc(r.id)}" data-route-name="${esc(r.name)}">${esc(r.name)}<span class="route-direction">${esc(routeDirectionLabel(r,stop.node))}</span></span>`).join('')}</div>`;
+  <div class="popup-routes">${groups.map(({route:r,stop})=>`<span class="popup-route" data-ars="${esc(stop.ars)}" data-route="${esc(r.id)}" data-route-name="${esc(r.name)}">${esc(r.name)}<span class="route-direction">${esc(groupedRouteDirection(groups,r,stop))}</span></span>`).join('')}</div>`;
 }
 
 function showNearby(idx){
@@ -1583,7 +1588,7 @@ function renderSelectedPanel(idx){
     </div>
     <div class="routes filtered">
       ${filtered.length
-         ? filtered.map(({route:r,stop})=>`<span class="route" data-ars="${esc(stop.ars)}" data-r="${esc(r.id)}" data-route-name="${esc(r.name)}">${esc(r.name)}<span class="route-cat">${routeCategory(r.name)}</span><span class="route-direction">${esc(routeDirectionLabel(r,stop.node))}</span></span>`).join('')
+         ? filtered.map(({route:r,stop})=>`<span class="route" data-ars="${esc(stop.ars)}" data-r="${esc(r.id)}" data-route-name="${esc(r.name)}">${esc(r.name)}<span class="route-cat">${routeCategory(r.name)}</span><span class="route-direction">${esc(groupedRouteDirection(grouped,r,stop))}</span></span>`).join('')
         : '<span class="search-empty">이 종류의 노선 없음</span>'}
     </div>`;
 
