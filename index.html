@@ -389,6 +389,13 @@ button:hover{background:#2a3039}
 .switch input:checked + span:before{transform:translateX(20px)}
 .popup-route{cursor:pointer}
 .route-arrival{color:#8fb8ff;font-weight:700;}
+.route-live-meta{display:inline-flex;align-items:center;gap:4px;margin-left:5px;vertical-align:middle;}
+.route-live-badge{font-size:9px;font-weight:900;line-height:1;padding:3px 6px;border-radius:999px;color:#c4ced9;background:#343d48;border:1px solid #4a5563;}
+.route-live-badge.crowd-low{color:#33d17a;border-color:#33d17a;background:rgba(51,209,122,.12);}
+.route-live-badge.crowd-mid{color:#ffb020;border-color:#ffb020;background:rgba(255,176,32,.12);}
+.route-live-badge.crowd-high{color:#ff5b52;border-color:#ff3b30;background:rgba(255,59,48,.12);}
+.route-live-badge.type-low{color:#7fc8ff;border-color:#48a8ef;background:rgba(72,168,239,.12);}
+body.light-ui .route-live-badge{background:#eef2f6;}
 body.light-ui .route-arrival{color:#2a5db0;}
 .popup-route:hover{background:#35496a}
 
@@ -1545,6 +1552,27 @@ async function fetchStopArrivals(arsId){
 // 한국어 문구로 내려주는 값 - 직접 초를 계산해 문구를 새로 만드는 것보다
 // 이걸 그대로 쓰는 게 정확하고(막차 지남/운행종료 등 예외 문구도 이미
 // 처리돼 있음) 실제 버스 앱들이 보여주는 문구와도 일치한다.
+function arrivalCongestionCode(it){
+  const direct=it?.congetion1??it?.congestion1??it?.congetion??it?.congestion;
+  const code=String(direct??'').trim();
+  if(['3','4','5','6'].includes(code))return code;
+  // 일부 도착정보 응답은 혼잡도 코드 대신 첫 번째 차량의 재차 인원만 제공한다.
+  const riders=Number(it?.reride_Num1??it?.rerideNum1);
+  if(!Number.isFinite(riders)||riders<=0)return '';
+  if(riders<=15)return '3';
+  if(riders<=30)return '4';
+  if(riders<=45)return '5';
+  return '6';
+}
+function arrivalBusTypeLabel(it){
+  return busTypeLabel(String(it?.busType1??it?.busType??'').trim());
+}
+function routeLiveMetaHtml(it){
+  const crowd=arrivalCongestionCode(it),type=arrivalBusTypeLabel(it),bits=[];
+  if(crowd)bits.push(`<span class="route-live-badge ${congestionBadgeClass(crowd)}">${esc(congestionLabel(crowd))}</span>`);
+  if(type)bits.push(`<span class="route-live-badge ${type==='저상'?'type-low':''}">${type==='저상'?'♿ ':''}${esc(type)}</span>`);
+  return bits.length?`<span class="route-live-meta">${bits.join('')}</span>`:'';
+}
 function annotateArrivalTimes(arsId){
   fetchStopArrivals(arsId).then(items=>{
     if(!items.length)return;
@@ -1553,17 +1581,20 @@ function annotateArrivalTimes(arsId){
     document.querySelectorAll('.popup-route[data-route], .route[data-r]').forEach(el=>{
       const name=el.dataset.routeName||el.dataset.route||el.dataset.r;
       const it=byRoute[name];
-      let badge=el.querySelector('.route-arrival');
-      if(!it){ if(badge)badge.remove(); return; }
+      let badge=el.querySelector('.route-arrival'),meta=el.querySelector('.route-live-meta');
+      if(!it){ if(badge)badge.remove();if(meta)meta.remove();return; }
       const msg=(it.arrmsg1||'').trim();
       // 운행종료는 굳이 칩마다 안 붙임 - 칩 자체가 그 노선이 있다는 뜻이라 중복 정보
-      if(!msg || msg==='운행종료'){ if(badge)badge.remove(); return; }
+      if(!msg || msg==='운행종료'){ if(badge)badge.remove();if(meta)meta.remove();return; }
       if(!badge){
         badge=document.createElement('span');
         badge.className='route-arrival';
         el.appendChild(badge);
       }
       badge.textContent=' · '+msg; // 기존 배지가 있으면 새 도착정보로 덮어씀(주기적 갱신용)
+      if(meta)meta.remove();
+      const holder=document.createElement('span');holder.innerHTML=routeLiveMetaHtml(it);
+      if(holder.firstElementChild)el.appendChild(holder.firstElementChild);
     });
   }).catch(()=>{});
 }
