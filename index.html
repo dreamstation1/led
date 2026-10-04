@@ -399,6 +399,14 @@ button:hover{background:#2a3039}
 .popup-route{cursor:pointer}
 .route-arrival{color:#8fb8ff;font-weight:700;}
 .route-direction{display:block;color:#aeb9c7;font-size:10px;font-weight:650;margin-top:2px;}
+.popup-route{white-space:normal;line-height:1.25;}
+.popup-route .route-direction{display:none;}
+.popup-route .route-arrival{font-size:10px;white-space:nowrap;}
+.popup-route .route-live-meta{font-size:9px;white-space:nowrap;}
+.popup-route .route-arrival-more{display:none;}
+.popup-route{display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
+.routes.filtered .route{display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
+.routes.filtered .route .route-direction{flex-basis:100%;order:10;}
 .route-live-meta{display:inline-flex;align-items:center;gap:4px;margin-left:5px;vertical-align:middle;}
 .route-live-badge{font-size:9px;font-weight:900;line-height:1;padding:3px 6px;border-radius:999px;color:#c4ced9;background:#343d48;border:1px solid #4a5563;}
 .route-live-badge.crowd-low{color:#33d17a;border-color:#33d17a;background:rgba(51,209,122,.12);}
@@ -1660,6 +1668,7 @@ function annotateArrivalTimes(arsId){
        if(el.dataset.ars && String(el.dataset.ars)!==String(arsId))return;
       const name=el.dataset.routeName||el.dataset.route||el.dataset.r;
         const it=byRoute[name];
+       const compactPopup=el.classList.contains('popup-route');
       let badge=el.querySelector('.route-arrival'),meta=el.querySelector('.route-live-meta'),more=el.querySelector('.route-arrival-more');
       if(!it){ if(badge)badge.remove();if(meta)meta.remove();if(more)more.remove();return; }
       const msg=(it.arrmsg1||'').trim();
@@ -1671,12 +1680,14 @@ function annotateArrivalTimes(arsId){
         el.appendChild(badge);
       }
       const nextMsg=String(it.arrmsg2||'').trim();
-       badge.textContent=' · '+msg+(nextMsg&&nextMsg!=='운행종료'?' · 다음 '+nextMsg:''); // 첫차와 다음차를 함께 갱신
+       badge.textContent=' · '+msg+(compactPopup?'':(nextMsg&&nextMsg!=='운행종료'?' · 다음 '+nextMsg:'')); // 지도 말풍선은 첫 차량만, 사이드바는 다음 차량까지
       if(meta)meta.remove();
       const holder=document.createElement('span');holder.innerHTML=routeLiveMetaHtml(it);
       if(holder.firstElementChild)el.appendChild(holder.firstElementChild);
-      if(!more){more=document.createElement('button');more.type='button';more.className='route-arrival-more';more.textContent='다음차들';el.appendChild(more);}
-      more.onclick=e=>{e.preventDefault();e.stopPropagation();showArrivalDetails(name,it);};
+       if(!compactPopup){
+         if(!more){more=document.createElement('button');more.type='button';more.className='route-arrival-more';more.textContent='다음차들';el.appendChild(more);}
+         more.onclick=e=>{e.preventDefault();e.stopPropagation();showArrivalDetails(name,it);};
+       }else if(more)more.remove();
     });
   }).catch(()=>{});
 }
