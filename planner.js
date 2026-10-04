@@ -34,7 +34,10 @@ function plannerMakePath(legs,walk,fromIndex,toIndex){
   const busDistance=joined.reduce((sum,l)=>sum+l.data.prefix[l.end]-l.data.prefix[l.start],0)*1.25;
   const stopCount=joined.reduce((sum,l)=>sum+l.end-l.start,0),transfers=joined.length-1;
   const distance=busDistance+walk;
-  const minutes=Math.max(1,Math.round(busDistance/1000/22*60+stopCount*.28+walk/1000/4.5*60+joined.length*5+transfers*4));
+  // 환승은 대기·정차·승하차 여유를 포함한 실제 소요시간으로 계산한다.
+  // 환승을 많이 넣어 성공확률만 높이는 경로가 최적 경로를 밀어내지 않도록
+  // 환승 1회당 기본 8분을 반영한다.
+  const minutes=Math.max(1,Math.round(busDistance/1000/22*60+stopCount*.28+walk/1000/4.5*60+joined.length*5+transfers*8));
   return {legs:joined,walk,distance,minutes,transfers,stopCount,fromIndex,toIndex,
     fromPlace:plannerPlaces.from?{...plannerPlaces.from}:null,toPlace:plannerPlaces.to?{...plannerPlaces.to}:null};
 }
@@ -162,7 +165,8 @@ function plannerFindPaths(fromIndex,toIndex,options={}){
 }
 
 function plannerRank(paths,sort){
-  const optimal=p=>p.minutes+p.walk/250+p.transfers*5;
+  // 환승 대기는 3분 이내가 가장 좋고 5분을 넘기면 총 이동시간에 불리하게 본다.
+  const optimal=p=>p.minutes+p.walk/250+p.transfers*10;
   const first=p=>sort==='time'?p.minutes:sort==='distance'?p.distance:
     sort==='walk'?p.walk:sort==='detour'?-p.distance:optimal(p);
   return paths.slice().sort((a,b)=>first(a)-first(b)||optimal(a)-optimal(b)||a.transfers-b.transfers||a.distance-b.distance||plannerPathKey(a).localeCompare(plannerPathKey(b)));
@@ -279,7 +283,11 @@ async function plannerTransferChance(path){
   const rideSeconds=(first.end-first.start)*105+90,reach=firstTimes[0]+rideSeconds;
   const connection=secondTimes.find(t=>t>=reach-45);
   if(connection==null)return {text:'현재 조회된 다음 차량으로는 환승이 어려움',level:'bad'};
-  const buffer=connection-reach,prob=Math.max(5,Math.min(98,Math.round(100/(1+Math.exp(-(buffer-90)/150)))));
+  const buffer=connection-reach;
+  const base=100/(1+Math.exp(-(buffer-90)/150));
+  // 3분 이내를 최우선으로 보고, 5분을 넘는 긴 대기는 성공률이 높아도 감점한다.
+  const waitPenalty=buffer<=180?1:buffer<=300?.9:Math.max(.35,1-(buffer-300)/900);
+  const prob=Math.max(5,Math.min(98,Math.round(base*waitPenalty)));
   return {text:`실시간 환승 성공 추정 ${prob}% · 환승 여유 약 ${Math.max(0,Math.round(buffer/60))}분`,level:prob>=75?'':prob>=40?'warn':'bad'};
 }
 async function plannerEnhanceTransferCards(paths){
