@@ -234,7 +234,7 @@ async function plannerArrivalsAt(node){
 }
 function plannerRouteArrivalTimes(items,names){
   const wanted=new Set(names.map(String)),times=[];
-  for(const item of items){if(!wanted.has(String(item.rtNm)))continue;for(let n=1;n<=5;n++){const value=plannerArrivalTime(item,n);if(value!=null)times.push(value);}}
+  for(const item of items){if(!wanted.has(String(item.rtNm)))continue;const nums=Object.keys(item).map(k=>{const m=k.match(/^arrmsg(\d+)$/);return m?Number(m[1]):0;}).filter(n=>n>0);if(!nums.length)nums.push(1);for(const n of [...new Set(nums)]){const value=plannerArrivalTime(item,n);if(value!=null)times.push(value);}}
   return times.sort((a,b)=>a-b);
 }
 function plannerDepartureDate(){
@@ -270,7 +270,17 @@ async function plannerLiveSummary(path){
 async function plannerEnhanceCards(paths){
   await Promise.all(paths.slice(0,12).map(async(path,i)=>{
     const box=document.querySelector(`.planner-result[data-plan-index="${i}"] .planner-live-detail`);if(!box)return;
-    try{box.innerHTML=await plannerLiveSummary(path);}catch(e){box.textContent='실시간 도착정보를 불러오지 못했습니다.';}
+    try{
+      const first=path.legs[0],node=first.data.route.nodes[first.start],names=first.routeNames||[first.data.route.name];
+      const items=await plannerArrivalsAt(node),usable=plannerRouteArrivalTimes(items,names).length>0;
+      if(!usable){
+        const card=box.closest('.planner-result');
+        if(card)card.classList.add('planner-unavailable');
+        box.textContent='현재 시각 운행정보 없음 · 다른 노선 또는 심야노선을 확인하세요';
+        return;
+      }
+      box.innerHTML=await plannerLiveSummary(path);
+    }catch(e){box.textContent='실시간 도착정보를 불러오지 못했습니다.';}
   }));
 }
 async function plannerTransferChance(path){
