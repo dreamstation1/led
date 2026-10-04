@@ -1,5 +1,5 @@
 // App shell v70: red-to-green prediction and adjacent bus stops.
-const CACHE_NAME='bus-map-shell-v87-20261004-terminal-audio';
+const CACHE_NAME='bus-map-shell-v88-20261004-audio-replacements';
 const SHELL_FILES=['./','./index.html','./audio-library.html','./audio-files.json','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./utic-map-patch.js','./traffic-intersections.js','./cctv-data.json','./ios-touch-patch.js','./gyeonggi-stops-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(f=>new URL(f,self.registration.scope).href));
 const PATCH_URLS=new Set(['request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','utic-map-patch.js','ios-touch-patch.js','gyeonggi-stops-patch.js'].map(f=>new URL('./'+f,self.registration.scope).href));
