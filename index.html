@@ -66,6 +66,8 @@ button:hover{background:#2a3039}
 .planner-head button{width:32px;height:32px;padding:0}
 .planner-field{position:relative;margin-top:9px}
 .planner-field input{width:100%}
+.planner-field-row{display:flex;gap:6px}.planner-field-row input{min-width:0;flex:1}.planner-map-pick{width:42px;padding:0;font-size:17px}
+.planner-time-row{display:flex;align-items:center;gap:8px;margin-top:9px}.planner-time-row label{font-size:12px;font-weight:800;white-space:nowrap}.planner-time-row input{min-width:0;flex:1}
 .planner-suggestions{display:none;position:absolute;top:39px;left:0;right:0;z-index:2;max-height:200px;overflow:auto;background:#242b34;border:1px solid #495462;border-radius:8px}
 .planner-suggestions button{display:block;width:100%;height:auto;min-height:39px;text-align:left;border:0;border-radius:0;background:transparent;font-weight:500}
 .planner-suggestions button:hover{background:#35404d}
@@ -75,7 +77,7 @@ button:hover{background:#2a3039}
 #plannerSearch{width:100%;margin-top:9px;background:#ff5a36;border-color:#ff5a36}
 #plannerNote{font-size:11px;color:#aeb9c7;line-height:1.4;margin-top:7px}
 #plannerResults{margin-top:8px}
-.planner-result{width:100%;height:auto;text-align:left;display:block;margin-top:7px;padding:10px;line-height:1.45;background:#20262e}
+.planner-result{width:100%;height:auto;text-align:left;display:block;margin-top:7px;padding:10px;line-height:1.45;background:#20262e;border:1px solid var(--border);border-radius:10px;color:var(--text);cursor:pointer}
 .planner-result.selected{border-color:#ff5a36;background:#302720}
 .planner-result strong{font-size:14px}
 .planner-result small{display:block;color:#aeb9c7;margin-top:4px;font-weight:500}
@@ -83,6 +85,8 @@ button:hover{background:#2a3039}
 .planner-options input{width:18px;height:18px;min-width:18px;accent-color:#38b979}
 .planner-live{margin-top:7px;padding:7px 9px;border-radius:8px;background:#162d25;color:#75dda9;font-size:11px;font-weight:750}
 .planner-live.warn{background:#342b18;color:#ffc65c}.planner-live.bad{background:#351e20;color:#ff8585}
+.planner-live-detail{margin-top:7px;padding:8px;border-radius:8px;background:#18222d;color:#dbe7f5;font-size:11px;line-height:1.55}
+.planner-start-guide{margin-top:8px;width:100%;height:34px;background:#2c6b51;border-color:#4eaa7d}.planner-nav{position:sticky;top:0;z-index:4;margin-top:8px;padding:11px;border:1px solid #4eaa7d;border-radius:10px;background:#153026;color:#eafff3}.planner-nav[hidden]{display:none}.planner-nav strong{display:block;font-size:14px}.planner-nav small{display:block;margin-top:4px;color:#a9e5c5}.planner-nav-stop{width:100%;margin-top:8px;height:32px}.planner-reserve{display:inline-block;padding:2px 6px;border-radius:999px;color:#101318;font-weight:900;background:linear-gradient(90deg,#ff4d6d,#ffd166,#06d6a0,#4dabf7,#c77dff,#ff4d6d);background-size:300% 100%;animation:rbsRainbow 2.2s linear infinite}
 .bus-popup .leaflet-popup-content-wrapper,.bus-popup .leaflet-popup-tip{background:#191e25;color:#fff}
 .popup-name{font-size:15px;font-weight:850;margin-bottom:4px}
 .popup-meta{font-size:12px;color:#b8c2ce;line-height:1.5}
@@ -394,6 +398,7 @@ button:hover{background:#2a3039}
 .switch input:checked + span:before{transform:translateX(20px)}
 .popup-route{cursor:pointer}
 .route-arrival{color:#8fb8ff;font-weight:700;}
+.route-direction{display:block;color:#aeb9c7;font-size:10px;font-weight:650;margin-top:2px;}
 .route-live-meta{display:inline-flex;align-items:center;gap:4px;margin-left:5px;vertical-align:middle;}
 .route-live-badge{font-size:9px;font-weight:900;line-height:1;padding:3px 6px;border-radius:999px;color:#c4ced9;background:#343d48;border:1px solid #4a5563;}
 .route-live-badge.crowd-low{color:#33d17a;border-color:#33d17a;background:rgba(51,209,122,.12);}
@@ -973,13 +978,15 @@ body.light-ui .route{color:#fff}
 <div id="map"></div>
 <section id="plannerPanel" aria-label="버스 길찾기">
   <div class="planner-head"><span>버스 길찾기</span><button id="plannerClose" aria-label="닫기">×</button></div>
-  <div class="planner-field"><input id="plannerFrom" autocomplete="off" placeholder="출발 정류소명 / ARS 번호"><div id="plannerFromSuggestions" class="planner-suggestions"></div></div>
+  <div class="planner-field"><div class="planner-field-row"><input id="plannerFrom" autocomplete="off" placeholder="출발 정류소·건물·장소 검색"><button type="button" class="planner-map-pick" data-kind="from" title="지도에서 출발 위치 선택">📍</button></div><div id="plannerFromSuggestions" class="planner-suggestions"></div></div>
   <div class="planner-field"><input id="plannerVia" autocomplete="off" placeholder="경유 정류소 (선택 · 멀리 돌아가는 경로)"><div id="plannerViaSuggestions" class="planner-suggestions"></div></div>
-  <div class="planner-field"><input id="plannerTo" autocomplete="off" placeholder="도착 정류소명 / ARS 번호"><div id="plannerToSuggestions" class="planner-suggestions"></div></div>
+  <div class="planner-field"><div class="planner-field-row"><input id="plannerTo" autocomplete="off" placeholder="도착 정류소·건물·장소 검색"><button type="button" class="planner-map-pick" data-kind="to" title="지도에서 도착 위치 선택">📍</button></div><div id="plannerToSuggestions" class="planner-suggestions"></div></div>
+  <div class="planner-time-row"><label for="plannerDeparture">출발시각</label><input id="plannerDeparture" type="datetime-local"></div>
   <label class="planner-options"><input type="checkbox" id="plannerClimateOnly">기후동행카드 가능 노선만 (마을·지선·간선·심야)</label>
   <button id="plannerSearch">경로 찾기</button>
   <div class="planner-controls" id="plannerSort"></div>
   <div id="plannerNote">버스 노선 순서로 직행·환승 경로를 찾습니다.</div>
+  <div id="plannerNav" class="planner-nav" hidden></div>
   <div id="plannerResults"></div>
 </section>
 <aside id="routeSidebar">
@@ -1498,13 +1505,36 @@ function nearestStopAt(cp,maxPx=14){
   return best;
 }
 
+function stopGroupIndices(idx){
+  const s=STOPS[idx];if(!s)return [];
+  return STOPS.map((t,i)=>[t,i]).filter(([t])=>t.name===s.name&&hav(s.lat,s.lng,t.lat,t.lng)<=35).map(([,i])=>i);
+}
+function groupedStopRoutes(idx){
+  const out=[],seen=new Set();
+  for(const i of stopGroupIndices(idx))for(const r of (STOPS[i].routes||[])){
+    const key=`${r.id}:${STOPS[i].node}`;if(seen.has(key))continue;seen.add(key);out.push({route:r,stop:STOPS[i]});
+  }
+  return out;
+}
+function routeDirectionLabel(route,node){
+  const data=ROUTE_BY_ID.get(String(route.id));if(!data)return '';
+  const positions=data.nodes.map(String).map((n,i)=>n===String(node)?i:-1).filter(i=>i>=0);
+  const p=positions[0];if(p==null)return '';
+  for(let i=p+1;i<data.nodes.length;i++){
+    const next=STOPS[STOP_BY_NODE.get(String(data.nodes[i]))];
+    if(next)return `${next.name} 방면 · 다음 ${next.name}`;
+  }
+  return '회차 방면';
+}
+
 function popupHtml(s){
+  const idx=STOPS.indexOf(s),groups=groupedStopRoutes(idx);
   return `<div class="popup-fav-row">
     <div class="popup-name">${esc(s.name)} ${subwayHtmlForStop(s)}</div>
     <span class="popup-star" data-fav-node="${esc(s.node)}">${isFavorite(s.node)?'★':'☆'}</span>
   </div>
-  <div class="popup-meta">ARS ID: ${esc(s.ars)}<br>NODE ID: ${esc(s.node)}<br>정차 노선: ${s.routes.length}개</div>
-  <div class="popup-routes">${s.routes.map(r=>`<span class="popup-route" data-route="${esc(r.id)}" data-route-name="${esc(r.name)}">${esc(r.name)}</span>`).join('')}</div>`;
+  <div class="popup-meta">ARS ID: ${esc(s.ars)}<br>NODE ID: ${esc(s.node)}<br>정차 노선: ${groups.length}개</div>
+  <div class="popup-routes">${groups.map(({route:r,stop})=>`<span class="popup-route" data-ars="${esc(stop.ars)}" data-route="${esc(r.id)}" data-route-name="${esc(r.name)}">${esc(r.name)}<span class="route-direction">${esc(routeDirectionLabel(r,stop.node))}</span></span>`).join('')}</div>`;
 }
 
 function showNearby(idx){
@@ -1528,9 +1558,10 @@ function renderSelectedPanel(idx){
   const s=STOPS[idx],sel=document.getElementById('selected');
   sel.style.display='block';
 
+  const grouped=groupedStopRoutes(idx);
   const filtered=currentRouteFilter==='전체'
-    ? s.routes
-    : s.routes.filter(r=>routeCategory(r.name)===currentRouteFilter);
+    ? grouped
+    : grouped.filter(({route:r})=>routeCategory(r.name)===currentRouteFilter);
 
   sel.innerHTML=`
     <div class="sel-topline">
@@ -1538,13 +1569,13 @@ function renderSelectedPanel(idx){
       ${subwayHtmlForStop(s)}
       <button class="favorite-star" id="selectedFavBtn" title="즐겨찾기">${isFavorite(s.node)?'★':'☆'}</button>
     </div>
-    <div class="sel-meta">ARS ${esc(s.ars)} · NODE ${esc(s.node)} · 정차노선 ${s.routes.length}개</div>
+    <div class="sel-meta">ARS ${esc(s.ars)}${stopGroupIndices(idx).length>1?' 외 '+(stopGroupIndices(idx).length-1)+'개 방향 정류소':''} · NODE ${esc(s.node)} · 정차노선 ${grouped.length}개</div>
     <div class="route-filter">
       ${ROUTE_FILTERS.map(f=>`<button data-filter="${f}" class="${f===currentRouteFilter?'on':''}">${f}</button>`).join('')}
     </div>
     <div class="routes filtered">
       ${filtered.length
-        ? filtered.map(r=>`<span class="route" data-r="${esc(r.id)}" data-route-name="${esc(r.name)}">${esc(r.name)}<span class="route-cat">${routeCategory(r.name)}</span></span>`).join('')
+         ? filtered.map(({route:r,stop})=>`<span class="route" data-ars="${esc(stop.ars)}" data-r="${esc(r.id)}" data-route-name="${esc(r.name)}">${esc(r.name)}<span class="route-cat">${routeCategory(r.name)}</span><span class="route-direction">${esc(routeDirectionLabel(r,stop.node))}</span></span>`).join('')
         : '<span class="search-empty">이 종류의 노선 없음</span>'}
     </div>`;
 
@@ -1625,9 +1656,10 @@ function annotateArrivalTimes(arsId){
     if(!items.length)return;
     const byRoute={};
     items.forEach(it=>{ byRoute[it.rtNm]=it; });
-    document.querySelectorAll('.popup-route[data-route], .route[data-r]').forEach(el=>{
+      document.querySelectorAll('.popup-route[data-route], .route[data-r]').forEach(el=>{
+       if(el.dataset.ars && String(el.dataset.ars)!==String(arsId))return;
       const name=el.dataset.routeName||el.dataset.route||el.dataset.r;
-      const it=byRoute[name];
+        const it=byRoute[name];
       let badge=el.querySelector('.route-arrival'),meta=el.querySelector('.route-live-meta'),more=el.querySelector('.route-arrival-more');
       if(!it){ if(badge)badge.remove();if(meta)meta.remove();if(more)more.remove();return; }
       const msg=(it.arrmsg1||'').trim();
@@ -1639,7 +1671,7 @@ function annotateArrivalTimes(arsId){
         el.appendChild(badge);
       }
       const nextMsg=String(it.arrmsg2||'').trim();
-      badge.textContent=' · '+msg+(nextMsg&&nextMsg!=='운행종료'?' · 다음 '+nextMsg:''); // 첫차와 다음차를 함께 갱신
+       badge.textContent=' · '+msg+(nextMsg&&nextMsg!=='운행종료'?' · 다음 '+nextMsg:''); // 첫차와 다음차를 함께 갱신
       if(meta)meta.remove();
       const holder=document.createElement('span');holder.innerHTML=routeLiveMetaHtml(it);
       if(holder.firstElementChild)el.appendChild(holder.firstElementChild);
@@ -1657,8 +1689,10 @@ let stopArrivalTimer=null;
 function startStopArrivalPolling(arsId){
   stopStopArrivalPolling();
   if(!arsId)return;
-  annotateArrivalTimes(arsId);
-  stopArrivalTimer=setInterval(()=>annotateArrivalTimes(arsId),STOP_ARRIVAL_POLL_MS);
+  const idx=STOPS.findIndex(s=>String(s.ars)===String(arsId));
+  const ids=idx>=0?[...new Set(groupedStopRoutes(idx).map(x=>String(x.stop.ars)))]:[String(arsId)];
+  ids.forEach(id=>annotateArrivalTimes(id));
+  stopArrivalTimer=setInterval(()=>ids.forEach(id=>annotateArrivalTimes(id)),STOP_ARRIVAL_POLL_MS);
 }
 function stopStopArrivalPolling(){
   if(stopArrivalTimer){clearInterval(stopArrivalTimer);stopArrivalTimer=null;}
@@ -4467,7 +4501,7 @@ function stopGuide(){
 }
 
 </script>
-<script src="planner.js?v=20261004-10"></script>
+<script src="planner.js?v=20261004-11"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
 <script src="./mobile-patch.js?v=56"></script>
 <script src="./traffic-map-patch.js?v=76"></script>
