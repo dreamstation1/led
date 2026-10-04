@@ -1162,7 +1162,15 @@ let guideOptionsCollapsed=lsGet('guideOptionsCollapsed')!=='0';
 // 매번 설정에 직접 붙여넣지 않아도 되게 배포해둔 프록시 주소를 기본값으로
 // 박아둠 - 설정에서 다른 값을 넣으면 그게 우선(localStorage가 있으면 그걸 씀).
 let busPosProxyUrl=lsGet('busPosProxyUrl')||'https://super-mud-117e.oseungjae0417.workers.dev';
-let guideLastLat=null, guideLastLng=null, guideHeadingDeg=null;
+let guideLastLat=null, guideLastLng=null, guideHeadingDeg=null, guideDeviceHeading=null;
+function guideDirectionText(target,lat,lng){
+  if(!target||guideDeviceHeading==null)return '';
+  let d=((bearingDeg(lat,lng,target.lat,target.lng)-guideDeviceHeading+540)%360)-180;
+  if(Math.abs(d)<25)return '직진';
+  if(d>0&&d<150)return '오른쪽 방향';
+  if(d<0&&d>-150)return '왼쪽 방향';
+  return '뒤돌아 이동';
+}
 let currentRoutePath=[]; // Published TOPIS [lat,lng] points used by the route and simulation.
 let guideStartIdx=0; // route-order index (matches currentGuideStops) to start the guide/sim from - defaults to the first stop, changeable by picking a stop in the sidebar
 let routeLabelLayer=L.layerGroup().addTo(map);
@@ -4199,12 +4207,13 @@ function updateGuideStatus(){
   }
   const target=currentGuideStops[guideNextIndex];
   const next=currentGuideStops[guideNextIndex+1];
+  const direction=guideDirectionText(target,guideLastLat,guideLastLng);
   box.innerHTML=`
     <div class="guide-status-line">
       <div><div class="guide-status-label">다음 정류소</div><div class="guide-status-name">${esc(target.name)}</div></div>
       <div class="guide-status-dist" id="guideDist">&mdash;</div>
     </div>
-    ${next?`<div class="guide-status-sub">그 다음: ${esc(next.name)}</div>`:'<div class="guide-status-sub">이후 종점입니다</div>'}
+    <div class="guide-status-sub">${direction?`🧭 ${direction} · `:''}${next?`그 다음: ${esc(next.name)}`:'이후 종점입니다'}</div>
   `;
 }
 
@@ -4329,6 +4338,16 @@ function startGuideLive(){
   guideApproachAnnounced=false;
   guideMinDistToTarget=Infinity;
   guideLastLat=guideLastLng=guideHeadingDeg=null;
+  guideDeviceHeading=null;
+  if(window.DeviceOrientationEvent){
+    const listen=event=>{
+      const h=event.webkitCompassHeading??(event.alpha!=null?360-event.alpha:null);
+      if(Number.isFinite(Number(h)))guideDeviceHeading=(Number(h)+360)%360;
+    };
+    window._guideOrientationListener=listen;
+    if(typeof DeviceOrientationEvent.requestPermission==='function')DeviceOrientationEvent.requestPermission().then(v=>{if(v==='granted')window.addEventListener('deviceorientation',listen,true)}).catch(()=>{});
+    else window.addEventListener('deviceorientation',listen,true);
+  }
   markGuideProgress();
   renderGuideBar();
   startTrafficLightPolling();
@@ -4518,6 +4537,8 @@ function stopGuide(){
   if(guideWatchId!=null){navigator.geolocation.clearWatch(guideWatchId);guideWatchId=null;}
   if(guideSimRaf!=null){cancelAnimationFrame(guideSimRaf);guideSimRaf=null;}
   if(guideUserMarker){map.removeLayer(guideUserMarker);guideUserMarker=null;}
+  if(window._guideOrientationListener){window.removeEventListener('deviceorientation',window._guideOrientationListener,true);window._guideOrientationListener=null;}
+  guideDeviceHeading=null;
   stopTrafficLightPolling();
   const wasActive=guideActive;
   guideActive=false;
