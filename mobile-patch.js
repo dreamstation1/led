@@ -1,6 +1,6 @@
 (function(){
-  if(window.__mobilePatchV56)return;
-  window.__mobilePatchV56=true;
+  if(window.__mobilePatchV58)return;
+  window.__mobilePatchV58=true;
 
   /* ---------- adaptive guide + simulation ---------- */
   let lastSimPanAt=0;
@@ -51,11 +51,22 @@
     announceArrival(target,next);guideApproachAnnounced=true;
     try{if(ledConnected)ledSetIndex(idx);}catch(e){}
   }
+  let stopBackgroundSimulation=null;
+  function backgroundTicker(callback){
+    let worker=null,timer=null,url=null,stopped=false;
+    const fire=()=>{if(!stopped)callback(Date.now());};
+    try{
+      const blob=new Blob(['setInterval(()=>postMessage(Date.now()),100)'],{type:'text/javascript'});
+      url=URL.createObjectURL(blob);worker=new Worker(url);worker.onmessage=e=>{if(!stopped)callback(Number(e.data)||Date.now());};
+    }catch(e){timer=setInterval(()=>fire(),100);}
+    return()=>{stopped=true;if(worker)worker.terminate();if(timer)clearInterval(timer);if(url)URL.revokeObjectURL(url);};
+  }
   try{
     startGuideSim=function(){
       if(!currentGuideStops || currentGuideStops.length<2)return;
       if(!currentRoutePath || currentRoutePath.length<2){try{status.textContent='노선 경로를 불러온 뒤 다시 시뮬레이션해 주세요.';}catch(e){}return;}
       if(guideWatchId!=null){try{navigator.geolocation.clearWatch(guideWatchId);}catch(e){}guideWatchId=null;}
+      if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}
       if(guideSimRaf!=null){cancelAnimationFrame(guideSimRaf);guideSimRaf=null;}
       guideActive=true;
       const startIdx=Math.min(Math.max(guideStartIdx||0,0),currentGuideStops.length-2);
@@ -65,24 +76,29 @@
       announceArrival(currentGuideStops[startIdx],currentGuideStops[startIdx+1]||null);
       try{if(ledConnected)ledUploadRoute().then(()=>ledSetIndex(startIdx));}catch(e){}
       const path=currentRoutePath,totalLen=pathLengthM(path),stopArcs=stopArcLengthsAlongPath(path,currentGuideStops);
-      let traveled=Math.max(0,Math.min(totalLen,stopArcs[startIdx]||0)),lastTs=null,dwellUntil=0;
+      let traveled=Math.max(0,Math.min(totalLen,stopArcs[startIdx]||0)),lastTs=Date.now(),dwellUntil=0;
       const initial=pointAtDistanceM(path,traveled);simPositionWithoutFixedRadius(initial[0],initial[1]);
       function tick(now){
-        if(!guideActive){guideSimRaf=null;return;}
-        if(lastTs==null)lastTs=now;
-        let dt=(now-lastTs)/1000;lastTs=now;if(!Number.isFinite(dt)||dt<0)dt=0;dt=Math.min(dt,0.25);
-        if(now<dwellUntil){guideSimRaf=requestAnimationFrame(tick);return;}
+        if(!guideActive){if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}guideSimRaf=null;return;}
+        let dt=(now-lastTs)/1000;lastTs=now;if(!Number.isFinite(dt)||dt<0)dt=0;dt=Math.min(dt,1);
+        if(now<dwellUntil)return;
         const speed=(typeof SIM_BASE_SPEED_MPS==='number'?SIM_BASE_SPEED_MPS:14)*Math.max(0.1,simSpeedMultiplier||1);
         const beforeIdx=guideNextIndex;traveled=Math.min(totalLen,traveled+speed*dt);
         maybeAdaptiveSimAnnouncement(traveled,stopArcs);
         const pos=pointAtDistanceM(path,traveled);simPositionWithoutFixedRadius(pos[0],pos[1]);
         if(guideActive && guideNextIndex>beforeIdx && guideNextIndex<currentGuideStops.length)dwellUntil=now+(GUIDE_DWELL_MS/Math.max(0.1,simSpeedMultiplier||1));
-        if(traveled>=totalLen-0.01){const last=path[path.length-1];simPositionWithoutFixedRadius(last[0],last[1]);guideSimRaf=null;return;}
-        guideSimRaf=requestAnimationFrame(tick);
+        if(traveled>=totalLen-0.01){const last=path[path.length-1];simPositionWithoutFixedRadius(last[0],last[1]);if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}guideSimRaf=null;return;}
       }
-      guideSimRaf=requestAnimationFrame(tick);
+      // A Worker timer keeps route time, stop arrivals and announcements alive
+      // when the desktop browser window is minimized. The map can repaint when
+      // visible again without controlling simulation progress.
+      guideSimRaf=-1;stopBackgroundSimulation=backgroundTicker(tick);
     };
   }catch(e){console.error('simulation patch failed',e);}
+  try{
+    const baseStopGuide=stopGuide;
+    stopGuide=function(){if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}return baseStopGuide();};
+  }catch(e){}
 
   /* ---------- audio handled only by gapless-patch.js ---------- */
 
