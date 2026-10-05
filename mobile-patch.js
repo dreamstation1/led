@@ -1,6 +1,6 @@
 (function(){
-  if(window.__mobilePatchV58)return;
-  window.__mobilePatchV58=true;
+  if(window.__mobilePatchV59)return;
+  window.__mobilePatchV59=true;
 
   /* ---------- adaptive guide + simulation ---------- */
   let lastSimPanAt=0;
@@ -51,7 +51,25 @@
     announceArrival(target,next);guideApproachAnnounced=true;
     try{if(ledConnected)ledSetIndex(idx);}catch(e){}
   }
-  let stopBackgroundSimulation=null;
+  let stopBackgroundSimulation=null,simulationKeepAlive=null,simulationKeepAliveUrl=null;
+  function startSimulationKeepAlive(){
+    if(simulationKeepAlive)return;
+    try{
+      // A looping silent media element marks the minimized tab as actively
+      // playing media, preventing desktop Chromium from freezing the worker
+      // that advances stops and starts announcements.
+      const rate=8000,seconds=2,dataBytes=rate*seconds*2,buf=new ArrayBuffer(44+dataBytes),v=new DataView(buf);
+      const text=(at,s)=>{for(let i=0;i<s.length;i++)v.setUint8(at+i,s.charCodeAt(i));};
+      text(0,'RIFF');v.setUint32(4,36+dataBytes,true);text(8,'WAVE');text(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,rate,true);v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);text(36,'data');v.setUint32(40,dataBytes,true);
+      simulationKeepAliveUrl=URL.createObjectURL(new Blob([buf],{type:'audio/wav'}));
+      const audio=new Audio(simulationKeepAliveUrl);audio.loop=true;audio.volume=.001;audio.playsInline=true;simulationKeepAlive=audio;
+      const p=audio.play();if(p?.catch)p.catch(()=>{});
+    }catch(e){simulationKeepAlive=null;}
+  }
+  function stopSimulationKeepAlive(){
+    if(simulationKeepAlive){try{simulationKeepAlive.pause();simulationKeepAlive.removeAttribute('src');}catch(e){}simulationKeepAlive=null;}
+    if(simulationKeepAliveUrl){try{URL.revokeObjectURL(simulationKeepAliveUrl);}catch(e){}simulationKeepAliveUrl=null;}
+  }
   function backgroundTicker(callback){
     let worker=null,timer=null,url=null,stopped=false;
     const fire=()=>{if(!stopped)callback(Date.now());};
@@ -67,6 +85,7 @@
       if(!currentRoutePath || currentRoutePath.length<2){try{status.textContent='노선 경로를 불러온 뒤 다시 시뮬레이션해 주세요.';}catch(e){}return;}
       if(guideWatchId!=null){try{navigator.geolocation.clearWatch(guideWatchId);}catch(e){}guideWatchId=null;}
       if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}
+      stopSimulationKeepAlive();startSimulationKeepAlive();
       if(guideSimRaf!=null){cancelAnimationFrame(guideSimRaf);guideSimRaf=null;}
       guideActive=true;
       const startIdx=Math.min(Math.max(guideStartIdx||0,0),currentGuideStops.length-2);
@@ -79,7 +98,7 @@
       let traveled=Math.max(0,Math.min(totalLen,stopArcs[startIdx]||0)),lastTs=Date.now(),dwellUntil=0;
       const initial=pointAtDistanceM(path,traveled);simPositionWithoutFixedRadius(initial[0],initial[1]);
       function tick(now){
-        if(!guideActive){if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}guideSimRaf=null;return;}
+        if(!guideActive){if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();guideSimRaf=null;return;}
         let dt=(now-lastTs)/1000;lastTs=now;if(!Number.isFinite(dt)||dt<0)dt=0;dt=Math.min(dt,1);
         if(now<dwellUntil)return;
         const speed=(typeof SIM_BASE_SPEED_MPS==='number'?SIM_BASE_SPEED_MPS:14)*Math.max(0.1,simSpeedMultiplier||1);
@@ -87,7 +106,7 @@
         maybeAdaptiveSimAnnouncement(traveled,stopArcs);
         const pos=pointAtDistanceM(path,traveled);simPositionWithoutFixedRadius(pos[0],pos[1]);
         if(guideActive && guideNextIndex>beforeIdx && guideNextIndex<currentGuideStops.length)dwellUntil=now+(GUIDE_DWELL_MS/Math.max(0.1,simSpeedMultiplier||1));
-        if(traveled>=totalLen-0.01){const last=path[path.length-1];simPositionWithoutFixedRadius(last[0],last[1]);if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}guideSimRaf=null;return;}
+        if(traveled>=totalLen-0.01){const last=path[path.length-1];simPositionWithoutFixedRadius(last[0],last[1]);if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();guideSimRaf=null;return;}
       }
       // A Worker timer keeps route time, stop arrivals and announcements alive
       // when the desktop browser window is minimized. The map can repaint when
@@ -97,7 +116,7 @@
   }catch(e){console.error('simulation patch failed',e);}
   try{
     const baseStopGuide=stopGuide;
-    stopGuide=function(){if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}return baseStopGuide();};
+    stopGuide=function(){if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();return baseStopGuide();};
   }catch(e){}
 
   /* ---------- audio handled only by gapless-patch.js ---------- */
