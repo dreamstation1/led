@@ -121,11 +121,12 @@
     }catch(e){console.warn('route signal build failed',e);return routeSignals;}
   }
   function clearRouteSignals(){routeSignals=[];routeSignature='';nextSignal=null;if(routeSignalLayer){try{map.removeLayer(routeSignalLayer);}catch(e){}routeSignalLayer=null;}updateRouteSignalSummary();}
-  function signalIcon(isNext){return L.divIcon({className:'',html:'<div class="route-signal-icon'+(isNext?' next':'')+'">🚦</div>',iconSize:[24,24],iconAnchor:[12,12]});}
   function drawRouteSignals(){
-    if(typeof map==='undefined'||typeof L==='undefined')return;if(routeSignalLayer){try{map.removeLayer(routeSignalLayer);}catch(e){}}
-    routeSignalLayer=L.layerGroup().addTo(map);
-    routeSignals.forEach(ix=>{const m=L.marker([ix.lat,ix.lng],{icon:signalIcon(nextSignal&&nextSignal.crsrdId===ix.crsrdId),zIndexOffset:600}).addTo(routeSignalLayer);ix._marker=m;m.bindPopup('<b>🚦 '+esc(ix.name)+'</b><br>노선상 교차로 · 실시간 신호 확인 가능');m.on('click',()=>showSignalNow(ix,true));});
+    // The map-wide signal layer owns all visible traffic-light markers.
+    // Route guidance keeps this data only for choosing the next signal; a
+    // second marker layer caused duplicates after pans and popup closes.
+    if(routeSignalLayer){try{map.removeLayer(routeSignalLayer);}catch(e){}routeSignalLayer=null;}
+    routeSignals.forEach(ix=>{ix._marker=null;});
   }
   function updateRouteSignalSummary(){
     const box=document.getElementById('routeBusSummary');if(!box)return;let el=document.getElementById('routeSignalSummary');if(!el){el=document.createElement('span');el.id='routeSignalSummary';el.className='rbs-plan';box.appendChild(el);}
@@ -166,7 +167,7 @@
   async function showSignalNow(ix,center=false){
     if(!ix)return;try{const rec=await fetchTrafficLiveRecord(ix),phase=pickPhaseV29(rec,ix.routeHeading??0,ix.source||'seoul',ix.turnDelta||0);if(center)map.setView([ix.lat,ix.lng],Math.max(map.getZoom(),17));renderPhaseV29(phase?{...phase,name:ix.name,lat:ix.lat,lng:ix.lng,crsrdId:ix.crsrdId}:null,ix.name+' · 최신 신호 정보가 없습니다');}catch(e){renderPhaseV29(null,e.message||'신호 정보를 불러오지 못했습니다');}
   }
-  function markNextSignal(ix){nextSignal=ix;routeSignals.forEach(s=>{if(s._marker)s._marker.setIcon(signalIcon(ix&&s.crsrdId===ix.crsrdId));});updateRouteSignalSummary();}
+  function markNextSignal(ix){nextSignal=ix;updateRouteSignalSummary();}
   async function trafficTick(){
     try{
       if(!trafficLightOn)return;await buildRouteSignals();const pos=currentPos();let ix=chooseNextRouteSignal(pos);
