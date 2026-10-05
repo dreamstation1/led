@@ -91,8 +91,9 @@ button:hover{background:#2a3039}
 .bus-popup .leaflet-popup-content-wrapper,.bus-popup .leaflet-popup-tip{background:#191e25;color:#fff}
 .popup-name{font-size:15px;font-weight:850;margin-bottom:4px}
 .popup-meta{font-size:12px;color:#b8c2ce;line-height:1.5}
-.popup-routes{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
-.popup-route{font-size:11px;font-weight:800;padding:3px 6px;border-radius:999px;background:#263247;border:1px solid #3b4c67}
+.popup-routes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin-top:7px;max-height:156px;overflow-y:auto;overscroll-behavior:contain}
+.popup-route{font-size:11px;font-weight:800;padding:5px 7px;border-radius:9px;background:#263247;border:1px solid #3b4c67;min-width:0}
+.bus-popup .leaflet-popup-content{width:320px!important;max-width:calc(100vw - 54px)!important;margin:12px}
 .route-line-label{background:#15191f!important;color:#fff!important;border:1px solid #39424e!important;border-radius:5px!important;box-shadow:none!important;font-size:11px!important;font-weight:750!important;padding:2px 5px!important}
 
 #routeSidebar{
@@ -401,12 +402,12 @@ button:hover{background:#2a3039}
 .route-arrival{color:#8fb8ff;font-weight:700;}
 .route-direction{display:block;color:#aeb9c7;font-size:10px;font-weight:650;margin-top:2px;}
 .route-direction:empty{display:none;}
-.popup-route{white-space:normal;line-height:1.25;}
+.popup-route{white-space:nowrap;line-height:1.25;overflow:hidden;}
 .popup-route .route-direction{display:none;}
 .popup-route .route-arrival{font-size:10px;white-space:nowrap;}
-.popup-route .route-live-meta{font-size:9px;white-space:nowrap;}
+.popup-route .route-live-meta{display:none;}
 .popup-route .route-arrival-more{display:none;}
-.popup-route{display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
+.popup-route{display:flex;align-items:center;gap:3px;}
 .routes.filtered .route{display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
 .routes.filtered .route .route-direction{flex-basis:100%;order:10;}
 .route-live-meta{display:inline-flex;align-items:center;gap:4px;margin-left:5px;vertical-align:middle;}
@@ -1709,8 +1710,10 @@ function annotateArrivalTimes(arsId){
        badge.textContent=' · '+msg; // 지도 말풍선과 사이드바 모두 기본 상태는 첫 차량만
       if(meta)meta.remove();
       const metaSource=first?{...it,congetion1:it['congetion'+first.n]??it['congestion'+first.n],reride_Num1:it['reride_Num'+first.n]??it['rerideNum'+first.n],busType1:it['busType'+first.n]}:it;
-      const holder=document.createElement('span');holder.innerHTML=routeLiveMetaHtml(metaSource,name);
-      if(holder.firstElementChild)el.appendChild(holder.firstElementChild);
+      if(!compactPopup){
+        const holder=document.createElement('span');holder.innerHTML=routeLiveMetaHtml(metaSource,name);
+        if(holder.firstElementChild)el.appendChild(holder.firstElementChild);
+      }
        if(!compactPopup){
          if(!more){more=document.createElement('button');more.type='button';more.className='route-arrival-more';more.textContent='다음차들';el.appendChild(more);}
          more.onclick=e=>{e.preventDefault();e.stopPropagation();showArrivalDetails(name,it);};
