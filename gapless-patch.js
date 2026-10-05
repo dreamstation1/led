@@ -105,6 +105,7 @@
   function koreanizeNumbers(s){return s.replace(/\d+/g,sinoNumber);}
   const AiCache=new Map();
   let aiDownUntil=0;
+  let aiQueue=Promise.resolve();
   function aiTtsBase(){
     let v=null;
     try{
@@ -137,9 +138,12 @@
     const k=textLang+'|'+say;
     if(AiCache.has(k))return AiCache.get(k);
     if(Date.now()<aiDownUntil)return Promise.resolve(null);
-    const p=(async()=>{
+    // 서버에 한 번에 하나씩만 요청 (무료 서버처럼 느린 곳에 몰리지 않게, 가까운 정류소부터 차례로)
+    const job=async()=>{
+      if(Date.now()<aiDownUntil){AiCache.delete(k);return null;}
       const ctl=new AbortController();
-      const timer=setTimeout(()=>ctl.abort(),40000);
+      // 느린(무료 CPU) 서버도 기다릴 수 있게 넉넉히
+      const timer=setTimeout(()=>ctl.abort(),120000);
       try{
         // cut0 = 문장을 쪼개지 않음 (쉼표에서 쪼개면 앞부분이 빠지는 경우가 있었음)
         const qs=new URLSearchParams({text:say,text_lang:textLang,...AI_TTS_REF[textLang],text_split_method:'cut0',batch_size:'1',media_type:'wav'});
@@ -164,9 +168,98 @@
         AiCache.delete(k);
         return null;
       }finally{clearTimeout(timer);}
-    })();
+    };
+    const p=new Promise(resolve=>{
+      aiQueue=aiQueue.then(async()=>resolve(await job())).catch(()=>{AiCache.delete(k);resolve(null);});
+    });
     AiCache.set(k,p);
     return p;
+  }
+
+  // ---- Web Audio: 안내 조각들을 미리 풀어두고 하나로 이어 붙여 한 번에 재생 ----
+  // 폰(특히 아이폰)은 <audio>에 파일을 바꿔 끼울 때마다 다시 불러오느라
+  // '이번정류소' 와 '궁동입구' 사이에 텀이 생긴다. 미리 디코딩한 버퍼를
+  // 한 덩어리로 합쳐 재생하면 조각 사이 틈이 생길 수 없다.
+  let actx=null;
+  function audioCtx(){
+    if(actx)return actx;
+    const C=window.AudioContext||window.webkitAudioContext;
+    if(!C)return null;
+    // 아이폰 무음 스위치가 켜져 있어도 안내방송이 들리게 (Safari 17+)
+    try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(e){}
+    try{actx=new C();}catch(e){actx=null;}
+    return actx;
+  }
+  // 앞뒤 무음을 잘라서 이어 붙였을 때 늘어지지 않게 (30ms 여유는 남김)
+  function trimSilence(buf){
+    const ctx=audioCtx();
+    if(!ctx||!buf||!buf.length)return buf;
+    const TH=0.004,len=buf.length,chs=[];
+    for(let c=0;c<buf.numberOfChannels;c++)chs.push(buf.getChannelData(c));
+    const loud=i=>chs.some(d=>Math.abs(d[i])>TH);
+    let s=0,e=len-1;
+    while(s<len&&!loud(s))s++;
+    while(e>s&&!loud(e))e--;
+    const pad=Math.round(buf.sampleRate*0.03);
+    s=Math.max(0,s-pad);e=Math.min(len-1,e+pad);
+    if(s>=e||(s===0&&e===len-1))return buf;
+    const out=ctx.createBuffer(buf.numberOfChannels,e-s+1,buf.sampleRate);
+    chs.forEach((d,c)=>out.getChannelData(c).set(d.subarray(s,e+1)));
+    return out;
+  }
+  const BufCache=new Map();
+  function decodeUrl(url){
+    const ctx=audioCtx();
+    if(!ctx||!url)return Promise.resolve(null);
+    if(BufCache.has(url))return BufCache.get(url);
+    const p=(async()=>{
+      try{
+        const ab=await (await fetch(url)).arrayBuffer();
+        const buf=await new Promise((res,rej)=>{
+          const r=ctx.decodeAudioData(ab,res,rej);
+          if(r&&r.then)r.then(res,rej);
+        });
+        return trimSilence(buf);
+      }catch(e){BufCache.delete(url);return null;}
+    })();
+    BufCache.set(url,p);
+    return p;
+  }
+  // items: [{buf,gapAfter(ms)}] -> 하나의 버퍼로 합쳐 재생
+  function playBuffers(items,signal){
+    return new Promise(resolve=>{
+      const ctx=audioCtx();
+      if(!ctx||signal.aborted||!items.length){resolve(false);return;}
+      const sr=ctx.sampleRate;
+      const gapLen=ms=>Math.round(Math.max(0,ms||0)*sr/1000);
+      let total=0;
+      items.forEach(it=>{total+=it.buf.length+gapLen(it.gapAfter);});
+      const ch=Math.max(...items.map(it=>it.buf.numberOfChannels));
+      const out=ctx.createBuffer(ch,Math.max(1,total),sr);
+      let off=0;
+      for(const it of items){
+        for(let c=0;c<ch;c++)out.getChannelData(c).set(it.buf.getChannelData(Math.min(c,it.buf.numberOfChannels-1)),off);
+        off+=it.buf.length+gapLen(it.gapAfter);
+      }
+      const src=ctx.createBufferSource();
+      src.buffer=out;
+      const gain=ctx.createGain();
+      gain.gain.value=typeof guideVolume==='number'?guideVolume:1;
+      src.connect(gain);gain.connect(ctx.destination);
+      let settled=false;
+      const finish=ok=>{
+        if(settled)return;settled=true;clearTimeout(timer);
+        signal.removeEventListener('abort',abort);
+        src.onended=null;
+        if(!ok){try{src.stop();}catch(e){}}
+        resolve(ok);
+      };
+      const abort=()=>finish(false);
+      src.onended=()=>finish(true);
+      signal.addEventListener('abort',abort,{once:true});
+      const timer=setTimeout(()=>finish(true),(out.duration+5)*1000);
+      try{src.start();}catch(e){finish(false);}
+    });
   }
 
   function prepareAudio(url){
@@ -189,18 +282,26 @@
     });
   }
 
+  // 미리 디코딩된 버퍼가 있으면 그걸 붙이고(이어 붙여 재생용), 안 되면 기존처럼 <audio>로 검사
+  async function audioSegment(url,extra){
+    const buf=await decodeUrl(url);
+    if(buf)return {kind:'audio',url,buf,...extra};
+    const preparedUrl=await prepareAudio(url);
+    return preparedUrl?{kind:'audio',url:preparedUrl,...extra}:null;
+  }
+
   async function resolveSegment(category,key,recordingOnly=false){
     const found=await firstPlayable(pathsFor(category,key));
     if(found){
-      const preparedUrl=await prepareAudio(found.url);
-      if(preparedUrl)return {kind:'audio',url:preparedUrl,category,key};
+      const seg=await audioSegment(found.url,{category,key});
+      if(seg)return seg;
     }
     if(recordingOnly)return {kind:'missing',category,key};
     const t=await ttsInfo(category,key);
     const aiUrl=await aiSynth(t.text,t.lang);
     if(aiUrl){
-      const preparedUrl=await prepareAudio(aiUrl);
-      if(preparedUrl)return {kind:'audio',url:preparedUrl,category,key,ai:true};
+      const seg=await audioSegment(aiUrl,{category,key,ai:true});
+      if(seg)return seg;
     }
     return {kind:'tts',text:t.text,lang:t.lang,category,key};
   }
@@ -257,29 +358,61 @@
   }
 
   async function playResolvedSequence(items,signal){
-    for(let i=0;i<items.length;i++){
+    // Keep phrase/name joins short, but breathe between complete sentences.
+    const gapAfter=seg=>(seg.category==='stops'||seg.key==='종점입니다')?SENTENCE_GAP_MS:SEGMENT_GAP_MS;
+    // 이어 붙인 버퍼는 재생 속도를 바꾸면 음높이도 바뀌어서 기본 속도일 때만 사용
+    const ctx=audioCtx();
+    let useBuffers=false;
+    if(ctx&&Math.abs((typeof guideRate==='number'?guideRate:1)-1)<0.01){
+      try{if(ctx.state!=='running')await Promise.race([ctx.resume(),new Promise(r=>setTimeout(r,300))]);}catch(e){}
+      useBuffers=ctx.state==='running';
+    }
+    const joinable=seg=>useBuffers&&seg&&seg.kind==='audio'&&seg.buf;
+    for(let i=0;i<items.length;){
       if(signal.aborted)return;
       const seg=items[i];
+      if(joinable(seg)){
+        // 녹음/AI 조각이 연속된 구간은 통째로 한 번에 재생
+        let j=i;
+        const run=[];
+        while(joinable(items[j])){
+          run.push({buf:items[j].buf,gapAfter:joinable(items[j+1])?gapAfter(items[j]):0});
+          j++;
+        }
+        const ok=await playBuffers(run,signal);
+        if(signal.aborted)return;
+        if(!ok){
+          for(let k=i;k<j;k++){
+            await playAudioSegment(items[k],signal);
+            if(signal.aborted)return;
+            if(k+1<j)await pauseBetween(gapAfter(items[k]),signal);
+          }
+        }
+        if(j<items.length)await pauseBetween(gapAfter(items[j-1]),signal);
+        i=j;
+        continue;
+      }
       if(seg.kind==='tts')await sayTts(seg,signal);
       else await playAudioSegment(seg,signal);
       if(signal.aborted)return;
-      if(i+1<items.length){
-        // Keep phrase/name joins short, but breathe between complete sentences.
-        // Wait for actual playback completion, including recorded/TTS transitions.
-        const sentenceEnd=seg.category==='stops'||seg.key==='종점입니다';
-        await pauseBetween(sentenceEnd?SENTENCE_GAP_MS:SEGMENT_GAP_MS,signal);
-      }
+      // Wait for actual playback completion, including recorded/TTS transitions.
+      if(i+1<items.length)await pauseBetween(gapAfter(seg),signal);
+      i++;
     }
   }
 
-  function warmSegment(category,key){try{pathsFor(category,key).forEach(loadBlobUrl);}catch(e){}}
+  // 파일을 받아두는 것뿐 아니라 재생 가능한 상태로 미리 풀어둔다
+  function warmSegment(category,key){
+    try{pathsFor(category,key).forEach(p=>loadBlobUrl(p).then(u=>{if(u)decodeUrl(u);}));}catch(e){}
+  }
   // Pre-generate the AI clip for an upcoming stop that has no recording, so the
   // announcement doesn't wait for synthesis when the bus gets there.
   async function warmAi(category,key){
     try{
       if(await firstPlayable(pathsFor(category,key)))return;
       const t=await ttsInfo(category,key);
-      await aiSynth(t.text,t.lang);
+      const url=await aiSynth(t.text,t.lang);
+      if(url)decodeUrl(url);
     }catch(e){}
   }
   function warmFixed(){
@@ -290,15 +423,29 @@
     try{
       if(!Array.isArray(currentGuideStops))return;
       const idx=Math.max(0,Number(guideNextIndex)||0);
-      for(let i=Math.max(0,idx-1);i<Math.min(currentGuideStops.length,idx+3);i++){
+      // 가까운 정류소부터: 다음 정류소, 그다음 3개, 마지막으로 직전 정류소.
+      // AI 생성은 한 번에 하나씩 차례로 처리되니 이 순서가 곧 만드는 순서다.
+      const order=[idx,idx+1,idx+2,idx+3,idx-1].filter(i=>i>=0&&i<currentGuideStops.length);
+      order.forEach(i=>{
         const s=currentGuideStops[i],k=s.audioName||s.name;
         warmSegment('stops',k);warmSegment('stops',k+' (1)');
-        warmAi('stops',k);warmAi('stops',k+' (1)');
-      }
+      });
+      order.forEach(i=>{const s=currentGuideStops[i],k=s.audioName||s.name;warmAi('stops',k);});
+      order.forEach(i=>{const s=currentGuideStops[i],k=s.audioName||s.name;warmAi('stops',k+' (1)');});
     }catch(e){}
   }
 
   function unlock(){
+    // 사용자가 화면을 만질 때 Web Audio를 깨워둔다 (아이폰은 탭 안에서만 허용)
+    const ctx=audioCtx();
+    if(ctx){
+      try{
+        if(ctx.state!=='running')ctx.resume();
+        const s=ctx.createBufferSource();
+        s.buffer=ctx.createBuffer(1,1,22050);
+        s.connect(ctx.destination);s.start(0);
+      }catch(e){}
+    }
     warmFixed();warmUpcoming();
     if(primeEl)return;
     try{
