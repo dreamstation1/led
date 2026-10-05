@@ -1,6 +1,6 @@
 (function(){
-  if(window.__gaplessQueueV58)return;
-  window.__gaplessQueueV58=true;
+  if(window.__gaplessQueueV57)return;
+  window.__gaplessQueueV57=true;
 
   const BlobCache=new Map();
   const LoadCache=new Map();
@@ -9,58 +9,6 @@
   const SENTENCE_GAP_MS=TOUCH_DEVICE?0:450;
   let primeEl=null;
   let announcement=null;
-  const GainCache=new Map();
-  let audioContext=null,mediaSource=null,volumeGain=null,referenceStatsPromise=null;
-  const AudioContextClass=window.AudioContext||window.webkitAudioContext;
-
-  function loudnessStats(buffer){
-    const channels=buffer.numberOfChannels||1,frames=buffer.length||0,block=Math.max(256,Math.floor(buffer.sampleRate*.05));
-    let gatedEnergy=0,gatedSamples=0,peak=0,totalEnergy=0,totalSamples=0;
-    for(let start=0;start<frames;start+=block){
-      const end=Math.min(frames,start+block);let energy=0,n=0;
-      for(let c=0;c<channels;c++){const data=buffer.getChannelData(c);for(let i=start;i<end;i++){const v=data[i];energy+=v*v;peak=Math.max(peak,Math.abs(v));n++;}}
-      totalEnergy+=energy;totalSamples+=n;
-      if(n&&Math.sqrt(energy/n)>=.005){gatedEnergy+=energy;gatedSamples+=n;}
-    }
-    return {rms:Math.sqrt((gatedSamples?gatedEnergy:totalEnergy)/Math.max(1,gatedSamples||totalSamples)),peak};
-  }
-  function getAudioContext(){
-    if(!AudioContextClass)return null;
-    if(!audioContext)audioContext=new AudioContextClass();
-    return audioContext;
-  }
-  async function analyzePath(path){
-    const ctx=getAudioContext();if(!ctx)return null;
-    const response=await fetch(path,{cache:'force-cache'});if(!response.ok)return null;
-    const arrayBuffer=await response.arrayBuffer();
-    const decoded=await ctx.decodeAudioData(arrayBuffer.slice(0));
-    return loudnessStats(decoded);
-  }
-  function referenceStats(){
-    if(!referenceStatsPromise)referenceStatsPromise=analyzePath('audio/'+encodeURIComponent('이번정류소')+'.wav').catch(()=>null);
-    return referenceStatsPromise;
-  }
-  async function normalizationGain(path){
-    if(GainCache.has(path))return GainCache.get(path);
-    const promise=(async()=>{
-      try{
-        const [ref,src]=await Promise.all([referenceStats(),analyzePath(path)]);
-        if(!ref||!src||!src.rms)return 1;
-        let gain=Math.max(.25,Math.min(4,ref.rms/src.rms));
-        if(src.peak>0)gain=Math.min(gain,.98/src.peak);
-        return Math.max(.2,gain);
-      }catch(e){return 1;}
-    })();
-    GainCache.set(path,promise);return promise;
-  }
-  function ensureAudioGraph(a){
-    const ctx=getAudioContext();if(!ctx)return false;
-    try{
-      if(!mediaSource){mediaSource=ctx.createMediaElementSource(a);volumeGain=ctx.createGain();mediaSource.connect(volumeGain);volumeGain.connect(ctx.destination);}
-      if(ctx.state==='suspended')ctx.resume().catch(()=>{});
-      return !!volumeGain;
-    }catch(e){return false;}
-  }
   window.cancelGuideAnnouncement=function(){
     if(announcement)announcement.abort();
     announcement=null;
@@ -117,6 +65,65 @@
     return {text:m[key]||key,lang:'ko-KR'};
   }
 
+  // 녹음 파일이 없을 때 브라우저 TTS 대신 직접 학습한 AI 목소리(GPT-SoVITS api_v2)로
+  // 그 자리에서 만들어 재생한다. 서버 주소는 기본 http://127.0.0.1:9880 이고
+  // 주소창에 ?aitts=https://... 를 붙여 열면 그 주소로 바뀌어 저장된다 (?aitts= 빈 값이면 초기화).
+  // 서버가 꺼져 있거나 실패하면 1분 동안은 시도하지 않고 기존 브라우저 TTS로 넘어간다.
+  const AI_TTS_KEY='aiTtsUrl';
+  const AI_TTS_DEFAULT='http://127.0.0.1:9880';
+  // 참고 음성은 GPT-SoVITS 폴더 기준 경로 (서버 PC 안에 있는 파일)
+  const AI_TTS_REF={
+    ko:{ref_audio_path:'custom_ui/refs/bus_ref_ko.wav',prompt_text:'강서면허시험장 강서농수산물시장입니다.',prompt_lang:'ko'},
+    en:{ref_audio_path:'custom_ui/refs/bus_ref_en.wav',prompt_text:'Mokdong Complex 5, Arcade C, Mokdong Stadium, North Gate.',prompt_lang:'en'}
+  };
+  // 한국어 모델은 영문자를 못 읽어서 한글 읽기로 바꿔 보낸다 (CTS -> 씨티에스)
+  const LATIN_KO={A:'에이',B:'비',C:'씨',D:'디',E:'이',F:'에프',G:'지',H:'에이치',I:'아이',J:'제이',K:'케이',L:'엘',M:'엠',N:'엔',O:'오',P:'피',Q:'큐',R:'알',S:'에스',T:'티',U:'유',V:'브이',W:'더블유',X:'엑스',Y:'와이',Z:'제트'};
+  function koreanizeLatin(s){
+    return s.replace(/APT/gi,'아파트').replace(/&/g,'앤')
+      .replace(/[A-Za-z]+/g,w=>[...w.toUpperCase()].map(c=>LATIN_KO[c]||c).join(''));
+  }
+  const AiCache=new Map();
+  let aiDownUntil=0;
+  function aiTtsBase(){
+    let v=null;
+    try{
+      const q=new URLSearchParams(location.search).get('aitts');
+      if(q!==null){if(q)localStorage.setItem(AI_TTS_KEY,q);else localStorage.removeItem(AI_TTS_KEY);}
+      v=localStorage.getItem(AI_TTS_KEY);
+    }catch(e){}
+    return String(v||AI_TTS_DEFAULT).replace(/\/+$/,'');
+  }
+  function aiSynth(text,lang){
+    const textLang=/^en/i.test(lang||'')?'en':'ko';
+    // '가양역1번출구.우성아파트' 의 점은 읽을 때 쉼표처럼 살짝 끊어 읽게
+    let say=String(text||'').replace(/\s*[.·]\s*/g,', ').trim();
+    if(textLang==='ko')say=koreanizeLatin(say);
+    if(!say||typeof fetch!=='function')return Promise.resolve(null);
+    const k=textLang+'|'+say;
+    if(AiCache.has(k))return AiCache.get(k);
+    if(Date.now()<aiDownUntil)return Promise.resolve(null);
+    const p=(async()=>{
+      const ctl=new AbortController();
+      const timer=setTimeout(()=>ctl.abort(),20000);
+      try{
+        // cut0 = 문장을 쪼개지 않음 (쉼표에서 쪼개면 앞부분이 빠지는 경우가 있었음)
+        const qs=new URLSearchParams({text:say,text_lang:textLang,...AI_TTS_REF[textLang],text_split_method:'cut0',batch_size:'1',media_type:'wav'});
+        const r=await fetch(aiTtsBase()+'/tts?'+qs,{signal:ctl.signal,cache:'no-store'});
+        if(!r.ok){AiCache.delete(k);return null;}
+        const blob=await r.blob();
+        if(!blob.size){AiCache.delete(k);return null;}
+        return URL.createObjectURL(blob);
+      }catch(e){
+        // 서버 꺼짐/연결 불가 - 잠깐 쉬었다가 다시 시도
+        aiDownUntil=Date.now()+60000;
+        AiCache.delete(k);
+        return null;
+      }finally{clearTimeout(timer);}
+    })();
+    AiCache.set(k,p);
+    return p;
+  }
+
   function prepareAudio(url){
     return new Promise(resolve=>{
       const a=new Audio();
@@ -141,10 +148,15 @@
     const found=await firstPlayable(pathsFor(category,key));
     if(found){
       const preparedUrl=await prepareAudio(found.url);
-      if(preparedUrl)return {kind:'audio',url:preparedUrl,category,key,gain:await normalizationGain(found.path)};
+      if(preparedUrl)return {kind:'audio',url:preparedUrl,category,key};
     }
     if(recordingOnly)return {kind:'missing',category,key};
     const t=await ttsInfo(category,key);
+    const aiUrl=await aiSynth(t.text,t.lang);
+    if(aiUrl){
+      const preparedUrl=await prepareAudio(aiUrl);
+      if(preparedUrl)return {kind:'audio',url:preparedUrl,category,key,ai:true};
+    }
     return {kind:'tts',text:t.text,lang:t.lang,category,key};
   }
 
@@ -180,11 +192,7 @@
       const a=seg.audio||(primeEl||(primeEl=new Audio()));
       try{
         if(seg.url&&a.src!==seg.url){a.src=seg.url;a.load();}
-        a.playbackRate=rate;
-        const baseVolume=typeof guideVolume==='number'?guideVolume:1,norm=Number.isFinite(seg.gain)?seg.gain:1;
-        if(ensureAudioGraph(a)){a.volume=1;volumeGain.gain.setValueAtTime(Math.max(0,baseVolume*norm),audioContext.currentTime);}
-        else a.volume=Math.min(1,Math.max(0,baseVolume*norm));
-        a.currentTime=0;
+        a.playbackRate=rate;a.volume=typeof guideVolume==='number'?guideVolume:1;a.currentTime=0;
       }catch(e){resolve(false);return;}
       let settled=false,timer;
       const ended=()=>finish(true),failed=()=>finish(false);
@@ -220,6 +228,15 @@
   }
 
   function warmSegment(category,key){try{pathsFor(category,key).forEach(loadBlobUrl);}catch(e){}}
+  // Pre-generate the AI clip for an upcoming stop that has no recording, so the
+  // announcement doesn't wait for synthesis when the bus gets there.
+  async function warmAi(category,key){
+    try{
+      if(await firstPlayable(pathsFor(category,key)))return;
+      const t=await ttsInfo(category,key);
+      await aiSynth(t.text,t.lang);
+    }catch(e){}
+  }
   function warmFixed(){
     warmSegment('phrases','이번정류소');warmSegment('phrases','다음정류소');
     warmSegment('phrases','종점입니다');warmSegment('phrases_en','thisstopis');
@@ -231,20 +248,19 @@
       for(let i=Math.max(0,idx-1);i<Math.min(currentGuideStops.length,idx+3);i++){
         const s=currentGuideStops[i],k=s.audioName||s.name;
         warmSegment('stops',k);warmSegment('stops',k+' (1)');
+        warmAi('stops',k);warmAi('stops',k+' (1)');
       }
     }catch(e){}
   }
 
   function unlock(){
     warmFixed();warmUpcoming();
-    try{const ctx=getAudioContext();if(ctx&&ctx.state==='suspended')ctx.resume().catch(()=>{});}catch(e){}
-    if(primeEl){ensureAudioGraph(primeEl);return;}
+    if(primeEl)return;
     try{
       primeEl=new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA=');
       primeEl.volume=0;primeEl.preload='auto';primeEl.playsInline=true;
       primeEl.setAttribute('playsinline','');
       primeEl.setAttribute('webkit-playsinline','');
-      ensureAudioGraph(primeEl);
       const p=primeEl.play();if(p&&p.then)p.then(()=>{try{primeEl.pause();}catch(e){}}).catch(()=>{});
     }catch(e){}
   }
@@ -263,9 +279,12 @@
       // If either Korean stop name already needed TTS, keep the announcement
       // consistent and synthesize its English ending too. Only a fully
       // recorded Korean announcement with a missing "(1)" clip ends here.
-      const stopNameUsesTts=resolved.some((seg,i)=>specs[i][0]==='stops'&&seg.kind==='tts');
-      if(stopNameUsesTts){
-        resolved.push(await resolveSegment('phrases_en','thisstopis'),await resolveSegment('stops',stopKey+' (1)'));
+      // With the AI voice server available, a missing "(1)" clip is generated
+      // too, so the English ending is never silently dropped.
+      const stopNameUsesTts=resolved.some((seg,i)=>specs[i][0]==='stops'&&(seg.kind==='tts'||seg.ai));
+      const englishSeg=await resolveSegment('stops',stopKey+' (1)');
+      if(stopNameUsesTts||englishSeg.ai){
+        resolved.push(await resolveSegment('phrases_en','thisstopis'),englishSeg);
       }
     }
     return resolved;
