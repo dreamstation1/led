@@ -82,6 +82,27 @@
     return s.replace(/APT/gi,'아파트').replace(/&/g,'앤')
       .replace(/[A-Za-z]+/g,w=>[...w.toUpperCase()].map(c=>LATIN_KO[c]||c).join(''));
   }
+  // 정류소 이름의 숫자는 한자어로 읽는다 (5번출구 -> 오번출구, 102동 -> 백이동).
+  // 그대로 보내면 모델이 '다섯번출구'처럼 고유어로 읽어버림.
+  const SINO_DIGIT=['','일','이','삼','사','오','육','칠','팔','구'];
+  function sinoUnder10000(n){
+    let out='';
+    [[1000,'천'],[100,'백'],[10,'십']].forEach(([v,u])=>{
+      const d=Math.floor(n/v)%10;
+      if(d)out+=(d===1?'':SINO_DIGIT[d])+u;
+    });
+    return out+SINO_DIGIT[n%10];
+  }
+  function sinoNumber(str){
+    // 01 처럼 0으로 시작하거나 119/112 같은 긴급번호는 한 자리씩 (공일, 일일구)
+    if((str.length>1&&str[0]==='0')||str==='119'||str==='112')return [...str].map(c=>c==='0'?'공':SINO_DIGIT[+c]).join('');
+    const n=parseInt(str,10);
+    if(!n)return '영';
+    if(n>=100000000)return [...str].map(c=>c==='0'?'공':SINO_DIGIT[+c]).join('');
+    const man=Math.floor(n/10000),rest=n%10000;
+    return (man?(man===1?'':sinoUnder10000(man))+'만':'')+sinoUnder10000(rest);
+  }
+  function koreanizeNumbers(s){return s.replace(/\d+/g,sinoNumber);}
   const AiCache=new Map();
   let aiDownUntil=0;
   function aiTtsBase(){
@@ -93,26 +114,50 @@
     }catch(e){}
     return String(v||AI_TTS_DEFAULT).replace(/\/+$/,'');
   }
+  // 재생 시간(초). 알 수 없으면 -1
+  function clipDuration(url){
+    return new Promise(resolve=>{
+      let done=false;
+      const a=new Audio();
+      const finish=v=>{if(done)return;done=true;clearTimeout(timer);a.removeAttribute('src');resolve(v);};
+      const timer=setTimeout(()=>finish(-1),5000);
+      a.preload='metadata';
+      a.addEventListener('loadedmetadata',()=>finish(Number.isFinite(a.duration)?a.duration:-1),{once:true});
+      a.addEventListener('error',()=>finish(-1),{once:true});
+      a.src=url;
+      try{a.load();}catch(e){finish(-1);}
+    });
+  }
   function aiSynth(text,lang){
     const textLang=/^en/i.test(lang||'')?'en':'ko';
     // '가양역1번출구.우성아파트' 의 점은 읽을 때 쉼표처럼 살짝 끊어 읽게
     let say=String(text||'').replace(/\s*[.·]\s*/g,', ').trim();
-    if(textLang==='ko')say=koreanizeLatin(say);
+    if(textLang==='ko')say=koreanizeNumbers(koreanizeLatin(say));
     if(!say||typeof fetch!=='function')return Promise.resolve(null);
     const k=textLang+'|'+say;
     if(AiCache.has(k))return AiCache.get(k);
     if(Date.now()<aiDownUntil)return Promise.resolve(null);
     const p=(async()=>{
       const ctl=new AbortController();
-      const timer=setTimeout(()=>ctl.abort(),20000);
+      const timer=setTimeout(()=>ctl.abort(),40000);
       try{
         // cut0 = 문장을 쪼개지 않음 (쉼표에서 쪼개면 앞부분이 빠지는 경우가 있었음)
         const qs=new URLSearchParams({text:say,text_lang:textLang,...AI_TTS_REF[textLang],text_split_method:'cut0',batch_size:'1',media_type:'wav'});
-        const r=await fetch(aiTtsBase()+'/tts?'+qs,{signal:ctl.signal,cache:'no-store'});
-        if(!r.ok){AiCache.delete(k);return null;}
-        const blob=await r.blob();
-        if(!blob.size){AiCache.delete(k);return null;}
-        return URL.createObjectURL(blob);
+        // 모델이 가끔 0.7초짜리로 잘린 소리를 내서, 글자 수에 비해 너무 짧으면 다시 만든다
+        const minSec=say.replace(/[\s,.]/g,'').length/(textLang==='ko'?12:30);
+        let best=null,bestDur=-1;
+        for(let attempt=0;attempt<3;attempt++){
+          const r=await fetch(aiTtsBase()+'/tts?'+qs,{signal:ctl.signal,cache:'no-store'});
+          if(!r.ok)break;
+          const blob=await r.blob();
+          if(!blob.size)break;
+          const url=URL.createObjectURL(blob);
+          const dur=await clipDuration(url);
+          if(dur>bestDur){if(best)URL.revokeObjectURL(best);best=url;bestDur=dur;}else URL.revokeObjectURL(url);
+          if(!(dur>=0)||dur>=minSec)break;
+        }
+        if(!best)AiCache.delete(k);
+        return best;
       }catch(e){
         // 서버 꺼짐/연결 불가 - 잠깐 쉬었다가 다시 시도
         aiDownUntil=Date.now()+60000;
