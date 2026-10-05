@@ -3541,7 +3541,13 @@ async function fetchTrafficLiveRecord(intersection,force=false){
       ?String(it.itstId)===intersection.crsrdId
       :String(it.crsrdId)===intersection.crsrdId && String(it.stdgCd)===String(intersection.stdgCd));
     matching.sort((a,b)=>(trafficRecordTime(b)||0)-(trafficRecordTime(a)||0));
-    const rec=matching[0]||null;trafficLiveCache.set(key,{at:Date.now(),rec});trafficLiveFailures.delete(key);return rec;
+    // One snapshot can be split across rows. Merge rows from the same five
+    // seconds so the first click does not miss fields that appear on row 2.
+    const newestAt=trafficRecordTime(matching[0]),recent=matching.filter(row=>{
+      const at=trafficRecordTime(row);return !Number.isFinite(newestAt)||!Number.isFinite(at)||newestAt-at<=5000;
+    });
+    const rec=recent.length?recent.slice().reverse().reduce((out,row)=>{for(const [field,value] of Object.entries(row))if(value!==''&&value!=null)out[field]=value;return out;},{}):null;
+    trafficLiveCache.set(key,{at:Date.now(),rec});trafficLiveFailures.delete(key);return rec;
   })().catch(error=>{trafficLiveFailures.set(key,{at:Date.now(),error});throw error;}).finally(()=>trafficLiveRequests.delete(key));
   trafficLiveRequests.set(key,task);return task;
 }
@@ -4565,7 +4571,7 @@ function stopGuide(){
 <script src="planner.js?v=20261005-15"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
 <script src="./mobile-patch.js?v=56"></script>
-<script src="./traffic-map-patch.js?v=79"></script>
+<script src="./traffic-map-patch.js?v=80"></script>
 <script src="./utic-map-patch.js?v=64"></script>
 <script src="./ios-touch-patch.js?v=54"></script>
 <script src="./gapless-patch.js?v=59"></script>
