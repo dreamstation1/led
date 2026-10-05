@@ -1,6 +1,6 @@
 (function(){
-  if(window.__gaplessQueueV57)return;
-  window.__gaplessQueueV57=true;
+  if(window.__gaplessQueueV60)return;
+  window.__gaplessQueueV60=true;
 
   const BlobCache=new Map();
   const LoadCache=new Map();
@@ -183,6 +183,7 @@
   // 한 덩어리로 합쳐 재생하면 조각 사이 틈이 생길 수 없다.
   let actx=null;
   function audioCtx(){
+    if(actx?.state==='closed')actx=null;
     if(actx)return actx;
     const C=window.AudioContext||window.webkitAudioContext;
     if(!C)return null;
@@ -247,19 +248,28 @@
       const gain=ctx.createGain();
       gain.gain.value=typeof guideVolume==='number'?guideVolume:1;
       src.connect(gain);gain.connect(ctx.destination);
-      let settled=false;
+      let settled=false,startedAt=0;
       const finish=ok=>{
         if(settled)return;settled=true;clearTimeout(timer);
         signal.removeEventListener('abort',abort);
+        ctx.removeEventListener?.('statechange',stateChanged);
         src.onended=null;
         if(!ok){try{src.stop();}catch(e){}}
         resolve(ok);
       };
       const abort=()=>finish(false);
-      src.onended=()=>finish(true);
+      const stateChanged=()=>{if(ctx.state!=='running')finish(false);};
+      src.onended=()=>{
+        // Some mobile browsers end a suspended WebAudio source almost
+        // immediately. Treat that as a failed joined playback so the normal
+        // tap-unlocked <audio> path replays every segment.
+        const heard=(performance.now()-startedAt)/1000;
+        finish(heard>=Math.min(2,Math.max(.2,out.duration*.65)));
+      };
       signal.addEventListener('abort',abort,{once:true});
+      ctx.addEventListener?.('statechange',stateChanged);
       const timer=setTimeout(()=>finish(true),(out.duration+5)*1000);
-      try{src.start();}catch(e){finish(false);}
+      try{startedAt=performance.now();src.start();}catch(e){finish(false);}
     });
   }
 
@@ -299,7 +309,13 @@
     }
     if(recordingOnly)return {kind:'missing',category,key};
     const t=await ttsInfo(category,key);
-    const aiUrl=await aiSynth(t.text,t.lang);
+    // Do not let a slow AI server or its pre-generation queue silence an
+    // entire simulation announcement. The synthesis keeps warming the cache;
+    // this announcement uses browser speech if it is not ready promptly.
+    const aiPromise=aiSynth(t.text,t.lang),AI_WAIT_MS=TOUCH_DEVICE?1200:1800;
+    let timer=null;
+    const aiUrl=await Promise.race([aiPromise,new Promise(resolve=>{timer=setTimeout(()=>resolve(null),AI_WAIT_MS);})]);
+    if(timer)clearTimeout(timer);
     if(aiUrl){
       const seg=await audioSegment(aiUrl,{category,key,ai:true});
       if(seg)return seg;
@@ -464,7 +480,10 @@
   async function resolveAnnouncement(stop,next){
     const stopKey=stop.audioName||stop.name;
     const specs=[['phrases','이번정류소'],['stops',stopKey],next?['phrases','다음정류소']:['phrases','종점입니다'],...(next?[['stops',next.audioName||next.name]]:[])];
-    const resolved=await Promise.all(specs.map(s=>resolveSegment(s[0],s[1])));
+    const resolved=await Promise.all(specs.map(async s=>{
+      try{return await resolveSegment(s[0],s[1]);}
+      catch(e){const t=await ttsInfo(s[0],s[1]);return {kind:'tts',text:t.text,lang:t.lang,category:s[0],key:s[1]};}
+    }));
     const englishStop=await resolveSegment('stops',stopKey+' (1)',true);
     if(englishStop.kind==='audio'){
       resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);
