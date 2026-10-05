@@ -248,16 +248,21 @@ function plannerMatchingArrival(items,names){
   const wanted=new Set(names.map(String));
   return items.find(item=>wanted.has(String(item.rtNm)))||null;
 }
-function plannerBestArrival(items,names){
-  const wanted=new Set(names.map(String));let best=null;
+function plannerArrivalCandidates(items,names){
+  const wanted=new Set(names.map(String)),out=[];
   for(const item of items){
     if(!wanted.has(String(item.rtNm)))continue;
     const vehicles=typeof orderedArrivalVehicles==='function'?orderedArrivalVehicles(item.rtNm,item):[];
-    const vehicle=vehicles[0]||null,sec=vehicle?plannerArrivalTime(item,vehicle.n):plannerArrivalTime(item,1);
-    if(sec==null)continue;
-    if(!best||sec<best.sec)best={item,vehicle,sec,route:String(item.rtNm),n:vehicle?.n||1};
+    if(vehicles.length){
+      for(const vehicle of vehicles){const sec=plannerArrivalTime(item,vehicle.n);if(sec!=null)out.push({item,vehicle,sec,route:String(item.rtNm),n:vehicle.n});}
+    }else{
+      const sec=plannerArrivalTime(item,1);if(sec!=null)out.push({item,vehicle:null,sec,route:String(item.rtNm),n:1});
+    }
   }
-  return best;
+  return out.sort((a,b)=>a.sec-b.sec);
+}
+function plannerBestArrival(items,names,minSeconds=0){
+  return plannerArrivalCandidates(items,names).find(x=>x.sec>=Math.max(0,minSeconds))||null;
 }
 function plannerVehicleBadges(routeName,item,n=1){
   if(!item)return '';
@@ -269,15 +274,15 @@ function plannerVehicleBadges(routeName,item,n=1){
   return `${crowd}${type}${reserve}`;
 }
 async function plannerLiveSummary(path){
-  const rows=[];let elapsed=0;
+  const rows=[];let reach=0;
   for(let i=0;i<path.legs.length;i++){
     const leg=path.legs[i],node=leg.data.route.nodes[leg.start],names=leg.routeNames||[leg.data.route.name];
-    const items=await plannerArrivalsAt(node),best=plannerBestArrival(items,names),item=best?.item||null;
+    const items=await plannerArrivalsAt(node),best=plannerBestArrival(items,names,i?reach-45:0),item=best?.item||null;
     const sec=best?.sec??null,route=best?.route||names[0],alightNode=leg.data.route.nodes[leg.end];
     const arrivalText=item?String(item['arrmsg'+(best?.n||1)]||((sec==null?'도착정보 없음':Math.ceil(sec/60)+'분 후'))):'현재 도착정보 없음';
     const plate=item?String(item['plainNo'+(best?.n||1)]||'').trim():'';
     rows.push(`<div><b>${i?'환승':'승차'} ${esc(route)}번</b> · ${esc(plannerStopName(node))}${plate?` · 차량 ${esc(plate)}`:''}<br>${esc(arrivalText)} <span class="route-live-meta">${plannerVehicleBadges(route,item,best?.n||1)}</span><br><b>하차</b> ${esc(plannerStopName(alightNode))} · ${leg.end-leg.start}정류소 후</div>`);
-    elapsed+=(sec||0)+(leg.end-leg.start)*105;
+    if(best)reach=best.sec+(leg.end-leg.start)*105+90;
   }
   return rows.join('<div style="height:5px"></div>');
 }
