@@ -1,6 +1,6 @@
 (function(){
-  if(window.__trafficMapPatchV77)return;
-  window.__trafficMapPatchV77=true;
+  if(window.__trafficMapPatchV78)return;
+  window.__trafficMapPatchV78=true;
   let layer=null,refreshTimer=null,livePollTimer=null,livePaintTimer=null,popupTicker=null,generation=0,currentNearestJob=null,openMarker=null,openIx=null,currentJobs=[],manualRefreshing=false,manualRefreshLabel='↻ 지금 신호 조회';
   const liveCache=new Map(),transitionFetchAt=new Map(),DEFAULT_YELLOW_SEC=3.5,isPhone=()=>matchMedia('(max-width:768px)').matches;
   let yellowHistory={};try{yellowHistory=JSON.parse(localStorage.getItem('trafficYellowDurationsV1')||'{}')||{};}catch(e){}
@@ -40,7 +40,16 @@
   async function recordFor(ix,force=false){const key=(ix.source||'')+':'+ix.crsrdId,cached=liveCache.get(key);if(!force&&cached&&Date.now()-cached.at<8000)return cached.rec;const rec=await fetchTrafficLiveRecord(ix,force);liveCache.set(key,{at:Date.now(),rec});return rec;}
   function forcePredictedRefresh(ix,state){if(!state?.predicted)return;const key=(ix.source||'')+':'+ix.crsrdId,now=Date.now();if(now-(transitionFetchAt.get(key)||0)<2500)return;transitionFetchAt.set(key,now);recordFor(ix,false).catch(()=>transitionFetchAt.set(key,Date.now()+57500));}
   function paintCurrentPrediction(){const job=currentNearestJob;if(!job||document.hidden)return;const key=(job.ix.source||'')+':'+job.ix.crsrdId,rec=liveCache.get(key)?.rec;if(!rec)return;const st=stateFor(rec,job.ix,job.center||map.getCenter());try{if(map.hasLayer(job.m))job.m.setIcon(liveIcon(st,true,false));}catch(e){}if(openMarker===job.m&&job.m.isPopupOpen())updateSignalPopup(job.m,job.ix,st,rec);}
-  function nextSignalDelay(st){const seconds=[st?.straight,st?.left,st?.uTurn,st?.bus,st?.pedestrian].map(m=>Number(m?.seconds)).filter(n=>Number.isFinite(n)&&n>0);return seconds.length?Math.max(3000,Math.min(120000,(Math.min(...seconds)+.5)*1000)):30000;}
+  function nextSignalDelay(st){
+    const waits=[st?.straight,st?.left,st?.uTurn,st?.bus,st?.pedestrian].map(m=>{
+      const seconds=Number(m?.seconds);if(!Number.isFinite(seconds)||seconds<=0)return null;
+      // Green expiry is predictable: paint yellow locally, then fetch once the
+      // learned/default yellow clearance is about to finish.
+      const yellow=m?.color==='green'&&!m?.predicted?(Number(yellowHistory[m.learnKey])||DEFAULT_YELLOW_SEC):0;
+      return seconds+yellow;
+    }).filter(n=>n!=null);
+    return waits.length?Math.max(3000,Math.min(120000,(Math.min(...waits)+.25)*1000)):30000;
+  }
   function scheduleOpenRefresh(ix,m,st){clearTimeout(livePollTimer);if(openMarker!==m||!m.isPopupOpen())return;livePollTimer=setTimeout(()=>loadOpenSignal(ix,m,true),nextSignalDelay(st));}
   async function loadOpenSignal(ix,m,force=true){if(openMarker!==m||!m.isPopupOpen()||document.hidden)return;try{const rec=await recordFor(ix,force),st=stateFor(rec,ix,map.getCenter());if(openMarker!==m||!m.isPopupOpen())return;m.setIcon(liveIcon(st,true,false));updateSignalPopup(m,ix,st,rec);scheduleOpenRefresh(ix,m,st);}catch(e){if(openMarker===m&&m.isPopupOpen())m.setPopupContent(popupHtml(ix,null,null,e.message||'신호 정보를 불러오지 못했습니다'));clearTimeout(livePollTimer);livePollTimer=setTimeout(()=>loadOpenSignal(ix,m,true),60000);}}
   async function showIntersection(ix,m){openMarker=m;openIx=ix;currentNearestJob={ix,m,near:true,center:{...map.getCenter()}};clearTimeout(livePollTimer);clearInterval(popupTicker);m.bindPopup('<div class="signal-card-title">🚦 '+esc(ix.name||'교차로')+'</div><div class="signal-card-meta">실시간 신호를 불러오는 중…</div>',{className:'signal-map-popup',maxWidth:380,minWidth:220,autoPan:true,keepInView:true}).openPopup();m.once('popupclose',()=>{clearTimeout(livePollTimer);clearInterval(popupTicker);livePollTimer=popupTicker=null;m.setIcon(staticIcon());openMarker=openIx=currentNearestJob=null;schedule();});await loadOpenSignal(ix,m,true);popupTicker=setInterval(paintCurrentPrediction,1000);}
