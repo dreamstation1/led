@@ -8,6 +8,7 @@ let plannerDrawRevision=0,plannerMapStatus='',plannerSearching=false,plannerSear
 const plannerArrivalCache=new Map();
 const plannerPlaces={from:null,to:null};
 let plannerPickKind=null,plannerPlaceTimer=null,plannerActiveTrip=null,plannerTripWatch=null,plannerTripTimer=null;
+let plannerLiveRefreshTimer=null,plannerRenderedPaths=[];
 
 function plannerClimateRoute(route){
   // 경기 숫자 노선도 이름만 보면 서울 지선/간선처럼 보인다. 기후동행
@@ -247,22 +248,35 @@ function plannerMatchingArrival(items,names){
   const wanted=new Set(names.map(String));
   return items.find(item=>wanted.has(String(item.rtNm)))||null;
 }
-function plannerVehicleBadges(routeName,item){
+function plannerBestArrival(items,names){
+  const wanted=new Set(names.map(String));let best=null;
+  for(const item of items){
+    if(!wanted.has(String(item.rtNm)))continue;
+    const vehicles=typeof orderedArrivalVehicles==='function'?orderedArrivalVehicles(item.rtNm,item):[];
+    const vehicle=vehicles[0]||null,sec=vehicle?plannerArrivalTime(item,vehicle.n):plannerArrivalTime(item,1);
+    if(sec==null)continue;
+    if(!best||sec<best.sec)best={item,vehicle,sec,route:String(item.rtNm),n:vehicle?.n||1};
+  }
+  return best;
+}
+function plannerVehicleBadges(routeName,item,n=1){
   if(!item)return '';
-  const vehicle=typeof arrivalVehicleInfo==='function'?arrivalVehicleInfo(routeName,item,1):null;
+  const vehicle=typeof arrivalVehicleInfo==='function'?arrivalVehicleInfo(routeName,item,n):null;
   if(!vehicle)return '';
-  const crowd=vehicle.crowd?`<span class="route-live-badge ${congestionBadgeClass(vehicle.crowd)}">${esc(congestionLabel(vehicle.crowd))}</span>`:'';
+  const crowd=!isVillageRouteName(routeName)&&vehicle.crowd?`<span class="route-live-badge ${congestionBadgeClass(vehicle.crowd)}">${esc(congestionLabel(vehicle.crowd))}</span>`:'';
   const type=vehicle.type?`<span class="route-live-badge ${vehicle.type==='저상'?'type-low':''}">${vehicle.type==='저상'?'♿ ':''}${esc(vehicle.type)}</span>`:'';
-  const reserve=vehicle.reserve?'<span class="planner-reserve">예비차</span>':'<span class="route-live-badge">일반차</span>';
+  const reserve=vehicle.reserve?'<span class="planner-reserve">예비차</span>':'';
   return `${crowd}${type}${reserve}`;
 }
 async function plannerLiveSummary(path){
   const rows=[];let elapsed=0;
   for(let i=0;i<path.legs.length;i++){
     const leg=path.legs[i],node=leg.data.route.nodes[leg.start],names=leg.routeNames||[leg.data.route.name];
-    const items=await plannerArrivalsAt(node),item=plannerMatchingArrival(items,names);
-    const sec=item?plannerArrivalTime(item,1):null,route=item?.rtNm||names[0];
-    rows.push(`<div><b>${i?'환승':'승차'} ${esc(route)}번</b> · ${esc(plannerStopName(node))}<br>${item?esc(item.arrmsg1||((sec==null?'도착정보 없음':Math.ceil(sec/60)+'분 후'))):'현재 도착정보 없음'} <span class="route-live-meta">${plannerVehicleBadges(route,item)}</span></div>`);
+    const items=await plannerArrivalsAt(node),best=plannerBestArrival(items,names),item=best?.item||null;
+    const sec=best?.sec??null,route=best?.route||names[0],alightNode=leg.data.route.nodes[leg.end];
+    const arrivalText=item?String(item['arrmsg'+(best?.n||1)]||((sec==null?'도착정보 없음':Math.ceil(sec/60)+'분 후'))):'현재 도착정보 없음';
+    const plate=item?String(item['plainNo'+(best?.n||1)]||'').trim():'';
+    rows.push(`<div><b>${i?'환승':'승차'} ${esc(route)}번</b> · ${esc(plannerStopName(node))}${plate?` · 차량 ${esc(plate)}`:''}<br>${esc(arrivalText)} <span class="route-live-meta">${plannerVehicleBadges(route,item,best?.n||1)}</span><br><b>하차</b> ${esc(plannerStopName(alightNode))} · ${leg.end-leg.start}정류소 후</div>`);
     elapsed+=(sec||0)+(leg.end-leg.start)*105;
   }
   return rows.join('<div style="height:5px"></div>');
@@ -298,7 +312,7 @@ async function plannerTransferChance(path){
   // 3분 이내를 최우선으로 보고, 5분을 넘는 긴 대기는 성공률이 높아도 감점한다.
   const waitPenalty=buffer<=180?1:buffer<=300?.9:Math.max(.35,1-(buffer-300)/900);
   const prob=Math.max(5,Math.min(98,Math.round(base*waitPenalty)));
-  return {text:`실시간 환승 성공 추정 ${prob}% · 환승 여유 약 ${Math.max(0,Math.round(buffer/60))}분`,level:prob>=75?'':prob>=40?'warn':'bad'};
+  return {text:`실시간 환승 성공 추정 ${prob}% · 환승 여유 약 ${Math.max(0,Math.round(buffer/60))}분 · ${plannerClock(new Date())} 갱신`,level:prob>=75?'':prob>=40?'warn':'bad'};
 }
 async function plannerEnhanceTransferCards(paths){
   await Promise.all(paths.slice(0,10).map(async(path,i)=>{
@@ -306,6 +320,16 @@ async function plannerEnhanceTransferCards(paths){
     const box=document.querySelector(`.planner-result[data-plan-index="${i}"] .planner-live`);if(!box)return;
     try{const result=await plannerTransferChance(path);if(!result)return;box.textContent=result.text;box.className='planner-live '+result.level;}catch(e){box.textContent='실시간 환승 정보를 불러오지 못했습니다.';box.className='planner-live warn';}
   }));
+}
+function plannerScheduleLiveRefresh(paths){
+  plannerRenderedPaths=paths;
+  if(plannerLiveRefreshTimer)clearInterval(plannerLiveRefreshTimer);
+  plannerLiveRefreshTimer=setInterval(()=>{
+    if(!document.getElementById('plannerPanel')?.classList.contains('open'))return;
+    plannerArrivalCache.clear();
+    plannerEnhanceCards(plannerRenderedPaths);
+    plannerEnhanceTransferCards(plannerRenderedPaths);
+  },60000);
 }
 function plannerUpdateNote(){
   if(typeof document==='undefined')return;
@@ -348,6 +372,7 @@ function plannerRender(){
   });
   plannerEnhanceTransferCards(ranked);
   plannerEnhanceCards(ranked);
+  plannerScheduleLiveRefresh(ranked);
 }
 
 function plannerClearMap(){
@@ -448,10 +473,32 @@ function plannerSetPlace(kind,place){
 }
 async function plannerSearchPlaces(query){
   if(query.trim().length<2)return [];
-  const url='https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=kr&accept-language=ko&limit=6&q='+encodeURIComponent(query);
-  const response=await fetch(url,{headers:{Accept:'application/json'}});if(!response.ok)return [];
-  const data=await response.json();
-  return data.map(x=>({name:String(x.display_name||query),lat:Number(x.lat),lng:Number(x.lon)})).filter(x=>Number.isFinite(x.lat)&&Number.isFinite(x.lng));
+  const queries=[query,`${query} 서울특별시`];
+  if(/역$/.test(query))queries.push(`${query.replace(/역$/,'')}역 서울`);
+  const found=[];
+  // Photon은 한국어 역·건물명 검색 결과를 안정적으로 돌려준다. 기존
+  // Nominatim은 일부 모바일 회선에서 403이 발생하므로 보조 검색으로 둔다.
+  try{
+    const photon='https://photon.komoot.io/api/?limit=8&q='+encodeURIComponent(`${query} 서울`);
+    const response=await fetch(photon,{headers:{Accept:'application/json'}});
+    if(response.ok){
+      const data=await response.json();
+      for(const feature of (data.features||[])){
+        const p=feature.properties||{},coords=feature.geometry?.coordinates||[];
+        const place={name:[p.name,p.street,p.district,p.city].filter(Boolean).filter((x,i,a)=>a.indexOf(x)===i).join(', ')||query,lat:Number(coords[1]),lng:Number(coords[0])};
+        if(Number.isFinite(place.lat)&&Number.isFinite(place.lng)&&!found.some(y=>hav(y.lat,y.lng,place.lat,place.lng)<15))found.push(place);
+      }
+    }
+  }catch(e){}
+  if(found.length>=6)return found.slice(0,8);
+  for(const q of [...new Set(queries)]){
+    const url='https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=kr&accept-language=ko&limit=8&viewbox=126.72,37.70,127.20,37.40&bounded=0&q='+encodeURIComponent(q);
+    const response=await fetch(url,{headers:{Accept:'application/json'}});if(!response.ok)continue;
+    const data=await response.json();
+    for(const x of data){const place={name:String(x.display_name||query),lat:Number(x.lat),lng:Number(x.lon)};if(Number.isFinite(place.lat)&&Number.isFinite(place.lng)&&!found.some(y=>hav(y.lat,y.lng,place.lat,place.lng)<15))found.push(place);}
+    if(found.length>=6)break;
+  }
+  return found.slice(0,8);
 }
 function plannerInitField(kind){
   const id=kind==='from'?'plannerFrom':kind==='via'?'plannerVia':'plannerTo';
@@ -515,12 +562,12 @@ async function plannerUpdateTrip(position){
     trip.lastLive=Date.now();
     try{
       const arrivals=await plannerArrivalsAt(leg.data.route.nodes[leg.start]);
-      const item=plannerMatchingArrival(arrivals,names),seconds=item?plannerArrivalTime(item,1):null;
+      const best=plannerBestArrival(arrivals,names),item=best?.item||null,seconds=best?.sec??null;
       const chosen=(leg.routeOptions||[leg]).find(option=>String(option.data.route.name)===String(item?.rtNm))||leg;
       const vehicles=await fetchBusPositions(chosen.data.route.id).catch(()=>[]);
       const nearbyVehicle=vehicles.find(v=>Number.isFinite(Number(v.gpsY))&&hav(trip.lat,trip.lng,Number(v.gpsY),Number(v.gpsX))<85);
-      live=item?`${item.arrmsg1||''} ${plannerVehicleBadges(item.rtNm||names[0],item)}`:'도착정보 조회 중';
-      if(toBoard<65&&(nearbyVehicle||(seconds!=null&&seconds<=20&&trip.speed>=2.5)))trip.phase='riding';
+      live=item?`${item['arrmsg'+(best?.n||1)]||''} ${plannerVehicleBadges(item.rtNm||names[0],item,best?.n||1)}`:'도착정보 조회 중';
+      if(toBoard<65&&(nearbyVehicle||(seconds!=null&&seconds<=20&&trip.speed>=2.5))){trip.phase='riding';trip.currentBus={route:item?.rtNm||names[0],plate:String(item?.['plainNo'+(best?.n||1)]||nearbyVehicle?.plainNo||'').trim()};}
     }catch(e){live='도착정보를 잠시 불러오지 못했습니다.';}
   }
   if(trip.phase==='riding'&&toAlight<=90){
@@ -536,7 +583,7 @@ async function plannerUpdateTrip(position){
   const current=trip.path.legs[trip.legIndex],routeNames=current.routeNames||[current.data.route.name];
   const text=trip.phase==='walk'?`${board.name}까지 ${fmtDist(toBoard)} 걸어가세요.`:
     trip.phase==='waiting'?`${board.name}에서 ${routeNames.join(' · ')}번을 타세요.`:
-    trip.phase==='riding'?`${alight.name}에서 내리세요 · 약 ${fmtDist(toAlight)} 남음`:
+    trip.phase==='riding'?`${trip.currentBus?.route||routeNames[0]}번${trip.currentBus?.plate?' · '+trip.currentBus.plate:''} 탑승 중 · ${alight.name}에서 내리세요 · ${leg.end-leg.start}정류소 구간 · 약 ${fmtDist(toAlight)} 남음`:
     trip.phase==='finalwalk'?`하차 후 ${destination.name||'목적지'}까지 걸어가세요.`:'목적지에 도착했습니다.';
   const box=document.getElementById('plannerNav');box.hidden=false;
   box.innerHTML=`<strong>${trip.phase==='done'?'도착':'실시간 길찾기'} · ${esc(text)}</strong><small>${live||'현재 위치와 버스 위치로 탑승·하차를 자동 확인합니다.'}</small><button type="button" class="planner-nav-stop">길찾기 종료</button>`;

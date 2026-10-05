@@ -1780,12 +1780,13 @@ map.on('popupopen',e=>{
 function stopMatches(q,limit=30){
   q=String(q||'').trim().toLowerCase();
   if(!q)return [];
+  const nq=normText(q),qWithoutStation=nq.replace(/역$/,'');
   const exact=[],prefix=[],contains=[];
   STOPS.forEach((s,i)=>{
-    const name=s.name.toLowerCase(),ars=String(s.ars).toLowerCase();
-    if(ars===q||name===q)exact.push(i);
-    else if(name.startsWith(q)||ars.startsWith(q))prefix.push(i);
-    else if(name.includes(q)||ars.includes(q))contains.push(i);
+    const name=s.name.toLowerCase(),nn=normText(name),ars=String(s.ars).toLowerCase();
+    if(ars===q||nn===nq||nn===qWithoutStation||nn.replace(/역$/,'')===qWithoutStation)exact.push(i);
+    else if(nn.startsWith(nq)||nn.startsWith(qWithoutStation)||ars.startsWith(q))prefix.push(i);
+    else if(nn.includes(nq)||nn.includes(qWithoutStation)||ars.includes(q))contains.push(i);
   });
   return [...exact,...prefix,...contains].slice(0,limit);
 }
@@ -4552,7 +4553,7 @@ function stopGuide(){
 }
 
 </script>
-<script src="planner.js?v=20261004-12"></script>
+<script src="planner.js?v=20261005-13"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
 <script src="./mobile-patch.js?v=56"></script>
 <script src="./traffic-map-patch.js?v=76"></script>
