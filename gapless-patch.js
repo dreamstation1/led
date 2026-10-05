@@ -311,8 +311,10 @@
     const t=await ttsInfo(category,key);
     // Do not let a slow AI server or its pre-generation queue silence an
     // entire simulation announcement. The synthesis keeps warming the cache;
-    // this announcement uses browser speech if it is not ready promptly.
-    const aiPromise=aiSynth(t.text,t.lang),AI_WAIT_MS=TOUCH_DEVICE?1200:1800;
+    // this announcement uses browser speech if it is not ready in time.
+    // AI 서버(오라클 CPU)는 처음 만드는 정류소에 4~10초 걸려서, 1~2초만 기다리면
+    // 거의 항상 브라우저(윈도우) 목소리로 넘어감 -> 15초까지 기다린다.
+    const aiPromise=aiSynth(t.text,t.lang),AI_WAIT_MS=15000;
     let timer=null;
     const aiUrl=await Promise.race([aiPromise,new Promise(resolve=>{timer=setTimeout(()=>resolve(null),AI_WAIT_MS);})]);
     if(timer)clearTimeout(timer);
@@ -442,7 +444,8 @@
       const idx=Math.max(0,Number(guideNextIndex)||0);
       // 가까운 정류소부터: 다음 정류소, 그다음 3개, 마지막으로 직전 정류소.
       // AI 생성은 한 번에 하나씩 차례로 처리되니 이 순서가 곧 만드는 순서다.
-      const order=[idx,idx+1,idx+2,idx+3,idx-1].filter(i=>i>=0&&i<currentGuideStops.length);
+      // 빠른 시뮬레이션에서도 도착 전에 만들어지게 앞쪽 6개까지 미리 준비
+      const order=[idx,idx+1,idx+2,idx+3,idx+4,idx+5,idx-1].filter(i=>i>=0&&i<currentGuideStops.length);
       order.forEach(i=>{
         const s=currentGuideStops[i],k=s.audioName||s.name;
         warmSegment('stops',k);warmSegment('stops',k+' (1)');
