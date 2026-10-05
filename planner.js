@@ -39,7 +39,9 @@ function plannerMakePath(legs,walk,fromIndex,toIndex){
   // 환승을 많이 넣어 성공확률만 높이는 경로가 최적 경로를 밀어내지 않도록
   // 환승 1회당 기본 8분을 반영한다.
   const minutes=Math.max(1,Math.round(busDistance/1000/22*60+stopCount*.28+walk/1000/4.5*60+joined.length*5+transfers*8));
-  return {legs:joined,walk,distance,minutes,transfers,stopCount,fromIndex,toIndex,
+  const fromPoint=plannerPlaces.from||STOPS[fromIndex],toPoint=plannerPlaces.to||STOPS[toIndex];
+  const directDistance=fromPoint&&toPoint?hav(fromPoint.lat,fromPoint.lng,toPoint.lat,toPoint.lng):distance;
+  return {legs:joined,walk,distance,directDistance,minutes,transfers,stopCount,fromIndex,toIndex,
     fromPlace:plannerPlaces.from?{...plannerPlaces.from}:null,toPlace:plannerPlaces.to?{...plannerPlaces.to}:null};
 }
 
@@ -82,11 +84,12 @@ function plannerNearby(index,point){
     const s=STOPS[i];
     if(Math.abs(s.lat-origin.lat)>.006 || Math.abs(s.lng-origin.lng)>.008)continue;
     const d=hav(origin.lat,origin.lng,s.lat,s.lng);
-    if(d<=600)near.push({index:i,walk:d});
+    if(d<=750)near.push({index:i,walk:d});
   }
   if(!near.length)near.push({index,walk:hav(origin.lat,origin.lng,STOPS[index].lat,STOPS[index].lng)});
   near.sort((a,b)=>a.walk-b.walk);
-  return near.slice(0,12);
+  // Keep enough nearby poles to include the opposite side of a dense road.
+  return near.slice(0,28);
 }
 
 function plannerFindPaths(fromIndex,toIndex,options={}){
@@ -94,7 +97,7 @@ function plannerFindPaths(fromIndex,toIndex,options={}){
   const starts=options.exactStart?[{index:fromIndex,walk:0}]:plannerNearby(fromIndex,plannerPlaces.from);
   const ends=options.exactEnd?[{index:toIndex,walk:0}]:plannerNearby(toIndex,plannerPlaces.to),candidates=[];
   const straight=hav(STOPS[fromIndex].lat,STOPS[fromIndex].lng,STOPS[toIndex].lat,STOPS[toIndex].lng);
-  const maxBusDist=Math.max(3500,straight*3.5+2500);
+  const maxBusDist=Math.max(3500,straight*2.5+2200);
   const seen=new Set();
   const add=(a,b,walk,transfer)=>{
     if(candidates.length>=8000)return;
@@ -167,7 +170,7 @@ function plannerFindPaths(fromIndex,toIndex,options={}){
 
 function plannerRank(paths,sort){
   // 환승 대기는 3분 이내가 가장 좋고 5분을 넘기면 총 이동시간에 불리하게 본다.
-  const optimal=p=>p.minutes+p.walk/250+p.transfers*10;
+  const optimal=p=>p.minutes+p.walk/250+p.transfers*10+Math.max(0,p.distance-(p.directDistance||p.distance)*1.35)/450;
   const first=p=>sort==='time'?p.minutes:sort==='distance'?p.distance:
     sort==='walk'?p.walk:sort==='detour'?-p.distance:optimal(p);
   return paths.slice().sort((a,b)=>first(a)-first(b)||optimal(a)-optimal(b)||a.transfers-b.transfers||a.distance-b.distance||plannerPathKey(a).localeCompare(plannerPathKey(b)));
@@ -286,21 +289,16 @@ async function plannerLiveSummary(path){
   }
   return rows.join('<div style="height:5px"></div>');
 }
-async function plannerEnhanceCards(paths){
-  await Promise.all(paths.slice(0,12).map(async(path,i)=>{
-    const box=document.querySelector(`.planner-result[data-plan-index="${i}"] .planner-live-detail`);if(!box)return;
-    try{
-      const first=path.legs[0],node=first.data.route.nodes[first.start],names=first.routeNames||[first.data.route.name];
-      const items=await plannerArrivalsAt(node),usable=plannerRouteArrivalTimes(items,names).length>0;
-      if(!usable){
-        const card=box.closest('.planner-result');
-        if(card)card.classList.add('planner-unavailable');
-        box.textContent='현재 시각 운행정보 없음 · 다른 노선 또는 심야노선을 확인하세요';
-        return;
-      }
-      box.innerHTML=await plannerLiveSummary(path);
-    }catch(e){box.textContent='실시간 도착정보를 불러오지 못했습니다.';}
-  }));
+async function plannerEnhanceDetail(path){
+  const panel=document.getElementById('plannerDetail');
+  if(!panel?.classList.contains('open'))return;
+  const live=panel.querySelector('.planner-live-detail');
+  try{live.innerHTML=await plannerLiveSummary(path);}catch(e){live.textContent='실시간 도착정보를 불러오지 못했습니다.';}
+  const chance=panel.querySelector('.planner-live');
+  if(chance&&path.transfers){
+    try{const result=await plannerTransferChance(path);chance.textContent=result?.text||'실시간 환승 정보 없음';chance.className='planner-live '+(result?.level||'warn');}
+    catch(e){chance.textContent='실시간 환승 정보를 불러오지 못했습니다.';chance.className='planner-live warn';}
+  }
 }
 async function plannerTransferChance(path){
   if(!path.transfers)return null;
@@ -332,9 +330,24 @@ function plannerScheduleLiveRefresh(paths){
   plannerLiveRefreshTimer=setInterval(()=>{
     if(!document.getElementById('plannerPanel')?.classList.contains('open'))return;
     plannerArrivalCache.clear();
-    plannerEnhanceCards(plannerRenderedPaths);
-    plannerEnhanceTransferCards(plannerRenderedPaths);
+    const path=plannerRenderedPaths[plannerSelected];
+    if(path)plannerEnhanceDetail(path);
   },60000);
+}
+function plannerCloseDetail(){document.getElementById('plannerDetail')?.classList.remove('open');}
+function plannerOpenDetail(path,index){
+  const panel=document.getElementById('plannerDetail');if(!panel)return;
+  const names=path.legs.map(l=>(l.routeNames||[l.data.route.name]).join(' · ')).join(' → ');
+  const depart=plannerDepartureDate(),arrive=new Date(depart.getTime()+path.minutes*60000);
+  const origin=path.fromPlace||STOPS[path.fromIndex],destination=path.toPlace||STOPS[path.toIndex];
+  const first=path.legs[0],last=path.legs[path.legs.length-1];
+  const board=STOPS[STOP_BY_NODE.get(String(first.data.route.nodes[first.start]))],alight=STOPS[STOP_BY_NODE.get(String(last.data.route.nodes[last.end]))];
+  const climate=path.legs.every(l=>(l.routeOptions||[l]).some(o=>plannerClimateRoute(o.data.route))),timeline=[];
+  if(origin&&board&&hav(origin.lat,origin.lng,board.lat,board.lng)>15)timeline.push(`<div class="planner-detail-step walk"><b>${esc(origin.name||'출발지')}</b><span>🚶 ${esc(board.name)}까지 도보 약 ${fmtDist(hav(origin.lat,origin.lng,board.lat,board.lng))}</span></div>`);
+  path.legs.forEach((leg,i)=>{const start=plannerStopLabel(leg.data.route.nodes[leg.start]),end=plannerStopLabel(leg.data.route.nodes[leg.end]),routes=(leg.routeNames||[leg.data.route.name]).join(' · '),direction=plannerStopName(leg.data.route.nodes[leg.start+1]);timeline.push(`<div class="planner-detail-step bus"><b>${i?'환승':'승차'} ${esc(start)}</b><span class="planner-detail-route">${esc(routes)}번</span><span>다음 정류소 ${esc(direction)} 방향 · ${leg.end-leg.start}정류소</span><em>하차 ${esc(end)}</em></div>`);});
+  if(destination&&alight&&hav(destination.lat,destination.lng,alight.lat,alight.lng)>15)timeline.push(`<div class="planner-detail-step walk"><b>${esc(destination.name||'목적지')}</b><span>🚶 하차 후 도보 약 ${fmtDist(hav(destination.lat,destination.lng,alight.lat,alight.lng))}</span></div>`);
+  panel.innerHTML=`<div class="planner-detail-head"><div><strong>${esc(names)}</strong><small>${plannerClock(depart)}~${plannerClock(arrive)} · 약 ${path.minutes}분 · 약 ${fmtDist(path.distance)}</small><small>도보 약 ${fmtDist(path.walk)} · ${path.transfers?'환승 '+path.transfers+'회':'환승 없음'} · ${path.stopCount}정류소${climate?' · 🌱 기후동행카드 가능':''}</small></div><button type="button" aria-label="상세 닫기">×</button></div><div class="planner-detail-timeline">${timeline.join('')}</div><h3>실시간 탑승 정보</h3><div class="planner-live-detail">실시간 도착정보 확인 중…</div>${path.transfers?'<div class="planner-live warn">실시간 환승 확률 계산 중…</div>':''}<button type="button" class="planner-start-guide">이 경로로 실시간 길찾기 시작</button>`;
+  panel.classList.add('open');panel.querySelector('.planner-detail-head button').onclick=plannerCloseDetail;panel.querySelector('.planner-start-guide').onclick=()=>plannerStartTrip(path);plannerEnhanceDetail(path);
 }
 function plannerUpdateNote(){
   if(typeof document==='undefined')return;
@@ -347,7 +360,7 @@ function plannerUpdateNote(){
 function plannerRender(){
   const sortBox=document.getElementById('plannerSort');
   sortBox.innerHTML=Object.entries(PLANNER_SORTS).map(([key,label])=>`<button type="button" data-sort="${key}" class="${key===plannerSort?'on':''}">${label}</button>`).join('');
-  sortBox.querySelectorAll('button').forEach(btn=>btn.onclick=()=>{plannerSort=btn.dataset.sort;plannerClearMap();plannerRender();});
+  sortBox.querySelectorAll('button').forEach(btn=>btn.onclick=()=>{plannerSort=btn.dataset.sort;plannerCloseDetail();plannerClearMap();plannerRender();});
   const box=document.getElementById('plannerResults');
   plannerUpdateNote();
   if(!plannerSearched){box.innerHTML='';return;}
@@ -359,24 +372,14 @@ function plannerRender(){
     el.tabIndex=0;el.role='button';el.className='planner-result'+(i===plannerSelected?' selected':'');
     el.dataset.planIndex=String(i);
     const names=p.legs.map(l=>(l.routeNames||[l.data.route.name]).join(' · ')).join(' → ');
-    const steps=p.legs.map((l,j)=>`${j?'환승':'승차'} ${esc(plannerStopLabel(l.data.route.nodes[l.start]))} → ${esc(plannerStopLabel(l.data.route.nodes[l.end]))}<br>${esc((l.routeNames||[l.data.route.name]).join(' · '))} · 다음 정류소 ${esc(plannerStopName(l.data.route.nodes[l.start+1]))} 방향 · ${l.end-l.start}정류소`).join('<br>');
-    const origin=p.fromPlace||STOPS[p.fromIndex],destination=p.toPlace||STOPS[p.toIndex];
-    const firstNode=String(p.legs[0].data.route.nodes[p.legs[0].start]);
-    const last=p.legs[p.legs.length-1],lastNode=String(last.data.route.nodes[last.end]);
-    const firstStop=STOPS[STOP_BY_NODE.get(firstNode)],lastStop=STOPS[STOP_BY_NODE.get(lastNode)];
-    const walkSteps=[origin&&firstStop&&hav(origin.lat,origin.lng,firstStop.lat,firstStop.lng)>15?`${origin.name||'출발지'}에서 ${plannerStopName(firstNode)}까지 도보`:null,
-      destination&&lastStop&&hav(destination.lat,destination.lng,lastStop.lat,lastStop.lng)>15?`하차 후 ${destination.name||'목적지'}까지 도보`:null].filter(Boolean).map(esc).join('<br>');
     const climate=p.legs.every(l=>(l.routeOptions||[l]).some(o=>plannerClimateRoute(o.data.route)));
     const depart=plannerDepartureDate(),arrive=new Date(depart.getTime()+p.minutes*60000);
-    el.innerHTML=`<strong>${i+1}. ${esc(names)}</strong><small>${plannerClock(depart)}~${plannerClock(arrive)} · 약 ${p.minutes}분 · 약 ${fmtDist(p.distance)} · 도보 약 ${fmtDist(p.walk)} · ${p.transfers?'환승 '+p.transfers+'회':'환승 없음'} · ${p.stopCount}정류소</small><small>${climate?'🌱 기후동행카드 가능 · ':''}${steps}</small>${walkSteps?'<small>🚶 도로·횡단보도 보행 경로 확인: '+walkSteps+'</small>':''}<div class="planner-live-detail">실시간 도착정보 확인 중…</div>${p.transfers?'<div class="planner-live warn">실시간 환승 확률 계산 중…</div>':''}<button type="button" class="planner-start-guide" data-start-trip="${i}">이 경로로 실시간 길찾기 시작</button>`;
+    el.innerHTML=`<strong>${i+1}. ${esc(names)}</strong><small>${plannerClock(depart)}~${plannerClock(arrive)} · 약 ${p.minutes}분 · 약 ${fmtDist(p.distance)}</small><small>도보 약 ${fmtDist(p.walk)} · ${p.transfers?'환승 '+p.transfers+'회':'환승 없음'} · ${p.stopCount}정류소${climate?' · 🌱 기후동행카드':''}</small><span class="planner-card-more">상세 경로 보기 ›</span>`;
     el.setAttribute('aria-pressed',String(i===plannerSelected));
-    el.onclick=()=>{plannerClearMap();plannerSelected=i;plannerDraw(p);plannerRender();};
+    el.onclick=()=>{plannerClearMap();plannerSelected=i;el.classList.add('selected');el.setAttribute('aria-pressed','true');plannerDraw(p);plannerOpenDetail(p,i);};
     el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}};
-    el.querySelector('.planner-start-guide').onclick=e=>{e.stopPropagation();plannerStartTrip(p);};
     box.appendChild(el);
   });
-  plannerEnhanceTransferCards(ranked);
-  plannerEnhanceCards(ranked);
   plannerScheduleLiveRefresh(ranked);
 }
 
@@ -623,7 +626,7 @@ if(typeof document!=='undefined'){
   });
   document.getElementById('plannerClimateOnly').addEventListener('change',plannerInvalidateSearch);
   document.getElementById('plannerBtn').onclick=()=>document.getElementById('plannerPanel').classList.add('open');
-  document.getElementById('plannerClose').onclick=()=>document.getElementById('plannerPanel').classList.remove('open');
+  document.getElementById('plannerClose').onclick=()=>{document.getElementById('plannerPanel').classList.remove('open');plannerCloseDetail();};
   document.getElementById('plannerSearch').onclick=async()=>{
     const note=document.getElementById('plannerNote');
     if(plannerFromIndex==null || plannerToIndex==null){note.textContent='출발·도착 정류소 또는 장소를 검색 결과에서 선택해 주세요.';return;}
