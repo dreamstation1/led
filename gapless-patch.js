@@ -65,12 +65,13 @@
     return {text:m[key]||key,lang:'ko-KR'};
   }
 
-  // 녹음 파일이 없을 때 브라우저 TTS 대신 직접 학습한 AI 목소리(GPT-SoVITS api_v2)로
-  // 그 자리에서 만들어 재생한다. 서버 주소는 기본 http://127.0.0.1:9880 이고
+  // 녹음 파일이 없을 때 브라우저 TTS 대신 직접 학습한 AI 목소리(GPT-SoVITS)로
+  // 그 자리에서 만들어 재생한다. 기본 서버는 오라클 클라우드(PC 꺼도 동작).
   // 주소창에 ?aitts=https://... 를 붙여 열면 그 주소로 바뀌어 저장된다 (?aitts= 빈 값이면 초기화).
+  // 예) 집 PC 서버로 쓰려면 ?aitts=http://127.0.0.1:9880
   // 서버가 꺼져 있거나 실패하면 1분 동안은 시도하지 않고 기존 브라우저 TTS로 넘어간다.
   const AI_TTS_KEY='aiTtsUrl';
-  const AI_TTS_DEFAULT='http://127.0.0.1:9880';
+  const AI_TTS_DEFAULT='https://168-110-38-243.sslip.io';
   // 참고 음성은 GPT-SoVITS 폴더 기준 경로 (서버 PC 안에 있는 파일)
   const AI_TTS_REF={
     ko:{ref_audio_path:'custom_ui/refs/bus_ref_ko.wav',prompt_text:'강서면허시험장 강서농수산물시장입니다.',prompt_lang:'ko'},
