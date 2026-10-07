@@ -99,9 +99,15 @@ function plannerFindPaths(fromIndex,toIndex,options={}){
   const straight=hav(STOPS[fromIndex].lat,STOPS[fromIndex].lng,STOPS[toIndex].lat,STOPS[toIndex].lng);
   const maxBusDist=Math.max(3500,straight*2.5+2200);
   const seen=new Set();
-  const add=(a,b,walk,transfer)=>{
+  const add=(a,b,startWalk,endWalk,transfer)=>{
     if(candidates.length>=8000)return;
-    const legs=transfer?[a,b]:[a];
+    const legs=transfer?[{...a},{...b}]:[{...a}];
+    // If the last bus reaches the selected destination a little later, stay on
+    // that bus instead of inventing an early alight followed by a long walk.
+    const last=legs[legs.length-1],exactEnds=last.data.positions.get(STOPS[toIndex].node)||[];
+    const exactEnd=exactEnds.find(position=>position>last.end);
+    if(exactEnd!=null){last.end=exactEnd;endWalk=0;}
+    const walk=startWalk+endWalk;
     const nodes=legs.flatMap((leg,i)=>plannerLegNodes(leg).slice(i?1:0));
     // A route may contain a loop, but riding past the requested destination or
     // returning to an already visited stop only creates an unnecessary detour.
@@ -129,7 +135,7 @@ function plannerFindPaths(fromIndex,toIndex,options={}){
         const e=STOPS[end.index],walk=start.walk+end.walk;
         for(const p of startsAt){
           for(const q of a.positions.get(e.node)||[]){
-            if(q>p)add({data:a,start:p,end:q},null,walk,false);
+            if(q>p)add({data:a,start:p,end:q},null,start.walk,end.walk,false);
           }
         }
       }
@@ -156,7 +162,7 @@ function plannerFindPaths(fromIndex,toIndex,options={}){
             for(const y of b.positions.get(node)||[]){
               for(const end of ends){
                 for(const z of b.positions.get(STOPS[end.index].node)||[]){
-                  if(z>y)add({data:a,start:p,end:x},{data:b,start:y,end:z},start.walk+end.walk,true);
+                  if(z>y)add({data:a,start:p,end:x},{data:b,start:y,end:z},start.walk,end.walk,true);
                 }
               }
             }
@@ -174,6 +180,17 @@ function plannerRank(paths,sort){
   const first=p=>sort==='time'?p.minutes:sort==='distance'?p.distance:
     sort==='walk'?p.walk:sort==='detour'?-p.distance:optimal(p);
   return paths.slice().sort((a,b)=>first(a)-first(b)||optimal(a)-optimal(b)||a.transfers-b.transfers||a.distance-b.distance||plannerPathKey(a).localeCompare(plannerPathKey(b)));
+}
+
+function plannerDisplayPaths(){
+  const grouped=plannerGroupPaths(plannerPaths),ranked=plannerRank(grouped,plannerSort);
+  if(!ranked.length)return [];
+  const bestMinutes=Math.min(...ranked.map(path=>path.minutes));
+  const bestWalk=Math.min(...ranked.map(path=>path.walk));
+  // Remove routes that are plainly worse before limiting the visible list.
+  // This prevents hundreds of nearby-pole combinations from reaching the UI.
+  const sensible=ranked.filter(path=>path.minutes<=bestMinutes+30&&path.walk<=Math.max(900,bestWalk+600));
+  return (sensible.length?sensible:ranked).slice(0,10);
 }
 
 // Several buses often serve exactly the same boarding/transfer/alighting
@@ -282,7 +299,7 @@ async function plannerLiveSummary(path){
     const leg=path.legs[i],node=leg.data.route.nodes[leg.start],names=leg.routeNames||[leg.data.route.name];
     const items=await plannerArrivalsAt(node),best=plannerBestArrival(items,names,i?reach-45:0),item=best?.item||null;
     const sec=best?.sec??null,route=best?.route||names[0],alightNode=leg.data.route.nodes[leg.end];
-    const arrivalText=item?String(item['arrmsg'+(best?.n||1)]||((sec==null?'도착정보 없음':Math.ceil(sec/60)+'분 후'))):'현재 도착정보 없음';
+    const arrivalText=item?String(item['arrmsg'+(best?.n||1)]||((sec==null?'현재 정류장 API에 도착예정 미수신':Math.ceil(sec/60)+'분 후'))):`현재 정류장 API에 다음 ${route}번 차량이 아직 잡히지 않음`;
     const plate=item?String(item['plainNo'+(best?.n||1)]||'').trim():'';
     rows.push(`<div><b>${i?'환승':'승차'} ${esc(route)}번</b> · ${esc(plannerStopName(node))}${plate?` · 차량 ${esc(plate)}`:''}<br>${esc(arrivalText)} <span class="route-live-meta">${plannerVehicleBadges(route,item,best?.n||1)}</span><br><b>하차</b> ${esc(plannerStopName(alightNode))} · ${leg.end-leg.start}정류소 후</div>`);
     if(best)reach=best.sec+(leg.end-leg.start)*105+90;
@@ -360,8 +377,8 @@ function plannerUpdateNote(){
   const note=document.getElementById('plannerNote');
   note.setAttribute('role','status');
   if(plannerSearching){note.textContent='버스 경로를 찾고 있습니다…';return;}
-  const count=plannerGroupPaths(plannerPaths).length;
-  note.textContent=(plannerSearched?`${count}개 이동 경로 · 공통 구간 버스는 한 카드에 표시 · 시간·거리·도보는 추정치`:'버스 노선 순서로 직행·환승 경로를 찾습니다.')+(plannerMapStatus?' · '+plannerMapStatus:'');
+  const count=plannerDisplayPaths().length;
+  note.textContent=(plannerSearched?`추천 경로 ${count}개 · 불필요한 환승·장거리 도보 제외 · 시간·거리·도보는 추정치`:'버스 노선 순서로 직행·환승 경로를 찾습니다.')+(plannerMapStatus?' · '+plannerMapStatus:'');
 }
 function plannerRender(){
   const sortBox=document.getElementById('plannerSort');
@@ -370,7 +387,7 @@ function plannerRender(){
   const box=document.getElementById('plannerResults');
   plannerUpdateNote();
   if(!plannerSearched){box.innerHTML='';return;}
-  const ranked=plannerRank(plannerGroupPaths(plannerPaths),plannerSort).slice(0,30);
+  const ranked=plannerDisplayPaths();
   if(!ranked.length){box.innerHTML='<div class="search-empty">찾은 경로가 없습니다. 가까운 다른 정류소를 선택해 보세요.</div>';return;}
   box.innerHTML='';
   ranked.forEach((p,i)=>{
