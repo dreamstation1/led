@@ -86,6 +86,7 @@ button:hover{background:#2a3039}
 #plannerDetail{display:none;position:absolute;top:8px;left:430px;z-index:1249;width:min(430px,calc(100% - 446px));max-height:calc(100% - 16px);overflow:auto;background:#171b21;border:1px solid #39424e;border-radius:14px;box-shadow:0 8px 28px #0008;padding:14px}
 #plannerDetail.open{display:block}.planner-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.planner-detail-head>div{min-width:0}.planner-detail-head strong{display:block;font-size:17px}.planner-detail-head small{display:block;margin-top:4px;color:#aeb9c7}.planner-detail-head button{flex:0 0 38px;width:38px;height:38px;padding:0;font-size:20px}
 .planner-detail-timeline{position:relative;margin:18px 0 14px;padding-left:27px}.planner-detail-timeline:before{content:"";position:absolute;left:8px;top:10px;bottom:10px;width:3px;background:#38b979;border-radius:4px}.planner-detail-step{position:relative;padding:0 0 20px 9px}.planner-detail-step:last-child{padding-bottom:0}.planner-detail-step:before{content:"";position:absolute;left:-25px;top:5px;width:12px;height:12px;border-radius:50%;background:#171b21;border:3px solid #38b979}.planner-detail-step b,.planner-detail-step span,.planner-detail-step em{display:block}.planner-detail-step span,.planner-detail-step em{margin-top:4px;color:#aeb9c7;font-size:12px;font-style:normal}.planner-detail-route{display:inline-block!important;width:max-content;padding:3px 8px;border-radius:999px;background:#2c7b50!important;color:#fff!important;font-weight:850}.planner-detail-step.walk:before{border-color:#aeb9c7}.planner-detail-step.walk b{font-size:13px}#plannerDetail h3{font-size:13px;margin:14px 0 6px}
+.planner-stops-toggle{margin-top:9px;padding:6px 10px;border:1px solid #405064;border-radius:8px;background:#202a36;color:#d9e7f5;font-size:12px}.planner-leg-stops{margin:8px 0 0;padding:8px 8px 8px 28px;max-height:240px;overflow:auto;border-radius:9px;background:#111820;color:#b9c6d5;font-size:12px;line-height:1.65}.planner-leg-stops li.board,.planner-leg-stops li.alight{color:#5ee09a;font-weight:800}.planner-leg-stops[hidden]{display:none}
 .planner-options{display:flex;align-items:center;gap:8px;margin-top:9px;padding:9px;border:1px solid #39424e;border-radius:10px;background:#20262e;font-size:12px;font-weight:750}
 .planner-options input{width:18px;height:18px;min-width:18px;accent-color:#38b979}
 .planner-live{margin-top:7px;padding:7px 9px;border-radius:8px;background:#162d25;color:#75dda9;font-size:11px;font-weight:750}
@@ -4568,7 +4569,7 @@ function stopGuide(){
 }
 
 </script>
-<script src="planner.js?v=20261007-16"></script>
+<script src="planner.js?v=20261007-17"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
 <script src="./mobile-patch.js?v=60"></script>
 <script src="./traffic-map-patch.js?v=81"></script>
