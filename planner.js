@@ -554,6 +554,47 @@ function plannerStopTrip(){
   plannerTripWatch=null;clearInterval(plannerTripTimer);plannerTripTimer=null;plannerActiveTrip=null;
   const box=document.getElementById('plannerNav');if(box)box.hidden=true;
 }
+function plannerVehicleNumber(value){
+  const text=String(value||'').trim(),match=text.match(/(\d{4})\s*$/);
+  return match?`${match[1]}호`:text;
+}
+function plannerTripNotify(trip,key,text,pattern){
+  if(!trip||trip.alerts.has(key))return;
+  trip.alerts.add(key);
+  try{if(navigator.vibrate)navigator.vibrate(pattern||[180,80,180]);}catch(e){}
+  try{
+    const utterance=new SpeechSynthesisUtterance(text);
+    utterance.lang='ko-KR';utterance.rate=1;utterance.volume=1;
+    window.speechSynthesis.speak(utterance);
+  }catch(e){}
+}
+function plannerTripProgress(trip,leg,lat,lng,vehicle){
+  let closest=leg.start,best=Infinity;
+  const reportedNode=String(vehicle?.lastStnId||'');
+  if(reportedNode){
+    const matches=[];
+    for(let i=leg.start;i<=leg.end;i++)if(String(leg.data.route.nodes[i])===reportedNode)matches.push(i);
+    if(matches.length){
+      const prior=Number.isFinite(trip.progressByLeg[trip.legIndex])?trip.progressByLeg[trip.legIndex]:leg.start;
+      closest=matches.reduce((a,b)=>Math.abs(b-prior)<Math.abs(a-prior)?b:a);
+      best=0;
+    }
+  }
+  for(let i=leg.start;best!==0&&i<=leg.end;i++){
+    const stop=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[i]))];
+    if(!stop)continue;
+    const distance=hav(lat,lng,stop.lat,stop.lng);
+    if(distance<best){best=distance;closest=i;}
+  }
+  const previous=trip.progressByLeg[trip.legIndex];
+  if(Number.isFinite(previous))closest=Math.max(previous,closest);
+  closest=Math.max(leg.start,Math.min(leg.end,closest));
+  trip.progressByLeg[trip.legIndex]=closest;
+  const current=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[closest]))];
+  const nextIndex=Math.min(leg.end,closest+1);
+  const next=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[nextIndex]))];
+  return {index:closest,current,next,remaining:Math.max(0,leg.end-closest),distance:best};
+}
 function plannerTripTarget(trip){
   const leg=trip.path.legs[trip.legIndex],node=trip.phase==='riding'?leg.data.route.nodes[leg.end]:leg.data.route.nodes[leg.start];
   return STOPS[STOP_BY_NODE.get(String(node))];
@@ -562,7 +603,7 @@ async function plannerUpdateTrip(position){
   const trip=plannerActiveTrip;if(!trip)return;
   if(position){trip.lat=position.coords.latitude;trip.lng=position.coords.longitude;trip.speed=Number(position.coords.speed)||0;if(typeof updateGuideMarker==='function')updateGuideMarker(trip.lat,trip.lng);}
   if(!Number.isFinite(trip.lat)||!Number.isFinite(trip.lng))return;
-  const leg=trip.path.legs[trip.legIndex],board=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.start]))],alight=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.end]))];
+  let leg=trip.path.legs[trip.legIndex],board=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.start]))],alight=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.end]))];
   const names=leg.routeNames||[leg.data.route.name],toBoard=hav(trip.lat,trip.lng,board.lat,board.lng),toAlight=hav(trip.lat,trip.lng,alight.lat,alight.lng);
   let live='';
   if(trip.phase==='walk'&&toBoard<=55)trip.phase='waiting';
@@ -573,14 +614,38 @@ async function plannerUpdateTrip(position){
       const best=plannerBestArrival(arrivals,names),item=best?.item||null,seconds=best?.sec??null;
       const chosen=(leg.routeOptions||[leg]).find(option=>String(option.data.route.name)===String(item?.rtNm))||leg;
       const vehicles=await fetchBusPositions(chosen.data.route.id).catch(()=>[]);
-      const nearbyVehicle=vehicles.find(v=>Number.isFinite(Number(v.gpsY))&&hav(trip.lat,trip.lng,Number(v.gpsY),Number(v.gpsX))<85);
+      const nearbyVehicle=vehicles.filter(v=>Number.isFinite(Number(v.gpsY))&&Number.isFinite(Number(v.gpsX)))
+        .map(v=>({vehicle:v,distance:hav(trip.lat,trip.lng,Number(v.gpsY),Number(v.gpsX))})).sort((a,b)=>a.distance-b.distance)[0];
       live=item?`${item['arrmsg'+(best?.n||1)]||''} ${plannerVehicleBadges(item.rtNm||names[0],item,best?.n||1)}`:'도착정보 조회 중';
-      if(toBoard<65&&(nearbyVehicle||(seconds!=null&&seconds<=20&&trip.speed>=2.5))){trip.phase='riding';trip.currentBus={route:item?.rtNm||names[0],plate:String(item?.['plainNo'+(best?.n||1)]||nearbyVehicle?.plainNo||'').trim()};}
+      if(toBoard<65&&((nearbyVehicle&&nearbyVehicle.distance<85)||(seconds!=null&&seconds<=20&&trip.speed>=2.5))){
+        const vehicle=nearbyVehicle?.distance<85?nearbyVehicle.vehicle:null;
+        trip.phase='riding';trip.lastVehicleFetch=Date.now();
+        trip.currentBus={route:item?.rtNm||names[0],routeId:chosen.data.route.id,vehId:String(vehicle?.vehId||''),plate:String(vehicle?.plainNo||item?.['plainNo'+(best?.n||1)]||'').trim(),lat:Number(vehicle?.gpsY),lng:Number(vehicle?.gpsX),lastStnId:vehicle?.lastStnId,nextStId:vehicle?.nextStId,sectOrd:vehicle?.sectOrd};
+        const number=plannerVehicleNumber(trip.currentBus.plate);
+        plannerTripNotify(trip,`board-${trip.legIndex}`,`${trip.currentBus.route}번${number?' '+number+' 차량에':' 버스에'} 탑승했습니다.`,[180,80,180]);
+      }
     }catch(e){live='도착정보를 잠시 불러오지 못했습니다.';}
   }
-  if(trip.phase==='riding'&&toAlight<=90){
-    if(trip.legIndex<trip.path.legs.length-1){trip.legIndex++;trip.phase='waiting';trip.lastLive=0;}
-    else trip.phase='finalwalk';
+  let progress=null;
+  if(trip.phase==='riding'){
+    if(Date.now()-(trip.lastVehicleFetch||0)>8000&&trip.currentBus?.routeId){
+      trip.lastVehicleFetch=Date.now();
+      try{
+        const vehicles=await fetchBusPositions(trip.currentBus.routeId);
+        const vehicle=vehicles.find(v=>(trip.currentBus.vehId&&String(v.vehId)===trip.currentBus.vehId)||(trip.currentBus.plate&&String(v.plainNo)===trip.currentBus.plate));
+        if(vehicle){trip.currentBus.vehId=String(vehicle.vehId||trip.currentBus.vehId);trip.currentBus.plate=String(vehicle.plainNo||trip.currentBus.plate);trip.currentBus.lat=Number(vehicle.gpsY);trip.currentBus.lng=Number(vehicle.gpsX);trip.currentBus.lastStnId=vehicle.lastStnId;trip.currentBus.nextStId=vehicle.nextStId;trip.currentBus.sectOrd=vehicle.sectOrd;}
+      }catch(e){}
+    }
+    const progressLat=Number.isFinite(trip.currentBus?.lat)?trip.currentBus.lat:trip.lat;
+    const progressLng=Number.isFinite(trip.currentBus?.lng)?trip.currentBus.lng:trip.lng;
+    progress=plannerTripProgress(trip,leg,progressLat,progressLng,trip.currentBus);
+    if(progress.remaining===1){
+      plannerTripNotify(trip,`alight-${trip.legIndex}`,`다음 정류장은 ${alight.name}입니다. 이번 정류장에서 내리세요.`,[250,100,250,100,500]);
+    }
+  }
+  if(trip.phase==='riding'&&toAlight<=90&&progress?.remaining<=1){
+    if(trip.legIndex<trip.path.legs.length-1){trip.legIndex++;trip.phase='waiting';trip.lastLive=0;trip.currentBus=null;}
+    else{trip.phase='finalwalk';trip.currentBus=null;}
   }
   if(trip.phase==='riding'&&trip.path.transfers&&trip.legIndex===0&&Date.now()-(trip.lastChance||0)>15000){
     trip.lastChance=Date.now();
@@ -588,10 +653,12 @@ async function plannerUpdateTrip(position){
   }
   const destination=trip.path.toPlace||STOPS[trip.path.toIndex];
   if(trip.phase==='finalwalk'&&destination&&hav(trip.lat,trip.lng,destination.lat,destination.lng)<=45)trip.phase='done';
-  const current=trip.path.legs[trip.legIndex],routeNames=current.routeNames||[current.data.route.name];
+  leg=trip.path.legs[trip.legIndex];board=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.start]))];alight=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.end]))];
+  const routeNames=leg.routeNames||[leg.data.route.name],vehicleNumber=plannerVehicleNumber(trip.currentBus?.plate);
+  const ridingDetail=progress?(progress.remaining===1?`이번 정류장에서 내리세요 · 하차 ${alight.name}`:`${progress.current?.name||'현재 정류장'} → ${progress.next?.name||alight.name} 이동 중 · 하차까지 ${progress.remaining}정류소`):`${alight.name}에서 내리세요`;
   const text=trip.phase==='walk'?`${board.name}까지 ${fmtDist(toBoard)} 걸어가세요.`:
     trip.phase==='waiting'?`${board.name}에서 ${routeNames.join(' · ')}번을 타세요.`:
-    trip.phase==='riding'?`${trip.currentBus?.route||routeNames[0]}번${trip.currentBus?.plate?' · '+trip.currentBus.plate:''} 탑승 중 · ${alight.name}에서 내리세요 · ${leg.end-leg.start}정류소 구간 · 약 ${fmtDist(toAlight)} 남음`:
+    trip.phase==='riding'?`${trip.currentBus?.route||routeNames[0]}번${vehicleNumber?' · '+vehicleNumber:''} 탑승 중 · ${ridingDetail}`:
     trip.phase==='finalwalk'?`하차 후 ${destination.name||'목적지'}까지 걸어가세요.`:'목적지에 도착했습니다.';
   const box=document.getElementById('plannerNav');box.hidden=false;
   box.innerHTML=`<strong>${trip.phase==='done'?'도착':'실시간 길찾기'} · ${esc(text)}</strong><small>${live||'현재 위치와 버스 위치로 탑승·하차를 자동 확인합니다.'}</small><button type="button" class="planner-nav-stop">길찾기 종료</button>`;
@@ -599,7 +666,7 @@ async function plannerUpdateTrip(position){
   if(trip.phase==='done'&&!trip.doneNotified){trip.doneNotified=true;if(navigator.vibrate)navigator.vibrate([150,80,150]);}
 }
 function plannerStartTrip(path){
-  plannerStopTrip();plannerActiveTrip={path,legIndex:0,phase:'walk',lastLive:0};
+  plannerStopTrip();plannerActiveTrip={path,legIndex:0,phase:'walk',lastLive:0,alerts:new Set(),progressByLeg:{},currentBus:null,lastVehicleFetch:0};
   document.getElementById('plannerNav').hidden=false;
   document.getElementById('plannerNav').innerHTML='<strong>현재 위치 확인 중…</strong><small>위치 권한을 허용해 주세요.</small>';
   if(!navigator.geolocation){document.getElementById('plannerNav').innerHTML='<strong>이 기기에서는 위치를 사용할 수 없습니다.</strong>';return;}
