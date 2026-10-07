@@ -102,11 +102,17 @@ function plannerFindPaths(fromIndex,toIndex,options={}){
   const add=(a,b,startWalk,endWalk,transfer)=>{
     if(candidates.length>=8000)return;
     const legs=transfer?[{...a},{...b}]:[{...a}];
-    // If the last bus reaches the selected destination a little later, stay on
-    // that bus instead of inventing an early alight followed by a long walk.
-    const last=legs[legs.length-1],exactEnds=last.data.positions.get(STOPS[toIndex].node)||[];
-    const exactEnd=exactEnds.find(position=>position>last.end);
-    if(exactEnd!=null){last.end=exactEnd;endWalk=0;}
+    // For every route, keep riding when a later stop gets closer to the
+    // destination. Never suggest getting off early and walking alongside the
+    // same bus. Exact destination stops naturally win with zero walking.
+    const last=legs[legs.length-1];
+    let betterEnd={position:last.end,walk:endWalk};
+    for(const nearbyEnd of ends){
+      if(nearbyEnd.walk>=betterEnd.walk)continue;
+      const later=(last.data.positions.get(STOPS[nearbyEnd.index].node)||[]).find(position=>position>last.end);
+      if(later!=null)betterEnd={position:later,walk:nearbyEnd.walk};
+    }
+    if(betterEnd.position!==last.end){last.end=betterEnd.position;endWalk=betterEnd.walk;}
     const walk=startWalk+endWalk;
     const nodes=legs.flatMap((leg,i)=>plannerLegNodes(leg).slice(i?1:0));
     // A route may contain a loop, but riding past the requested destination or
