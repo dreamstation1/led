@@ -1,6 +1,6 @@
 (function(){
-  if(window.__gaplessQueueV60)return;
-  window.__gaplessQueueV60=true;
+  if(window.__gaplessQueueV61)return;
+  window.__gaplessQueueV61=true;
 
   const BlobCache=new Map();
   const LoadCache=new Map();
@@ -301,7 +301,7 @@
     return preparedUrl?{kind:'audio',url:preparedUrl,...extra}:null;
   }
 
-  async function resolveSegment(category,key,recordingOnly=false){
+  async function resolveSegment(category,key,recordingOnly=false,waitForAi=false){
     const found=await firstPlayable(pathsFor(category,key));
     if(found){
       const seg=await audioSegment(found.url,{category,key});
@@ -316,7 +316,7 @@
     // 거의 항상 브라우저(윈도우) 목소리로 넘어감 -> 15초까지 기다린다.
     const aiPromise=aiSynth(t.text,t.lang),AI_WAIT_MS=15000;
     let timer=null;
-    const aiUrl=await Promise.race([aiPromise,new Promise(resolve=>{timer=setTimeout(()=>resolve(null),AI_WAIT_MS);})]);
+    const aiUrl=waitForAi?await aiPromise:await Promise.race([aiPromise,new Promise(resolve=>{timer=setTimeout(()=>resolve(null),AI_WAIT_MS);})]);
     if(timer)clearTimeout(timer);
     if(aiUrl){
       const seg=await audioSegment(aiUrl,{category,key,ai:true});
@@ -450,8 +450,10 @@
         const s=currentGuideStops[i],k=s.audioName||s.name;
         warmSegment('stops',k);warmSegment('stops',k+' (1)');
       });
-      order.forEach(i=>{const s=currentGuideStops[i],k=s.audioName||s.name;warmAi('stops',k);});
-      order.forEach(i=>{const s=currentGuideStops[i],k=s.audioName||s.name;warmAi('stops',k+' (1)');});
+      // Prepare each stop's Korean and English pair together. The first
+      // simulation announcement no longer waits behind six unrelated Korean
+      // clips before its English ending can be ready.
+      order.forEach(i=>{const s=currentGuideStops[i],k=s.audioName||s.name;warmAi('stops',k);warmAi('stops',k+' (1)');});
     }catch(e){}
   }
 
@@ -480,11 +482,11 @@
   document.addEventListener('pointerdown',unlock,{capture:true,passive:true});
   document.addEventListener('click',unlock,{capture:true,passive:true});
 
-  async function resolveAnnouncement(stop,next){
+  async function resolveAnnouncement(stop,next,waitForAi=false){
     const stopKey=stop.audioName||stop.name;
     const specs=[['phrases','이번정류소'],['stops',stopKey],next?['phrases','다음정류소']:['phrases','종점입니다'],...(next?[['stops',next.audioName||next.name]]:[])];
     const resolved=await Promise.all(specs.map(async s=>{
-      try{return await resolveSegment(s[0],s[1]);}
+      try{return await resolveSegment(s[0],s[1],false,waitForAi);}
       catch(e){const t=await ttsInfo(s[0],s[1]);return {kind:'tts',text:t.text,lang:t.lang,category:s[0],key:s[1]};}
     }));
     const englishStop=await resolveSegment('stops',stopKey+' (1)',true);
@@ -497,7 +499,7 @@
       // With the AI voice server available, a missing "(1)" clip is generated
       // too, so the English ending is never silently dropped.
       const stopNameUsesTts=resolved.some((seg,i)=>specs[i][0]==='stops'&&(seg.kind==='tts'||seg.ai));
-      const englishSeg=await resolveSegment('stops',stopKey+' (1)');
+      const englishSeg=await resolveSegment('stops',stopKey+' (1)',false,waitForAi);
       if(stopNameUsesTts||englishSeg.ai){
         resolved.push(await resolveSegment('phrases_en','thisstopis'),englishSeg);
       }
@@ -506,14 +508,14 @@
   }
 
   try{
-    announceArrival=async function(stop,next){
+    announceArrival=async function(stop,next,options={}){
       window.cancelGuideAnnouncement();
       if(!guideTtsOn)return;
       const controller=new AbortController();
       announcement=controller;
       unlock();
       try{
-        const resolved=await resolveAnnouncement(stop,next);
+        const resolved=await resolveAnnouncement(stop,next,!!options.waitForAi);
         if(controller.signal.aborted)return;
         await playResolvedSequence(resolved,controller.signal);
       }finally{

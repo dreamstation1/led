@@ -1,6 +1,6 @@
 (function(){
-  if(window.__mobilePatchV59)return;
-  window.__mobilePatchV59=true;
+  if(window.__mobilePatchV60)return;
+  window.__mobilePatchV60=true;
 
   /* ---------- adaptive guide + simulation ---------- */
   let lastSimPanAt=0;
@@ -51,7 +51,23 @@
     announceArrival(target,next);guideApproachAnnounced=true;
     try{if(ledConnected)ledSetIndex(idx);}catch(e){}
   }
-  let stopBackgroundSimulation=null,simulationKeepAlive=null,simulationKeepAliveUrl=null;
+  let routeScrollPausedUntil=0,routeScrollResumeTimer=null;
+  function scrollGuideRow(force=false){
+    if(!guideActive||(!force&&Date.now()<routeScrollPausedUntil))return;
+    const list=document.getElementById('routeStops'),row=document.querySelector(`#routeStops .route-stop[data-guide-index="${guideNextIndex}"]`);if(!list||!row)return;
+    list.scrollTo({top:Math.max(0,row.offsetTop-(list.clientHeight-row.offsetHeight)/2),behavior:'smooth'});
+  }
+  function pauseRouteAutoScroll(){
+    if(!guideActive)return;routeScrollPausedUntil=Date.now()+5000;clearTimeout(routeScrollResumeTimer);
+    routeScrollResumeTimer=setTimeout(()=>scrollGuideRow(true),5050);
+  }
+  try{
+    const list=document.getElementById('routeStops');
+    ['wheel','touchstart','pointerdown'].forEach(type=>list?.addEventListener(type,pauseRouteAutoScroll,{passive:true}));
+    const baseMarkGuideProgress=markGuideProgress;
+    markGuideProgress=function(){const result=baseMarkGuideProgress();requestAnimationFrame(()=>scrollGuideRow(false));return result;};
+  }catch(e){}
+  let stopBackgroundSimulation=null,simulationKeepAlive=null,simulationKeepAliveUrl=null,simPrepareGeneration=0;
   function startSimulationKeepAlive(){
     if(simulationKeepAlive)return;
     try{
@@ -80,11 +96,12 @@
     return()=>{stopped=true;if(worker)worker.terminate();if(timer)clearInterval(timer);if(url)URL.revokeObjectURL(url);};
   }
   try{
-    startGuideSim=function(){
+    startGuideSim=async function(){
       if(!currentGuideStops || currentGuideStops.length<2)return;
       if(!currentRoutePath || currentRoutePath.length<2){try{status.textContent='노선 경로를 불러온 뒤 다시 시뮬레이션해 주세요.';}catch(e){}return;}
       if(guideWatchId!=null){try{navigator.geolocation.clearWatch(guideWatchId);}catch(e){}guideWatchId=null;}
       if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}
+      const prepareGeneration=++simPrepareGeneration;
       stopSimulationKeepAlive();startSimulationKeepAlive();
       if(guideSimRaf!=null){cancelAnimationFrame(guideSimRaf);guideSimRaf=null;}
       guideActive=true;
@@ -92,11 +109,14 @@
       guideNextIndex=startIdx+1;guideApproachAnnounced=false;guideMinDistToTarget=Infinity;
       guideLastLat=guideLastLng=guideHeadingDeg=null;
       markGuideProgress();renderGuideBar();updateGuideStatus();
-      announceArrival(currentGuideStops[startIdx],currentGuideStops[startIdx+1]||null);
+      status.textContent='첫 안내방송 AI 음성을 준비하고 있습니다… 준비가 끝나면 시뮬레이션이 시작됩니다.';
+      await announceArrival(currentGuideStops[startIdx],currentGuideStops[startIdx+1]||null,{waitForAi:true});
+      if(prepareGeneration!==simPrepareGeneration||!guideActive)return;
       try{if(ledConnected)ledUploadRoute().then(()=>ledSetIndex(startIdx));}catch(e){}
       const path=currentRoutePath,totalLen=pathLengthM(path),stopArcs=stopArcLengthsAlongPath(path,currentGuideStops);
       let traveled=Math.max(0,Math.min(totalLen,stopArcs[startIdx]||0)),lastTs=Date.now(),dwellUntil=0;
       const initial=pointAtDistanceM(path,traveled);simPositionWithoutFixedRadius(initial[0],initial[1]);
+      status.textContent='첫 안내방송 완료 · 시뮬레이션을 시작합니다 (속도 '+fmtSpeed(simSpeedMultiplier)+')';
       function tick(now){
         if(!guideActive){if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();guideSimRaf=null;return;}
         let dt=(now-lastTs)/1000;lastTs=now;if(!Number.isFinite(dt)||dt<0)dt=0;dt=Math.min(dt,1);
@@ -116,7 +136,7 @@
   }catch(e){console.error('simulation patch failed',e);}
   try{
     const baseStopGuide=stopGuide;
-    stopGuide=function(){if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();return baseStopGuide();};
+    stopGuide=function(){simPrepareGeneration++;if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();clearTimeout(routeScrollResumeTimer);return baseStopGuide();};
   }catch(e){}
 
   /* ---------- audio handled only by gapless-patch.js ---------- */
