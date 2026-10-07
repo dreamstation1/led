@@ -1,6 +1,6 @@
 (function(){
-  if(window.__mobilePatchV60)return;
-  window.__mobilePatchV60=true;
+  if(window.__mobilePatchV61)return;
+  window.__mobilePatchV61=true;
 
   /* ---------- adaptive guide + simulation ---------- */
   let lastSimPanAt=0;
@@ -115,7 +115,8 @@
       try{if(ledConnected)ledUploadRoute().then(()=>ledSetIndex(startIdx));}catch(e){}
       const path=currentRoutePath,totalLen=pathLengthM(path),stopArcs=stopArcLengthsAlongPath(path,currentGuideStops);
       let traveled=Math.max(0,Math.min(totalLen,stopArcs[startIdx]||0)),lastTs=Date.now(),dwellUntil=0;
-      const initial=pointAtDistanceM(path,traveled);simPositionWithoutFixedRadius(initial[0],initial[1]);
+      const initialStop=currentGuideStops[startIdx];
+      simPositionWithoutFixedRadius(initialStop.lat,initialStop.lng);
       status.textContent='첫 안내방송 완료 · 시뮬레이션을 시작합니다 (속도 '+fmtSpeed(simSpeedMultiplier)+')';
       function tick(now){
         if(!guideActive){if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();guideSimRaf=null;return;}
@@ -125,8 +126,15 @@
         const beforeIdx=guideNextIndex;traveled=Math.min(totalLen,traveled+speed*dt);
         maybeAdaptiveSimAnnouncement(traveled,stopArcs);
         const pos=pointAtDistanceM(path,traveled);simPositionWithoutFixedRadius(pos[0],pos[1]);
-        if(guideActive && guideNextIndex>beforeIdx && guideNextIndex<currentGuideStops.length)dwellUntil=now+(GUIDE_DWELL_MS/Math.max(0.1,simSpeedMultiplier||1));
-        if(traveled>=totalLen-0.01){const last=path[path.length-1];simPositionWithoutFixedRadius(last[0],last[1]);if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();guideSimRaf=null;return;}
+        if(guideActive && guideNextIndex>beforeIdx){
+          const arrived=currentGuideStops[Math.min(beforeIdx,currentGuideStops.length-1)];
+          // The road geometry can run beside or slightly beyond the official
+          // stop pole. While dwelling, pin the simulation marker to the exact
+          // stop coordinates used by the visible stop marker.
+          if(arrived){simPositionWithoutFixedRadius(arrived.lat,arrived.lng);traveled=Math.max(traveled,stopArcs[beforeIdx]||traveled);}
+          if(guideNextIndex<currentGuideStops.length)dwellUntil=now+(GUIDE_DWELL_MS/Math.max(0.1,simSpeedMultiplier||1));
+        }
+        if(traveled>=totalLen-0.01){const lastStop=currentGuideStops[currentGuideStops.length-1],last=lastStop?[lastStop.lat,lastStop.lng]:path[path.length-1];simPositionWithoutFixedRadius(last[0],last[1]);if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();guideSimRaf=null;return;}
       }
       // A Worker timer keeps route time, stop arrivals and announcements alive
       // when the desktop browser window is minimized. The map can repaint when
