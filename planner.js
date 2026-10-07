@@ -514,6 +514,30 @@ function plannerSetPlace(kind,place){
   document.getElementById(id+'Suggestions').style.display='none';
   plannerInvalidateSearch();
 }
+function plannerUseCurrentLocation(kind,button){
+  const note=document.getElementById('plannerNote');
+  if(!navigator.geolocation){note.textContent='이 기기에서는 현재 위치를 사용할 수 없습니다.';return;}
+  const old=button.textContent;button.disabled=true;button.textContent='확인 중…';
+  navigator.geolocation.getCurrentPosition(position=>{
+    plannerSetPlace(kind,{name:'내 위치',lat:position.coords.latitude,lng:position.coords.longitude});
+    button.disabled=false;button.textContent=old;
+    note.textContent=`현재 위치를 ${kind==='from'?'출발지':'도착지'}로 설정했습니다. (정확도 약 ${Math.round(position.coords.accuracy||0)}m)`;
+    if(typeof updateGuideMarker==='function')updateGuideMarker(position.coords.latitude,position.coords.longitude);
+  },()=>{
+    button.disabled=false;button.textContent=old;
+    note.textContent='현재 위치를 확인하지 못했습니다. 브라우저 위치 권한을 허용해 주세요.';
+  },{enableHighAccuracy:true,maximumAge:5000,timeout:12000});
+}
+function plannerSwapEndpoints(){
+  const fromInput=document.getElementById('plannerFrom'),toInput=document.getElementById('plannerTo');
+  [fromInput.value,toInput.value]=[toInput.value,fromInput.value];
+  [plannerFromIndex,plannerToIndex]=[plannerToIndex,plannerFromIndex];
+  [plannerPlaces.from,plannerPlaces.to]=[plannerPlaces.to,plannerPlaces.from];
+  document.getElementById('plannerFromSuggestions').style.display='none';
+  document.getElementById('plannerToSuggestions').style.display='none';
+  plannerInvalidateSearch();
+  document.getElementById('plannerNote').textContent='출발지와 도착지를 바꿨습니다.';
+}
 async function plannerSearchPlaces(query){
   if(query.trim().length<2)return [];
   const queries=[query,`${query} 서울특별시`];
@@ -731,6 +755,8 @@ if(typeof document!=='undefined'){
     document.getElementById('plannerPanel').classList.remove('open');
     document.getElementById('status').textContent=`지도에서 ${plannerPickKind==='from'?'출발':'도착'} 위치를 눌러 주세요.`;
   });
+  document.querySelectorAll('.planner-current-location').forEach(btn=>btn.onclick=()=>plannerUseCurrentLocation(btn.dataset.kind,btn));
+  document.getElementById('plannerSwap').onclick=plannerSwapEndpoints;
   if(typeof map!=='undefined')map.on('click',e=>{
     if(!plannerPickKind)return;
     const kind=plannerPickKind;plannerPickKind=null;

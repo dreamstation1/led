@@ -66,7 +66,7 @@ button:hover{background:#2a3039}
 .planner-head button{width:32px;height:32px;padding:0}
 .planner-field{position:relative;margin-top:9px}
 .planner-field input{width:100%}
-.planner-field-row{display:flex;gap:6px}.planner-field-row input{min-width:0;flex:1}.planner-map-pick{width:42px;padding:0;font-size:17px}
+.planner-field-row{display:flex;gap:6px}.planner-field-row input{min-width:0;flex:1}.planner-map-pick{width:42px;padding:0;font-size:17px}.planner-current-location{flex:0 0 auto;padding:0 9px;font-size:12px;white-space:nowrap}.planner-swap{display:block;width:100%;margin:7px 0 0;padding:7px 10px;border:1px solid #465363;background:#202731;color:#dce8f5;border-radius:9px;font-weight:800}
 .planner-time-row{display:flex;align-items:center;gap:8px;margin-top:9px}.planner-time-row label{font-size:12px;font-weight:800;white-space:nowrap}.planner-time-row input{min-width:0;flex:1}
 .planner-suggestions{display:none;position:absolute;top:39px;left:0;right:0;z-index:2;max-height:200px;overflow:auto;background:#242b34;border:1px solid #495462;border-radius:8px}
 .planner-suggestions button{display:block;width:100%;height:auto;min-height:39px;text-align:left;border:0;border-radius:0;background:transparent;font-weight:500}
@@ -995,9 +995,10 @@ body.light-ui .route{color:#fff}
 <div id="map"></div>
 <section id="plannerPanel" aria-label="버스 길찾기">
   <div class="planner-head"><span>버스 길찾기</span><button id="plannerClose" aria-label="닫기">×</button></div>
-  <div class="planner-field"><div class="planner-field-row"><input id="plannerFrom" autocomplete="off" placeholder="출발 정류소·건물·장소 검색"><button type="button" class="planner-map-pick" data-kind="from" title="지도에서 출발 위치 선택">📍</button></div><div id="plannerFromSuggestions" class="planner-suggestions"></div></div>
+  <div class="planner-field"><div class="planner-field-row"><input id="plannerFrom" autocomplete="off" placeholder="출발 정류소·건물·장소 검색"><button type="button" class="planner-current-location" data-kind="from" title="현재 위치를 출발지로 설정">내 위치</button><button type="button" class="planner-map-pick" data-kind="from" title="지도에서 출발 위치 선택">📍</button></div><div id="plannerFromSuggestions" class="planner-suggestions"></div></div>
+  <button type="button" id="plannerSwap" class="planner-swap" title="출발지와 도착지 바꾸기">⇅ 출발·도착 바꾸기</button>
   <div class="planner-field"><input id="plannerVia" autocomplete="off" placeholder="경유 정류소 (선택 · 멀리 돌아가는 경로)"><div id="plannerViaSuggestions" class="planner-suggestions"></div></div>
-  <div class="planner-field"><div class="planner-field-row"><input id="plannerTo" autocomplete="off" placeholder="도착 정류소·건물·장소 검색"><button type="button" class="planner-map-pick" data-kind="to" title="지도에서 도착 위치 선택">📍</button></div><div id="plannerToSuggestions" class="planner-suggestions"></div></div>
+  <div class="planner-field"><div class="planner-field-row"><input id="plannerTo" autocomplete="off" placeholder="도착 정류소·건물·장소 검색"><button type="button" class="planner-current-location" data-kind="to" title="현재 위치를 도착지로 설정">내 위치</button><button type="button" class="planner-map-pick" data-kind="to" title="지도에서 도착 위치 선택">📍</button></div><div id="plannerToSuggestions" class="planner-suggestions"></div></div>
   <div class="planner-time-row"><label for="plannerDeparture">출발시각</label><input id="plannerDeparture" type="datetime-local"></div>
   <label class="planner-options"><input type="checkbox" id="plannerClimateOnly">기후동행카드 가능 노선만 (마을·지선·간선·심야)</label>
   <button id="plannerSearch">경로 찾기</button>
@@ -4569,7 +4570,7 @@ function stopGuide(){
 }
 
 </script>
-<script src="planner.js?v=20261007-20"></script>
+<script src="planner.js?v=20261007-21"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
 <script src="./mobile-patch.js?v=60"></script>
 <script src="./traffic-map-patch.js?v=81"></script>
