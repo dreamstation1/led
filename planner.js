@@ -196,7 +196,7 @@ function plannerDisplayPaths(){
   // Remove routes that are plainly worse before limiting the visible list.
   // This prevents hundreds of nearby-pole combinations from reaching the UI.
   const sensible=ranked.filter(path=>path.minutes<=bestMinutes+30&&path.walk<=Math.max(900,bestWalk+600));
-  return (sensible.length?sensible:ranked).slice(0,10);
+  return (sensible.length?sensible:ranked).slice(0,20);
 }
 
 // Several buses often serve exactly the same boarding/transfer/alighting
@@ -204,20 +204,26 @@ function plannerDisplayPaths(){
 function plannerGroupPaths(paths){
   const groups=new Map();
   for(const p of paths){
-    // The complete ordered corridor must match, not only its endpoints.
-    const key=plannerPathKey(p);
+    // Routes using the same boarding, transfer and alighting stops are one
+    // practical choice even when their intermediate stop lists differ.
+    const key=p.legs.map(leg=>`${leg.data.route.nodes[leg.start]}>${leg.data.route.nodes[leg.end]}`).join('|');
     let g=groups.get(key);
     if(!g){
       g={...p,legs:p.legs.map(l=>({...l,routeNames:[l.data.route.name],routeOptions:[l]}))};
       groups.set(key,g);
       continue;
     }
-    p.legs.forEach((l,i)=>{
-      if(g.legs[i] && !g.legs[i].routeOptions.some(option=>option.data.route.id===l.data.route.id)){
-        g.legs[i].routeNames.push(l.data.route.name);
-        g.legs[i].routeOptions.push(l);
+    const oldOptions=g.legs.map(leg=>leg.routeOptions.slice());
+    if(p.minutes+p.walk/250<g.minutes+g.walk/250){
+      g={...p,legs:p.legs.map(l=>({...l,routeNames:[l.data.route.name],routeOptions:[l]}))};
+      groups.set(key,g);
+    }
+    const allOptions=oldOptions.map((options,i)=>options.concat(p.legs[i]?[p.legs[i]]:[]));
+    allOptions.forEach((options,i)=>options.forEach(option=>{
+      if(g.legs[i]&&!g.legs[i].routeOptions.some(existing=>existing.data.route.id===option.data.route.id)){
+        g.legs[i].routeNames.push(option.data.route.name);g.legs[i].routeOptions.push(option);
       }
-    });
+    }));
   }
   for(const group of groups.values())for(const leg of group.legs)leg.routeNames.sort((a,b)=>a.localeCompare(b,'ko',{numeric:true}));
   return [...groups.values()];
