@@ -1,6 +1,6 @@
 (function(){
-  if(window.__uticMapPatchV70)return;
-  window.__uticMapPatchV70=true;
+  if(window.__uticMapPatchV71)return;
+  window.__uticMapPatchV71=true;
 
   const DEFAULT_KEY='';
   const RELAY_BASE='https://151-145-65-245.sslip.io';
@@ -86,7 +86,8 @@
     if(!cctvId)return `<div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">CCTV 식별정보가 없습니다.</div>`;
     const ch=clean(row.CH||row.cctvch),id=clean(row.ID||row.id);
     const rtmp=ch&&id?`rtmp://210.179.218.${ch}:1935/live/${id}.stream`:'';
-    return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div>${rtmp?`<div class="popup-meta">VLC 재생 주소</div><code class="popup-meta">${esc(rtmp)}</code><a class="cctv-popup-link" href="${esc(rtmp)}">VLC에서 열기</a>`:'<div class="popup-meta">이 카메라의 VLC 스트림 정보가 없습니다.</div>'}<div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공</div></div>`;
+    const vlc=rtmp?`vlc://${rtmp.slice(7)}`:'';
+    return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div>${rtmp?`<div class="popup-meta">VLC 재생 주소</div><code class="popup-meta">${esc(rtmp)}</code><a class="cctv-popup-link" href="${esc(vlc)}">VLC 앱으로 열기</a><a class="cctv-popup-link" href="${esc(rtmp)}">원본 주소 열기</a>`:'<div class="popup-meta">이 카메라의 VLC 스트림 정보가 없습니다.</div>'}<div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공</div></div>`;
   }
   async function drawIncidents(bounds,force){
     if(!incidentOn){clearLayer('incident');return 0;}
