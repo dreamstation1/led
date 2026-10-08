@@ -1,6 +1,6 @@
 (function(){
-  if(window.__uticMapPatchV67)return;
-  window.__uticMapPatchV67=true;
+  if(window.__uticMapPatchV68)return;
+  window.__uticMapPatchV68=true;
 
   const DEFAULT_KEY='';
   const RELAY_BASE='https://151-145-65-245.sslip.io';
@@ -108,8 +108,7 @@
       if(!inBounds(lat,lng,bounds))continue;
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:'<div class="utic-cctv-icon">📹</div>',iconSize:[30,30],iconAnchor:[15,15]}),zIndexOffset:700}).addTo(cctvLayer);
       const rawName=clean(row.CCTVNAME||row.cctvName||row.cctvname||row.CCTV_NAME||row.name),label=rawName&&!rawName.includes('�')?rawName:clean(row.CCTVID||'UTIC CCTV');
-      const roadCctv={...row,cctvname:label,coordx:lng,coordy:lat};
-      marker.on('click',()=>typeof window.openRoadCctv==='function'?window.openRoadCctv(roadCctv):window.openPersistentCctv?.(cctvPopup(row)));marker.bindTooltip(label);count++;
+      marker.on('click',()=>window.openPersistentCctv?.(cctvPopup(row)));marker.bindTooltip(label);count++;
     }return count;
   }
   async function refresh(force=false){
