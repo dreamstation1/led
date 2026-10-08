@@ -484,11 +484,19 @@
 
   async function resolveAnnouncement(stop,next,waitForAi=false){
     const stopKey=stop.audioName||stop.name;
-    const specs=[['phrases','이번정류소'],['stops',stopKey],next?['phrases','다음정류소']:['phrases','종점입니다'],...(next?[['stops',next.audioName||next.name]]:[])];
+    const specs=next
+      ? [['phrases','이번정류소'],['stops',stopKey],['phrases','다음정류소'],['stops',next.audioName||next.name]]
+      : [['phrases','이번정류소'],['stops',stopKey]];
     const resolved=await Promise.all(specs.map(async s=>{
       try{return await resolveSegment(s[0],s[1],false,waitForAi);}
       catch(e){const t=await ttsInfo(s[0],s[1]);return {kind:'tts',text:t.text,lang:t.lang,category:s[0],key:s[1]};}
     }));
+    if(!next){
+      const englishStop=await resolveSegment('stops',stopKey+' (1)',false,waitForAi);
+      resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);
+      resolved.push(await resolveSegment('phrases','종착',false,waitForAi));
+      return resolved;
+    }
     const englishStop=await resolveSegment('stops',stopKey+' (1)',true);
     if(englishStop.kind==='audio'){
       resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);
