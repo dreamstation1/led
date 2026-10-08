@@ -1,6 +1,6 @@
 (function(){
-  if(window.__uticMapPatchV68)return;
-  window.__uticMapPatchV68=true;
+  if(window.__uticMapPatchV69)return;
+  window.__uticMapPatchV69=true;
 
   const DEFAULT_KEY='';
   const RELAY_BASE='https://151-145-65-245.sslip.io';
@@ -84,9 +84,7 @@
   function cctvPopup(row){
     const rawName=clean(row.CCTVNAME||row.cctvName||row.cctvname||row.CCTV_NAME||row.name),cctvId=clean(row.CCTVID||row.cctvId||row.cctvid),name=rawName&&!rawName.includes('�')?rawName:(cctvId||'UTIC CCTV');
     if(!cctvId)return `<div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">CCTV 식별정보가 없습니다.</div>`;
-    const params=new URLSearchParams({cctvid:cctvId,cctvName:name,kind:clean(row.KIND),cctvip:clean(row.CCTVIP),cctvch:clean(row.CH),id:clean(row.ID),cctvpasswd:clean(row.PASSWD),cctvport:clean(row.PORT)});
-    const stream=`${RELAY_BASE}/utic/cctv-stream?${params}`;
-    return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><iframe class="utic-cctv-frame" src="${esc(stream)}" title="${esc(name)} CCTV 영상" allow="autoplay; fullscreen" referrerpolicy="no-referrer-when-downgrade"></iframe><a class="cctv-popup-link" href="${esc(stream)}" target="_blank" rel="noopener">영상 새 창에서 열기</a><div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공 · Oracle 고정 IP 중계</div></div>`;
+    return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">이 UTIC 카메라는 구형 플레이어 방식이라 현재 브라우저 영상 주소를 제공하지 않습니다.</div><a class="cctv-popup-link" href="https://www.utic.go.kr/main/main.do?menu=cctv" target="_blank" rel="noopener">UTIC에서 카메라 열기</a><div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공</div></div>`;
   }
   async function drawIncidents(bounds,force){
     if(!incidentOn){clearLayer('incident');return 0;}
