@@ -1,6 +1,6 @@
 (function(){
-  if(window.__gaplessQueueV61)return;
-  window.__gaplessQueueV61=true;
+  if(window.__gaplessQueueV62)return;
+  window.__gaplessQueueV62=true;
 
   const BlobCache=new Map();
   const LoadCache=new Map();
@@ -58,6 +58,9 @@
     if(category==='phrases_en')return {text:key==='thisstopis'?'This stop is':key,lang:'en-US'};
     if(category==='stops'&&/ \(1\)$/.test(key)){
       const name=key.replace(/ \(1\)$/,'');
+      // 안내방송의 영어 이름은 번역하지 않는다: 구글 번역은 '개봉사거리' -> 'opening range' 처럼
+      // 지명을 뜻으로 바꿔버림. 로마자 표기 + 역/사거리 같은 단어만 영어로 (Gaebong Intersection)
+      try{if(typeof hybridRomanizeFallback==='function')return {text:hybridRomanizeFallback(name),lang:'en-US'};}catch(e){}
       try{return {text:await translateStationName(name),lang:'en-US'};}catch(e){return {text:name,lang:'en-US'};}
     }
     if(category==='stops')return {text:String(key).replace(/ \(1\)$/,'')+'입니다',lang:'ko-KR'};
@@ -106,7 +109,14 @@
   function koreanizeNumbers(s){return s.replace(/\d+/g,sinoNumber);}
   const AiCache=new Map();
   let aiDownUntil=0;
-  let aiQueue=Promise.resolve();
+  // 서버에 한 번에 하나씩 요청. 지금 도착한 정류소(priority)는 줄 맨 앞으로 새치기
+  const aiJobs=[];let aiBusy=false;
+  function pumpAi(){
+    if(aiBusy||!aiJobs.length)return;
+    aiBusy=true;
+    const job=aiJobs.shift();
+    job.run().then(job.resolve,()=>job.resolve(null)).finally(()=>{aiBusy=false;pumpAi();});
+  }
   function aiTtsBase(){
     let v=null;
     try{
@@ -130,20 +140,28 @@
       try{a.load();}catch(e){finish(-1);}
     });
   }
-  function aiSynth(text,lang){
+  // 서버로 보낼 글자 ('가양역1번출구.우성아파트' 의 점은 쉼표로, 한국어는 숫자/영문자를 한글 읽기로)
+  function prepSay(text,lang){
     const textLang=/^en/i.test(lang||'')?'en':'ko';
-    // '가양역1번출구.우성아파트' 의 점은 읽을 때 쉼표처럼 살짝 끊어 읽게
     let say=String(text||'').replace(/\s*[.·]\s*/g,', ').trim();
     if(textLang==='ko')say=koreanizeNumbers(koreanizeLatin(say));
+    return {say,textLang};
+  }
+  function aiSynth(text,lang,priority){
+    const {say,textLang}=prepSay(text,lang);
     if(!say||typeof fetch!=='function')return Promise.resolve(null);
     const k=textLang+'|'+say;
-    if(AiCache.has(k))return AiCache.get(k);
+    if(AiCache.has(k)){
+      if(priority){
+        const i=aiJobs.findIndex(j=>j.k===k);
+        if(i>0)aiJobs.unshift(aiJobs.splice(i,1)[0]);
+      }
+      return AiCache.get(k);
+    }
     if(Date.now()<aiDownUntil)return Promise.resolve(null);
-    // 서버에 한 번에 하나씩만 요청 (무료 서버처럼 느린 곳에 몰리지 않게, 가까운 정류소부터 차례로)
-    const job=async()=>{
+    const run=async()=>{
       if(Date.now()<aiDownUntil){AiCache.delete(k);return null;}
       const ctl=new AbortController();
-      // 느린(무료 CPU) 서버도 기다릴 수 있게 넉넉히
       const timer=setTimeout(()=>ctl.abort(),120000);
       try{
         // cut0 = 문장을 쪼개지 않음 (쉼표에서 쪼개면 앞부분이 빠지는 경우가 있었음)
@@ -164,17 +182,47 @@
         if(!best)AiCache.delete(k);
         return best;
       }catch(e){
-        // 서버 꺼짐/연결 불가 - 잠깐 쉬었다가 다시 시도
-        aiDownUntil=Date.now()+60000;
+        // 서버 연결 불가 - 잠깐(10초) 쉬었다가 다시 시도
+        aiDownUntil=Date.now()+10000;
         AiCache.delete(k);
         return null;
       }finally{clearTimeout(timer);}
     };
     const p=new Promise(resolve=>{
-      aiQueue=aiQueue.then(async()=>resolve(await job())).catch(()=>{AiCache.delete(k);resolve(null);});
+      const job={k,run,resolve};
+      if(priority)aiJobs.unshift(job);else aiJobs.push(job);
+      pumpAi();
     });
     AiCache.set(k,p);
     return p;
+  }
+  // 노선을 열면 그 노선 정류소 전체를 서버가 쉬는 틈에 미리 만들어 두게 한 번 보낸다
+  // (서버는 만든 걸 디스크에 저장 -> 한 번 지나간 노선은 다음부터 바로 나옴)
+  let prefetchedRoute='';
+  async function prefetchRoute(stops){
+    try{
+      const names=stops.map(s=>s.audioName||s.name).filter(Boolean);
+      const sig=names.join('|');
+      if(!names.length||sig===prefetchedRoute)return;
+      prefetchedRoute=sig;
+      const post=items=>fetch(aiTtsBase()+'/tts/prefetch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items})}).catch(()=>{});
+      // 녹음 파일이 없는 정류소만
+      const missing=[];
+      for(const n of names){if(!(await firstPlayable(pathsFor('stops',n))))missing.push(n);}
+      const ko=[];
+      for(const n of missing){const t=await ttsInfo('stops',n);ko.push({text:prepSay(t.text,t.lang).say,text_lang:'ko'});}
+      if(ko.length)post(ko);
+      for(let i=0;i<missing.length;i+=10){
+        if(prefetchedRoute!==sig)return;  // 노선이 바뀌면 그만
+        const en=[];
+        for(const n of missing.slice(i,i+10)){
+          if(await firstPlayable(pathsFor('stops',n+' (1)')))continue;
+          const t=await ttsInfo('stops',n+' (1)');
+          en.push({text:prepSay(t.text,t.lang).say,text_lang:'en'});
+        }
+        if(en.length)post(en);
+      }
+    }catch(e){}
   }
 
   // ---- Web Audio: 안내 조각들을 미리 풀어두고 하나로 이어 붙여 한 번에 재생 ----
@@ -301,7 +349,7 @@
     return preparedUrl?{kind:'audio',url:preparedUrl,...extra}:null;
   }
 
-  async function resolveSegment(category,key,recordingOnly=false,waitForAi=false){
+  async function resolveSegment(category,key,recordingOnly=false){
     const found=await firstPlayable(pathsFor(category,key));
     if(found){
       const seg=await audioSegment(found.url,{category,key});
@@ -309,20 +357,17 @@
     }
     if(recordingOnly)return {kind:'missing',category,key};
     const t=await ttsInfo(category,key);
-    // Do not let a slow AI server or its pre-generation queue silence an
-    // entire simulation announcement. The synthesis keeps warming the cache;
-    // this announcement uses browser speech if it is not ready in time.
-    // AI 서버(오라클 CPU)는 처음 만드는 정류소에 4~10초 걸려서, 1~2초만 기다리면
-    // 거의 항상 브라우저(윈도우) 목소리로 넘어감 -> 15초까지 기다린다.
-    const aiPromise=aiSynth(t.text,t.lang),AI_WAIT_MS=15000;
+    // 브라우저(윈도우) TTS 는 쓰지 않는다. 이 정류소를 AI 줄 맨 앞으로 당겨서 최대 60초 기다리고,
+    // 그래도 안 되면(서버 다운 등) 그 부분만 건너뛴다.
+    const aiPromise=aiSynth(t.text,t.lang,true),AI_WAIT_MS=60000;
     let timer=null;
-    const aiUrl=waitForAi?await aiPromise:await Promise.race([aiPromise,new Promise(resolve=>{timer=setTimeout(()=>resolve(null),AI_WAIT_MS);})]);
+    const aiUrl=await Promise.race([aiPromise,new Promise(resolve=>{timer=setTimeout(()=>resolve(null),AI_WAIT_MS);})]);
     if(timer)clearTimeout(timer);
     if(aiUrl){
       const seg=await audioSegment(aiUrl,{category,key,ai:true});
       if(seg)return seg;
     }
-    return {kind:'tts',text:t.text,lang:t.lang,category,key};
+    return {kind:'skip',category,key};
   }
 
   function sayTts(seg,signal){
@@ -411,6 +456,7 @@
         i=j;
         continue;
       }
+      if(seg.kind==='skip'){i++;continue;}
       if(seg.kind==='tts')await sayTts(seg,signal);
       else await playAudioSegment(seg,signal);
       if(signal.aborted)return;
@@ -441,6 +487,7 @@
   function warmUpcoming(){
     try{
       if(!Array.isArray(currentGuideStops))return;
+      prefetchRoute(currentGuideStops);
       const idx=Math.max(0,Number(guideNextIndex)||0);
       // 가까운 정류소부터: 다음 정류소, 그다음 3개, 마지막으로 직전 정류소.
       // AI 생성은 한 번에 하나씩 차례로 처리되니 이 순서가 곧 만드는 순서다.
@@ -450,9 +497,7 @@
         const s=currentGuideStops[i],k=s.audioName||s.name;
         warmSegment('stops',k);warmSegment('stops',k+' (1)');
       });
-      // Prepare each stop's Korean and English pair together. The first
-      // simulation announcement no longer waits behind six unrelated Korean
-      // clips before its English ending can be ready.
+      // 정류소마다 한국어와 영어를 같이 준비 (Codex 개선 반영)
       order.forEach(i=>{const s=currentGuideStops[i],k=s.audioName||s.name;warmAi('stops',k);warmAi('stops',k+' (1)');});
     }catch(e){}
   }
@@ -482,32 +527,24 @@
   document.addEventListener('pointerdown',unlock,{capture:true,passive:true});
   document.addEventListener('click',unlock,{capture:true,passive:true});
 
-  async function resolveAnnouncement(stop,next,waitForAi=false){
+  async function resolveAnnouncement(stop,next){
     const stopKey=stop.audioName||stop.name;
     const specs=[['phrases','이번정류소'],['stops',stopKey],next?['phrases','다음정류소']:['phrases','종점입니다'],...(next?[['stops',next.audioName||next.name]]:[])];
+    // 영어 이름도 한국어와 같이 바로 준비 시작
+    const englishPromise=resolveSegment('stops',stopKey+' (1)').catch(()=>({kind:'skip'}));
     const resolved=await Promise.all(specs.map(async s=>{
-      try{return await resolveSegment(s[0],s[1],false,waitForAi);}
-      catch(e){const t=await ttsInfo(s[0],s[1]);return {kind:'tts',text:t.text,lang:t.lang,category:s[0],key:s[1]};}
+      try{return await resolveSegment(s[0],s[1]);}
+      catch(e){return {kind:'skip',category:s[0],key:s[1]};}
     }));
-    const englishStop=await resolveSegment('stops',stopKey+' (1)',true);
-    if(englishStop.kind==='audio'){
-      resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);
-    }else{
-      // If either Korean stop name already needed TTS, keep the announcement
-      // consistent and synthesize its English ending too. Only a fully
-      // recorded Korean announcement with a missing "(1)" clip ends here.
-      // With the AI voice server available, a missing "(1)" clip is generated
-      // too, so the English ending is never silently dropped.
-      const stopNameUsesTts=resolved.some((seg,i)=>specs[i][0]==='stops'&&(seg.kind==='tts'||seg.ai));
-      const englishSeg=await resolveSegment('stops',stopKey+' (1)',false,waitForAi);
-      if(stopNameUsesTts||englishSeg.ai){
-        resolved.push(await resolveSegment('phrases_en','thisstopis'),englishSeg);
-      }
+    const englishSeg=await englishPromise;
+    if(englishSeg.kind==='audio'){
+      resolved.push(await resolveSegment('phrases_en','thisstopis'),englishSeg);
     }
     return resolved;
   }
 
   try{
+    // options.waitForAi (Codex 추가) 는 이제 항상 기다리므로 받기만 함
     announceArrival=async function(stop,next,options={}){
       window.cancelGuideAnnouncement();
       if(!guideTtsOn)return;
@@ -515,7 +552,7 @@
       announcement=controller;
       unlock();
       try{
-        const resolved=await resolveAnnouncement(stop,next,!!options.waitForAi);
+        const resolved=await resolveAnnouncement(stop,next);
         if(controller.signal.aborted)return;
         await playResolvedSequence(resolved,controller.signal);
       }finally{
