@@ -1,8 +1,8 @@
 (function(){
-  if(window.__uticMapPatchV64)return;
-  window.__uticMapPatchV64=true;
+  if(window.__uticMapPatchV65)return;
+  window.__uticMapPatchV65=true;
 
-  const DEFAULT_KEY='f3boGzQFKO7tHkA0qQxa5DE9oUhn07GF6LiZ1MIi8';
+  const DEFAULT_KEY='5TL7HJedNqZb5kl24aiOSWYN1hG3FnU2qJMvDGoC0';
   const INCIDENT_URL='https://www.utic.go.kr/guide/imsOpenData.do';
   const CCTV_URL='./utic-cctv-data.json';
   const INCIDENT_TTL=2*60*1000,CCTV_TTL=24*60*60*1000,CCTV_MIN_ZOOM=17;
