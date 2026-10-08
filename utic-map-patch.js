@@ -1,9 +1,10 @@
 (function(){
-  if(window.__uticMapPatchV65)return;
-  window.__uticMapPatchV65=true;
+  if(window.__uticMapPatchV66)return;
+  window.__uticMapPatchV66=true;
 
-  const DEFAULT_KEY='5TL7HJedNqZb5kl24aiOSWYN1hG3FnU2qJMvDGoC0';
-  const INCIDENT_URL='https://www.utic.go.kr/guide/imsOpenData.do';
+  const DEFAULT_KEY='';
+  const RELAY_BASE='https://151-145-65-245.sslip.io';
+  const INCIDENT_URL=RELAY_BASE+'/utic/incidents';
   const CCTV_URL='./utic-cctv-data.json';
   const INCIDENT_TTL=2*60*1000,CCTV_TTL=24*60*60*1000,CCTV_MIN_ZOOM=17;
   let incidentLayer=null,cctvLayer=null,moveTimer=null,incidentCache=null,cctvCache=null;
@@ -38,6 +39,18 @@
   }
   async function fetchRows(url){
     if(url===CCTV_URL){const response=await fetch(url,{cache:'force-cache'});if(!response.ok)throw new Error('UTIC CCTV 목록을 불러오지 못했습니다');const data=await response.json();return Array.isArray(data?.rows)?data.rows:[];}
+    if(url.startsWith(RELAY_BASE)){
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),25000);
+      try{
+        const response=await fetch(url,{cache:'no-store',signal:controller.signal});
+        if(!response.ok)throw new Error(`UTIC 중계 오류 (${response.status})`);
+        const text=await response.text();
+        try{return arrayData(JSON.parse(text));}catch(e){return xmlRows(text);}
+      }catch(e){
+        if(e.name==='AbortError')throw new Error('UTIC 중계 응답 시간이 초과됐습니다');
+        throw e;
+      }finally{clearTimeout(timer);}
+    }
     if(!key)throw new Error('설정에서 UTIC 인증키를 입력해 주세요');
     const endpoint=new URL(url);endpoint.searchParams.set('key',key);
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),25000);
@@ -71,9 +84,9 @@
   function cctvPopup(row){
     const rawName=clean(row.CCTVNAME||row.cctvName||row.cctvname||row.CCTV_NAME||row.name),cctvId=clean(row.CCTVID||row.cctvId||row.cctvid),name=rawName&&!rawName.includes('�')?rawName:(cctvId||'UTIC CCTV');
     if(!cctvId)return `<div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">CCTV 식별정보가 없습니다.</div>`;
-    const params=new URLSearchParams({key,cctvid:cctvId,cctvName:name,kind:clean(row.KIND),cctvip:clean(row.CCTVIP),cctvch:clean(row.CH),id:clean(row.ID),cctvpasswd:clean(row.PASSWD),cctvport:clean(row.PORT)});
-    const stream=`https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?${params}`;
-    return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><iframe class="utic-cctv-frame" src="${esc(stream)}" title="${esc(name)} CCTV 영상" allow="autoplay; fullscreen" referrerpolicy="no-referrer-when-downgrade"></iframe><a class="cctv-popup-link" href="${esc(stream)}" target="_blank" rel="noopener">영상 새 창에서 열기</a><div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공 · 등록 IP에서 재생</div></div>`;
+    const params=new URLSearchParams({cctvid:cctvId,cctvName:name,kind:clean(row.KIND),cctvip:clean(row.CCTVIP),cctvch:clean(row.CH),id:clean(row.ID),cctvpasswd:clean(row.PASSWD),cctvport:clean(row.PORT)});
+    const stream=`${RELAY_BASE}/utic/cctv-stream?${params}`;
+    return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><iframe class="utic-cctv-frame" src="${esc(stream)}" title="${esc(name)} CCTV 영상" allow="autoplay; fullscreen" referrerpolicy="no-referrer-when-downgrade"></iframe><a class="cctv-popup-link" href="${esc(stream)}" target="_blank" rel="noopener">영상 새 창에서 열기</a><div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공 · Oracle 고정 IP 중계</div></div>`;
   }
   async function drawIncidents(bounds,force){
     if(!incidentOn){clearLayer('incident');return 0;}
