@@ -1,9 +1,10 @@
 (function(){
-  if(window.__uticMapPatchV72)return;
-  window.__uticMapPatchV72=true;
+  if(window.__uticMapPatchV73)return;
+  window.__uticMapPatchV73=true;
 
   const DEFAULT_KEY='';
   const RELAY_BASE='https://151-145-65-245.sslip.io';
+  const CCTV_HLS_BASE='https://168-110-38-243.sslip.io';
   const INCIDENT_URL=RELAY_BASE+'/utic/incidents';
   const CCTV_URL='./utic-cctv-data.json';
   const INCIDENT_TTL=2*60*1000,CCTV_TTL=24*60*60*1000,CCTV_MIN_ZOOM=17;
@@ -89,6 +90,20 @@
     const vlc=rtmp?`vlc://${rtmp.slice(7)}`:'';
     return `<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div>${rtmp?`<div class="popup-meta">VLC 재생 주소</div><code class="popup-meta">${esc(rtmp)}</code><a class="cctv-popup-link" target="_blank" rel="noopener" onclick="event.stopPropagation()" href="${esc(vlc)}">VLC 앱으로 열기</a><a class="cctv-popup-link" target="_blank" rel="noopener" onclick="event.stopPropagation()" href="${esc(rtmp)}">원본 주소 열기</a><button type="button" class="cctv-popup-link" onclick="event.stopPropagation();navigator.clipboard?.writeText(${JSON.stringify(rtmp)})">주소 복사</button>`:'<div class="popup-meta">이 카메라의 VLC 스트림 정보가 없습니다.</div>'}<div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공</div></div>`;
   }
+  async function openUticCctv(row){
+    const rawName=clean(row.CCTVNAME||row.cctvName||row.cctvname||row.CCTV_NAME||row.name),name=rawName&&!rawName.includes('�')?rawName:clean(row.CCTVID||'UTIC CCTV');
+    const ch=clean(row.CH||row.cctvch),id=clean(row.ID||row.id);
+    if(!/^\d+$/.test(ch)||!/^\d+$/.test(id)){window.openPersistentCctv?.(cctvPopup(row));return;}
+    window.openPersistentCctv?.(`<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">실시간 영상을 준비하는 중…</div></div>`);
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),18000);
+    try{
+      const response=await fetch(`${CCTV_HLS_BASE}/cctv/start?ch=${encodeURIComponent(ch)}&id=${encodeURIComponent(id)}`,{cache:'no-store',signal:controller.signal});
+      if(!response.ok)throw new Error(`영상 중계 오류 (${response.status})`);
+      const data=await response.json(),src=new URL(data.playlist,CCTV_HLS_BASE).href;
+      window.openPersistentCctv?.(`<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><video controls autoplay muted playsinline preload="metadata" data-hls-src="${esc(src)}"></video><div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공 · 실시간 HLS 중계</div></div>`);
+    }catch(error){window.openPersistentCctv?.(cctvPopup(row));}
+    finally{clearTimeout(timer);}
+  }
   async function drawIncidents(bounds,force){
     if(!incidentOn){clearLayer('incident');return 0;}
     const rows=await cachedRows('incident',force);clearLayer('incident');incidentLayer=L.layerGroup().addTo(map);let count=0;
@@ -109,7 +124,7 @@
       if(!inBounds(lat,lng,bounds))continue;
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:'<div class="utic-cctv-icon">📹</div>',iconSize:[30,30],iconAnchor:[15,15]}),zIndexOffset:700}).addTo(cctvLayer);
       const rawName=clean(row.CCTVNAME||row.cctvName||row.cctvname||row.CCTV_NAME||row.name),label=rawName&&!rawName.includes('�')?rawName:clean(row.CCTVID||'UTIC CCTV');
-      marker.on('click',()=>window.openPersistentCctv?.(cctvPopup(row)));marker.bindTooltip(label);count++;
+      marker.on('click',()=>openUticCctv(row));marker.bindTooltip(label);count++;
     }return count;
   }
   async function refresh(force=false){

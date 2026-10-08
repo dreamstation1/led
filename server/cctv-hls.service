@@ -1,0 +1,15 @@
+[Unit]
+Description=On-demand RTMP to HLS relay for bus CCTV
+After=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/cctv-hls
+ExecStart=/usr/bin/python3 /home/ubuntu/cctv-hls/cctv_hls.py
+Restart=always
+RestartSec=3
+MemoryMax=1G
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
