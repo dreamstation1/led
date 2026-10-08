@@ -2794,16 +2794,14 @@ function cctvPopupHtml(row){
 async function freshCctvRow(row){
   const lat=Number(String(row.coordy||'').replace(/;/g,'')),lng=Number(String(row.coordx||'').replace(/;/g,'')),key=lat.toFixed(5)+','+lng.toFixed(5),cached=freshCctvStreams.get(key);
   if(cached&&Date.now()-cached.at<60000)return cached.row;
-  // The saved ITS catalog already contains an approved HTTPS stream URL.
-  // Use it directly; a coordinate refresh can legitimately return no rows.
-  if(/^https:\/\//i.test(String(row.cctvurl||'').trim())){
-    freshCctvStreams.set(key,{at:Date.now(),row});
-    return row;
-  }
   if(!Number.isFinite(lat)||!Number.isFinite(lng))throw new Error('CCTV 좌표가 없습니다');
   const delta=.004,url=new URL(ITS_CCTV_API);url.search=new URLSearchParams({apiKey:itsCctvKey,type:'all',cctvType:'4',minX:String(lng-delta),maxX:String(lng+delta),minY:String(lat-delta),maxY:String(lat+delta),getType:'json'}).toString();
   const response=await fetch(url.toString(),{cache:'no-store'});if(!response.ok)throw new Error(`최신 CCTV 주소 조회 실패 (${response.status})`);
-  const rows=cctvRows(await response.json()).filter(x=>/^https:\/\//i.test(String(x.cctvurl||'')));if(!rows.length)throw new Error('최신 CCTV 영상 주소가 없습니다');
+  const rows=cctvRows(await response.json()).filter(x=>/^https:\/\//i.test(String(x.cctvurl||'')));
+  if(!rows.length){
+    if(/^https:\/\//i.test(String(row.cctvurl||'').trim())){freshCctvStreams.set(key,{at:Date.now(),row});return row;}
+    throw new Error('최신 CCTV 영상 주소가 없습니다');
+  }
   rows.sort((a,b)=>hav(lat,lng,Number(a.coordy),Number(a.coordx))-hav(lat,lng,Number(b.coordy),Number(b.coordx)));
   const fresh={...row,...rows[0],cctvname:row.cctvname||rows[0].cctvname};freshCctvStreams.set(key,{at:Date.now(),row:fresh});return fresh;
 }
