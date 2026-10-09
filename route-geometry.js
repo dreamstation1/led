@@ -1,6 +1,39 @@
 // Geometry published by Seoul TOPIS, not a route guessed by a car navigator.
 const busGeometryCache=new Map();
 const gyeonggiGeometryJobs=new Map();
+const seoulRoadGeometryJobs=new Map();
+
+async function seoulRoadGeometry(routeId){
+  routeId=String(routeId);
+  if(seoulRoadGeometryJobs.has(routeId))return seoulRoadGeometryJobs.get(routeId);
+  const job=(async()=>{
+    const source=busShapeFor(routeId),waypoints=[source[0]];
+    let distanceFromAnchor=0;
+    for(let i=1;i<source.length-1;i++){
+      distanceFromAnchor+=hav(...source[i-1],...source[i]);
+      const a=source[i-1],b=source[i],c=source[i+1];
+      const h1=Math.atan2(b[1]-a[1],b[0]-a[0]),h2=Math.atan2(c[1]-b[1],c[0]-b[0]);
+      const turn=Math.abs(Math.atan2(Math.sin(h2-h1),Math.cos(h2-h1)))*180/Math.PI;
+      if(distanceFromAnchor>=260||(turn>=24&&distanceFromAnchor>=35)){waypoints.push(b);distanceFromAnchor=0;}
+    }
+    waypoints.push(source[source.length-1]);
+    const points=[];
+    for(let first=0;first<waypoints.length-1;first+=39){
+      const batch=waypoints.slice(first,first+40),coords=batch.map(p=>`${p[1]},${p[0]}`).join(';');
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),18000);
+      try{
+        const response=await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&continue_straight=false&radiuses=${batch.map(()=>80).join(';')}`,{signal:controller.signal,cache:'force-cache'});
+        if(!response.ok)throw new Error('도로 보정 서버 응답 오류');
+        const data=await response.json(),line=data.routes?.[0]?.geometry?.coordinates;
+        if(data.code!=='Ok'||!Array.isArray(line)||line.length<2)throw new Error('도로 보정 경로 없음');
+        for(const [lng,lat] of line){const last=points[points.length-1];if(!last||last[0]!==lat||last[1]!==lng)points.push([lat,lng]);}
+      }finally{clearTimeout(timer);}
+    }
+    return points.length>1?points:source;
+  })().catch(error=>{console.warn('서울 노선 도로 보정 실패, 원본 형상을 사용합니다.',error);return busShapeFor(routeId);});
+  seoulRoadGeometryJobs.set(routeId,job);
+  return job;
+}
 
 async function gyeonggiRoadGeometry(route){
   if(busGeometryCache.has(route.id))return busGeometryCache.get(route.id);
@@ -124,7 +157,7 @@ async function fetchBusRouteGeometry(routeId,start,end){
     if(g.anchors[start]==null||g.anchors[end]==null)throw new Error('정류소 좌표가 없습니다.');
     return g.points.slice(g.anchors[start],g.anchors[end]+1);
   }
-  if(start==null && end==null)return busShapeFor(routeId);
+  if(start==null && end==null)return seoulRoadGeometry(routeId);
   const {g,a,b}=busGeometrySegment(routeId,start,end);
   return g.points.slice(a,b+1);
 }
