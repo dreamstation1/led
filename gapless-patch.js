@@ -124,29 +124,6 @@
     }
     return words.length?[rest,...words].join(' ')+tail:part;
   }
-  // 영어 모델은 사전에 없는 로마자 지명을 철자로 읽는다 ("Shinwol" -> "신 더블유 원").
-  // 원래 한글 정류소명을 로마자로 바꾼 것에 들어 있는 단어(=지명)만 음절마다
-  // 띄어 보내면 ("Shin wol") 소리 나는 대로 읽는다. Shopping, Hospital 같은
-  // 번역된 영어 단어는 한글 이름에 없으니 그대로 둔다.
-  const EN_AS_IS=new Set(['seoul','korea','samsung','hyundai','daewoo','lotte']);
-  const ROMAN_SYLLABLE=/(kk|tt|pp|ss|jj|ch|sh|[gndrmbsjkthpl])?(yae|wae|yeo|ae|ya|eo|ye|wa|oe|yo|wo|we|wi|yu|eu|ui|a|e|i|o|u)(ng(?![aeiou])|[nmlkpt](?![aeiou]))?/y;
-  function splitRomanizedWord(word){
-    const lower=word.toLowerCase();
-    if(lower.length<5||EN_AS_IS.has(lower))return word;
-    const parts=[];ROMAN_SYLLABLE.lastIndex=0;
-    while(ROMAN_SYLLABLE.lastIndex<lower.length){
-      const at=ROMAN_SYLLABLE.lastIndex,m=ROMAN_SYLLABLE.exec(lower);
-      if(!m||m.index!==at)return word;
-      parts.push(word.slice(at,ROMAN_SYLLABLE.lastIndex));
-    }
-    return parts.length>1?parts.join(' '):word;
-  }
-  function englishSpeakable(s,korean){
-    if(!korean||typeof romanizeKorean!=='function')return s;
-    const norm=w=>w.toLowerCase().replace(/sh/g,'s').replace(/[^a-z]/g,'');
-    const ref=norm(romanizeKorean(String(korean)));
-    return s.replace(/[A-Za-z]+/g,w=>{const n=norm(w);return n.length>=5&&ref.includes(n)?splitRomanizedWord(w):w;});
-  }
   const AiCache=new Map();
   let aiDownUntil=0;
   let aiQueue=Promise.resolve();
@@ -178,7 +155,6 @@
     // '가양역1번출구.우성아파트' 의 점은 읽을 때 쉼표처럼 살짝 끊어 읽게
     let say=String(text||'').replace(/\s*[.·]\s*/g,', ').trim();
     if(textLang==='ko')say=koreanizeNumbers(koreanizeLatin(say.split(', ').map(spaceLongKoreanName).join(', ')));
-    else say=englishSpeakable(say,source);
     if(!say||typeof fetch!=='function')return Promise.resolve(null);
     const k=textLang+'|'+say;
     if(AiCache.has(k))return AiCache.get(k);
