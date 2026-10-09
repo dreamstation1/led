@@ -107,6 +107,23 @@
     return (man?(man===1?'':sinoUnder10000(man))+'만':'')+sinoUnder10000(rest);
   }
   function koreanizeNumbers(s){return s.replace(/\d+/g,sinoNumber);}
+  // 긴 정류소명을 붙여 보내면 모델이 엉뚱한 곳에서 쉰다 ("서울과학수사연구.소입구").
+  // 끝에 붙은 흔한 단어(입구, 연구소, 사거리...)를 떼어 띄어 보내면 그 경계에서 쉰다.
+  // 짧은 이름은 원래대로 보낸다 (서버에 이미 만들어 둔 음성을 그대로 쓰도록).
+  const KO_TAIL_WORDS=['초등학교','중학교','고등학교','대학교','주민센터','사거리','삼거리','오거리','네거리','교차로','연구소','연구원','정류장','차고지','우체국','경찰서','소방서','아파트','입구','출구','후문','정문','종점','기점','시장','공원','병원','구청','시청','단지','상가','센터','앞'];
+  function spaceLongKoreanName(part){
+    let tail='',rest=part;
+    const m=rest.match(/입니다[.!]?$/);if(m){tail=m[0];rest=rest.slice(0,-m[0].length);}
+    if((rest.match(/[가-힣]/g)||[]).length<8||/\s/.test(rest))return part;
+    const words=[];
+    for(let guard=0;guard<4;guard++){
+      const exit=rest.match(/\d+번출구$/);
+      const w=exit?exit[0]:KO_TAIL_WORDS.find(t=>rest.endsWith(t)&&rest.length-t.length>=2);
+      if(!w)break;
+      words.unshift(w);rest=rest.slice(0,-w.length);
+    }
+    return words.length?[rest,...words].join(' ')+tail:part;
+  }
   // 영어 모델은 사전에 없는 로마자 지명을 철자로 읽는다 ("Shinwol" -> "신 더블유 원").
   // 원래 한글 정류소명을 로마자로 바꾼 것에 들어 있는 단어(=지명)만 음절마다
   // 띄어 보내면 ("Shin wol") 소리 나는 대로 읽는다. Shopping, Hospital 같은
@@ -160,7 +177,7 @@
     const textLang=/^en/i.test(lang||'')?'en':'ko';
     // '가양역1번출구.우성아파트' 의 점은 읽을 때 쉼표처럼 살짝 끊어 읽게
     let say=String(text||'').replace(/\s*[.·]\s*/g,', ').trim();
-    if(textLang==='ko')say=koreanizeNumbers(koreanizeLatin(say));
+    if(textLang==='ko')say=koreanizeNumbers(koreanizeLatin(say.split(', ').map(spaceLongKoreanName).join(', ')));
     else say=englishSpeakable(say,source);
     if(!say||typeof fetch!=='function')return Promise.resolve(null);
     const k=textLang+'|'+say;
