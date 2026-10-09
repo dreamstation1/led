@@ -659,15 +659,18 @@ body.light-ui .route{color:#fff}
 }
 #topDetailsBar{
   display:flex;
+  gap:6px;
+  align-items:center;
   justify-content:flex-end;
   padding-top:6px;
 }
-#topDetailsToggle{
+#topDetailsToggle,#stopArrivalAutoToggle{
   height:30px;
   padding:0 10px;
   border-radius:999px;
   font-size:12px;
 }
+#stopArrivalAutoToggle.on{background:#246b43;border-color:#3fa66b;color:#fff}
 #topDetails{
   overflow:auto;
   -webkit-overflow-scrolling:touch;
@@ -988,6 +991,7 @@ body.light-ui .route{color:#fff}
 
   <div id="topDetailsWrap">
     <div id="topDetailsBar">
+      <button id="stopArrivalAutoToggle" type="button" title="도착정보 15초 자동 갱신 켜기">자동갱신 끔</button>
       <button id="topDetailsToggle" title="정류소 정보 접기/펼치기">정류소 정보 접기 ▲</button>
     </div>
     <div id="topDetails">
@@ -1753,15 +1757,14 @@ function annotateArrivalTimes(arsId){
     });
   }).catch(()=>{});
 }
-// 30초마다 자동 갱신 - 버스 위치(15초)보다 조금 느슨하게 잡은 건 도착정보가
-// 위치 GPS보다 몇 초 단위로 급박하게 바뀌는 값은 아니라서. 같은 정류소를
-// 계속 선택해두고 있어도 하루 3,000회 한도에 전혀 안 걸림(30초 간격이면
-// 하루 종일 켜놔도 3,000회에 한참 못 미침).
-const STOP_ARRIVAL_POLL_MS=30000;
+// 자동 갱신은 사용자가 켠 경우에만 15초마다 실행한다. 정류소 정보가
+// 접혀 있으면 보이지 않는 값을 위해 API를 쓰지 않도록 즉시 멈춘다.
+const STOP_ARRIVAL_POLL_MS=15000;
 const STOP_ARRIVAL_REFRESH_COOLDOWN_MS=15000;
 let stopArrivalTimer=null,stopArrivalRefreshIds=[],stopArrivalRefreshReadyAt=0,stopArrivalRefreshBusy=false;
+let stopArrivalAutoOn=lsGet('stopArrivalAutoOn')==='1';
 async function refreshSelectedStopArrivals(manual=false){
-  if(stopArrivalRefreshBusy||!stopArrivalRefreshIds.length)return;
+  if(topDetailsCollapsed||stopArrivalRefreshBusy||!stopArrivalRefreshIds.length)return;
   if(manual&&Date.now()<stopArrivalRefreshReadyAt)return;
   stopArrivalRefreshBusy=true;
   document.getElementById('stopArrivalRefresh')?.classList.add('busy');
@@ -1779,11 +1782,14 @@ function startStopArrivalPolling(arsId){
   const ids=idx>=0?[...new Set(groupedStopRoutes(idx).map(x=>String(x.stop.ars)))]:[String(arsId)];
   stopArrivalRefreshIds=ids;
   stopArrivalRefreshReadyAt=0;
-  refreshSelectedStopArrivals();
-  stopArrivalTimer=setInterval(()=>refreshSelectedStopArrivals(),STOP_ARRIVAL_POLL_MS);
+  if(stopArrivalAutoOn&&!topDetailsCollapsed){
+    refreshSelectedStopArrivals();
+    stopArrivalTimer=setInterval(()=>refreshSelectedStopArrivals(),STOP_ARRIVAL_POLL_MS);
+  }
 }
+function pauseStopArrivalPolling(){if(stopArrivalTimer){clearInterval(stopArrivalTimer);stopArrivalTimer=null;}}
 function stopStopArrivalPolling(){
-  if(stopArrivalTimer){clearInterval(stopArrivalTimer);stopArrivalTimer=null;}
+  pauseStopArrivalPolling();
   stopArrivalRefreshIds=[];stopArrivalRefreshReadyAt=0;stopArrivalRefreshBusy=false;
 }
 setInterval(()=>{
@@ -2992,6 +2998,14 @@ map.on('moveend zoomend',()=>{
 
 let topDetailsCollapsed=false;
 
+function updateStopArrivalAutoToggle(){
+  const btn=document.getElementById('stopArrivalAutoToggle');if(!btn)return;
+  btn.classList.toggle('on',stopArrivalAutoOn);
+  btn.textContent=stopArrivalAutoOn?(topDetailsCollapsed?'자동갱신 켬 · 접힘 중지':'자동갱신 켬 · 15초'):'자동갱신 끔';
+  btn.title=stopArrivalAutoOn?'도착정보 15초 자동 갱신 끄기':'도착정보 15초 자동 갱신 켜기';
+  btn.setAttribute('aria-pressed',String(stopArrivalAutoOn));
+}
+
 function setTopDetailsCollapsed(collapsed){
   topDetailsCollapsed=collapsed;
   const panel=document.getElementById('topDetails');
@@ -3000,12 +3014,23 @@ function setTopDetailsCollapsed(collapsed){
   document.getElementById('top').classList.toggle('compact',collapsed);
   btn.textContent=collapsed?'정류소 정보 펼치기 ▼':'정류소 정보 접기 ▲';
   lsSet('topDetailsCollapsed',collapsed?'1':'0');
+  if(collapsed)pauseStopArrivalPolling();
+  else if(stopArrivalAutoOn&&selectedIdx>=0)startStopArrivalPolling(STOPS[selectedIdx].ars);
+  updateStopArrivalAutoToggle();
   setTimeout(()=>map.invalidateSize(),230);
 }
 
 document.getElementById('topDetailsToggle').onclick=()=>{
   setTopDetailsCollapsed(!topDetailsCollapsed);
 };
+document.getElementById('stopArrivalAutoToggle').onclick=()=>{
+  stopArrivalAutoOn=!stopArrivalAutoOn;
+  lsSet('stopArrivalAutoOn',stopArrivalAutoOn?'1':'0');
+  updateStopArrivalAutoToggle();
+  if(stopArrivalAutoOn&&!topDetailsCollapsed&&selectedIdx>=0)startStopArrivalPolling(STOPS[selectedIdx].ars);
+  else pauseStopArrivalPolling();
+};
+updateStopArrivalAutoToggle();
 
 topDetailsCollapsed=lsGet('topDetailsCollapsed')==='1';
 setTopDetailsCollapsed(topDetailsCollapsed);
