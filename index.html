@@ -1088,7 +1088,13 @@ STOPS.forEach(s=>{
 // http(s).
 if('serviceWorker' in navigator && location.protocol.startsWith('http')){
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
+    navigator.serviceWorker.register('sw.js').then(registration=>registration.update()).catch(()=>{});
+  });
+  let swControllerReloaded=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(swControllerReloaded)return;
+    swControllerReloaded=true;
+    location.reload();
   });
 }
 

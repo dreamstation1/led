@@ -1,8 +1,8 @@
 // App shell v70: red-to-green prediction and adjacent bus stops.
-const CACHE_NAME='bus-map-shell-v142-20261009-planner-route-options';
+const CACHE_NAME='bus-map-shell-v143-20261009-planner-network-first';
 const SHELL_FILES=['./','./index.html','./audio-library.html','./audio-files.json','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./utic-map-patch.js','./traffic-intersections.js','./cctv-data.json','./ios-touch-patch.js','./gyeonggi-stops-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(f=>new URL(f,self.registration.scope).href));
-const PATCH_URLS=new Set(['request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','utic-map-patch.js','ios-touch-patch.js','gyeonggi-stops-patch.js','audio-files.json'].map(f=>new URL('./'+f,self.registration.scope).href));
+const PATCH_URLS=new Set(['planner.js','request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','utic-map-patch.js','ios-touch-patch.js','gyeonggi-stops-patch.js','audio-files.json'].map(f=>new URL('./'+f,self.registration.scope).href));
 const PAGE_PATCH='<script src="./request-guard.js?v=47"></script><script src="./mobile-patch.js?v=63"></script><script src="./gapless-patch.js?v=65"></script><script src="./traffic-map-patch.js?v=81"></script><script src="./utic-map-patch.js?v=73"></script><script src="./ios-touch-patch.js?v=54"></script><script src="./gyeonggi-stops-patch.js?v=47"></script>';
 async function patchedHtmlResponse(response){
  let text=await response.text();
