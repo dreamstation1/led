@@ -1573,7 +1573,7 @@ const routeTurnCache=new Map();
 function routeTurnIndex(data){
   if(routeTurnCache.has(data.id))return routeTurnCache.get(data.id);
   const first=STOPS[STOP_BY_NODE.get(String(data.nodes[0]))];let turn=data.nodes.length-1,far=-1;
-  if(first)data.nodes.forEach((n,i)=>{const s=STOPS[STOP_BY_NODE.get(String(n))];if(!s)return;const d=hav(first.lat,first.lng,s.lat,s.lng);if(d>far){far=d;turn=i;}});
+  if(first)data.nodes.forEach((n,i)=>{const s=STOPS[STOP_BY_NODE.get(String(n))];if(!s||isVirtualStop(s))return;const d=hav(first.lat,first.lng,s.lat,s.lng);if(d>far){far=d;turn=i;}});
   routeTurnCache.set(data.id,turn);
   return turn;
 }
@@ -1582,10 +1582,12 @@ function routeDirectionLabel(route,node){
   const positions=data.nodes.map(String).map((n,i)=>n===String(node)?i:-1).filter(i=>i>=0);
   const p=positions[0];if(p==null)return '';
   let next=null;
-  for(let i=p+1;i<data.nodes.length&&!next;i++)next=STOPS[STOP_BY_NODE.get(String(data.nodes[i]))];
+  const realAt=i=>{const s=STOPS[STOP_BY_NODE.get(String(data.nodes[i]))];return s&&!isVirtualStop(s)?s:null;};
+  for(let i=p+1;i<data.nodes.length&&!next;i++)next=realAt(i);
   if(!next)return '회차 방면';
   // "방면" is where this direction is heading (turnaround or terminus), not the next stop.
-  const turn=routeTurnIndex(data),end=STOPS[STOP_BY_NODE.get(String(data.nodes[p<turn?turn:data.nodes.length-1]))];
+  const turn=routeTurnIndex(data);let end=null;
+  for(let i=p<turn?turn:data.nodes.length-1;i>p&&!end;i--)end=realAt(i);
   return end&&end.name!==next.name?`${end.name} 방면 · 다음 ${next.name}`:`다음 ${next.name}`;
 }
 function groupedRouteDirection(grouped,route,stop){
@@ -2534,6 +2536,13 @@ function updateRouteBusSummary(r,items){
     if(Number.isFinite(lat)&&Number.isFinite(lng))map.setView([lat,lng],Math.max(map.getZoom(),17),{animate:true});
   });
 }
+// "(가상)" stops are routing-only waypoints (bridges, ICs...): drawn on the
+// map, but buses never stop or announce there.
+function isVirtualStop(s){return /\(가상\)/.test(String(s?.name||''));}
+function isGuideExcludedStop(r,idx){
+  const si=STOP_BY_NODE.get(String(r?.nodes?.[idx]));
+  return isGuideVirtualTerminal(r,idx)||(si!=null&&isVirtualStop(STOPS[si]));
+}
 function isGuideVirtualTerminal(r,idx){
   if(!r?.nodes?.length || (idx!==0 && idx!==r.nodes.length-1))return false;
   const si=STOP_BY_NODE.get(String(r.nodes[idx]));
@@ -2585,7 +2594,7 @@ function renderRouteSidebar(r){
     const si=STOP_BY_NODE.get(String(node));
     if(si==null)return;
     const s=STOPS[si];
-    const excluded=isGuideVirtualTerminal(r,idx);
+    const excluded=isGuideExcludedStop(r,idx);
     const gIdx=excluded?-1:guideIdx++;
     const item=document.createElement('div');
     item.className='route-stop'+(si===selectedIdx?' active':'');
@@ -2596,7 +2605,7 @@ function renderRouteSidebar(r){
       <div class="route-stop-line"><div class="route-stop-dot"></div></div>
       <div class="route-stop-content">
         <div class="route-stop-name"><span class="route-stop-seq">${idx+1}</span>${esc(s.name)}<span class="route-stop-lines">${subwayHtmlForStop(s)}</span>
-          ${excluded?'<span class="route-stop-terminal-note">운행정보 전용</span>':`<button type="button" class="route-stop-startbtn${gIdx===guideStartIdx?' chosen':''}" data-guide-idx="${gIdx}" title="여기를 시뮬레이션/실시간 안내 출발점으로">${gIdx===guideStartIdx?'▶ 출발점':'출발점으로'}</button>`}
+          ${excluded?`<span class="route-stop-terminal-note">${isVirtualStop(s)?'가상 · 정차 안 함':'운행정보 전용'}</span>`:`<button type="button" class="route-stop-startbtn${gIdx===guideStartIdx?' chosen':''}" data-guide-idx="${gIdx}" title="여기를 시뮬레이션/실시간 안내 출발점으로">${gIdx===guideStartIdx?'▶ 출발점':'출발점으로'}</button>`}
         </div>
         <div class="route-stop-sub">ARS ${esc(s.ars||'-')} · NODE ${esc(s.node)}</div>
       </div>`;
@@ -2660,7 +2669,7 @@ function showRoute(nameOrId){
     const i=STOP_BY_NODE.get(String(node));
     if(i!=null){
       pts.push([STOPS[i].lat,STOPS[i].lng]);
-      if(!isGuideVirtualTerminal(r,idx))currentGuideStops.push(STOPS[i]);
+      if(!isGuideExcludedStop(r,idx))currentGuideStops.push(STOPS[i]);
     }
   });
   stopGuide();
@@ -4525,15 +4534,24 @@ function stopArcLengthsAlongPath(path,stops){
   // damage: a bad match can only skip a few stops' worth of path, not jump
   // across the whole rest of the route.
   const avgSpanPerStop=Math.max(6,Math.ceil(path.length/Math.max(1,stops.length))*6);
-  let searchFrom=0;
+  // Project each stop onto the path *segments*, not just the vertices: the
+  // road geometry can be sparse (tens of metres between vertices), and
+  // snapping to the nearest vertex made the simulated bus dwell well short of
+  // or past the stop marker.
+  let searchFrom=0,floorArc=0;
   for(let s=0;s<stops.length;s++){
     const searchTo=Math.min(path.length-1,searchFrom+avgSpanPerStop);
-    let bestI=searchFrom,bestDist=Infinity;
-    for(let i=searchFrom;i<=searchTo;i++){
-      const dd=hav(stops[s].lat,stops[s].lng,path[i][0],path[i][1]);
-      if(dd<bestDist){bestDist=dd;bestI=i;}
+    const lat0=stops[s].lat,lng0=stops[s].lng,kx=Math.cos(lat0*Math.PI/180);
+    let bestI=searchFrom,bestArc=arcAt[searchFrom],bestDist=Infinity;
+    for(let i=searchFrom;i<searchTo||i===searchFrom;i++){
+      const a=path[i],b=path[Math.min(i+1,path.length-1)];
+      const ax=(a[1]-lng0)*kx,ay=a[0]-lat0,bx=(b[1]-lng0)*kx,by=b[0]-lat0,dx=bx-ax,dy=by-ay,len2=dx*dx+dy*dy;
+      const t=len2>0?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/len2)):0;
+      const dd=Math.hypot(ax+dx*t,ay+dy*t);
+      if(dd<bestDist){bestDist=dd;bestI=i;bestArc=arcAt[i]+(arcAt[Math.min(i+1,path.length-1)]-arcAt[i])*t;}
     }
-    result[s]=arcAt[bestI];
+    result[s]=Math.max(floorArc,bestArc);
+    floorArc=result[s];
     searchFrom=bestI;
   }
   return result;
