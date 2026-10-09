@@ -61,7 +61,7 @@
     if(category==='phrases_en')return {text:key==='thisstopis'?'This stop is':key,lang:'en-US'};
     if(category==='stops'&&/ \(1\)$/.test(key)){
       const name=key.replace(/ \(1\)$/,'');
-      try{return {text:await translateStationName(name),lang:'en-US'};}catch(e){return {text:name,lang:'en-US'};}
+      try{return {text:await translateStationName(name),lang:'en-US',source:name};}catch(e){return {text:name,lang:'en-US'};}
     }
     if(category==='stops')return {text:String(key).replace(/ \(1\)$/,'')+'입니다',lang:'ko-KR'};
     const m={'이번정류소':'이번 정류소는','다음정류소':'다음 정류소는','종점입니다':'종점입니다'};
@@ -107,6 +107,29 @@
     return (man?(man===1?'':sinoUnder10000(man))+'만':'')+sinoUnder10000(rest);
   }
   function koreanizeNumbers(s){return s.replace(/\d+/g,sinoNumber);}
+  // 영어 모델은 사전에 없는 로마자 지명을 철자로 읽는다 ("Shinwol" -> "신 더블유 원").
+  // 원래 한글 정류소명을 로마자로 바꾼 것에 들어 있는 단어(=지명)만 음절마다
+  // 띄어 보내면 ("Shin wol") 소리 나는 대로 읽는다. Shopping, Hospital 같은
+  // 번역된 영어 단어는 한글 이름에 없으니 그대로 둔다.
+  const EN_AS_IS=new Set(['seoul','korea','samsung','hyundai','daewoo','lotte']);
+  const ROMAN_SYLLABLE=/(kk|tt|pp|ss|jj|ch|sh|[gndrmbsjkthpl])?(yae|wae|yeo|ae|ya|eo|ye|wa|oe|yo|wo|we|wi|yu|eu|ui|a|e|i|o|u)(ng(?![aeiou])|[nmlkpt](?![aeiou]))?/y;
+  function splitRomanizedWord(word){
+    const lower=word.toLowerCase();
+    if(lower.length<5||EN_AS_IS.has(lower))return word;
+    const parts=[];ROMAN_SYLLABLE.lastIndex=0;
+    while(ROMAN_SYLLABLE.lastIndex<lower.length){
+      const at=ROMAN_SYLLABLE.lastIndex,m=ROMAN_SYLLABLE.exec(lower);
+      if(!m||m.index!==at)return word;
+      parts.push(word.slice(at,ROMAN_SYLLABLE.lastIndex));
+    }
+    return parts.length>1?parts.join(' '):word;
+  }
+  function englishSpeakable(s,korean){
+    if(!korean||typeof romanizeKorean!=='function')return s;
+    const norm=w=>w.toLowerCase().replace(/sh/g,'s').replace(/[^a-z]/g,'');
+    const ref=norm(romanizeKorean(String(korean)));
+    return s.replace(/[A-Za-z]+/g,w=>{const n=norm(w);return n.length>=5&&ref.includes(n)?splitRomanizedWord(w):w;});
+  }
   const AiCache=new Map();
   let aiDownUntil=0;
   let aiQueue=Promise.resolve();
@@ -133,11 +156,12 @@
       try{a.load();}catch(e){finish(-1);}
     });
   }
-  function aiSynth(text,lang){
+  function aiSynth(text,lang,source){
     const textLang=/^en/i.test(lang||'')?'en':'ko';
     // '가양역1번출구.우성아파트' 의 점은 읽을 때 쉼표처럼 살짝 끊어 읽게
     let say=String(text||'').replace(/\s*[.·]\s*/g,', ').trim();
     if(textLang==='ko')say=koreanizeNumbers(koreanizeLatin(say));
+    else say=englishSpeakable(say,source);
     if(!say||typeof fetch!=='function')return Promise.resolve(null);
     const k=textLang+'|'+say;
     if(AiCache.has(k))return AiCache.get(k);
@@ -348,7 +372,7 @@
     // this announcement uses browser speech if it is not ready in time.
     // AI 서버(오라클 CPU)는 처음 만드는 정류소에 4~10초 걸려서, 1~2초만 기다리면
     // 거의 항상 브라우저(윈도우) 목소리로 넘어감 -> 15초까지 기다린다.
-    const aiPromise=aiSynth(t.text,t.lang),AI_WAIT_MS=15000;
+    const aiPromise=aiSynth(t.text,t.lang,t.source),AI_WAIT_MS=15000;
     let timer=null;
     const aiUrl=waitForAi?await aiPromise:await Promise.race([aiPromise,new Promise(resolve=>{timer=setTimeout(()=>resolve(null),AI_WAIT_MS);})]);
     if(timer)clearTimeout(timer);
@@ -466,7 +490,7 @@
     try{
       if(await firstPlayable(pathsFor(category,key)))return;
       const t=await ttsInfo(category,key);
-      const url=await aiSynth(t.text,t.lang);
+      const url=await aiSynth(t.text,t.lang,t.source);
       if(url)decodeUrl(url);
     }catch(e){}
   }
