@@ -1030,6 +1030,7 @@ body.light-ui .route{color:#fff}
     <div id="busPosRow">
       <button id="busPosToggle" class="guide-btn ghost">🚌 실시간 위치 보기</button>
       <button id="busPosLowToggle" class="guide-btn ghost" title="저상버스만 표시">🦽 저상버스만</button>
+      <button id="announceMakerBtn" class="guide-btn ghost" title="이 노선의 정류소별 안내방송을 파일로 내보내기 (새 창)">🎙 방송 제작</button>
       <button id="busRefreshCountdown" title="다음 자동 새로고침 · 누르면 지금 새로고침" aria-label="실시간 버스 위치 지금 새로고침"></button>
       <span id="busPosStatus" class="guide-led-status"></span>
     </div>
@@ -3067,6 +3068,11 @@ document.getElementById('busPosToggle').onclick=()=>{
   busPosOn=!busPosOn;
   updateBusPosToggleUI();
   if(busPosOn)startBusPosPolling(); else stopBusPosPolling();
+};
+// 노선 안내방송 내보내기 도구 (별도 저장소 dreamstation1/led-announce, 같은 GitHub Pages 주소)
+document.getElementById('announceMakerBtn').onclick=()=>{
+  if(!currentRoute)return;
+  window.open('../led-announce/?route='+encodeURIComponent(currentRoute.id),'_blank','noopener');
 };
 document.getElementById('busPosLowToggle').onclick=()=>{
   busPosLowOnly=!busPosLowOnly;
