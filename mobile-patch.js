@@ -1,6 +1,6 @@
 (function(){
-  if(window.__mobilePatchV61)return;
-  window.__mobilePatchV61=true;
+  if(window.__mobilePatchV62)return;
+  window.__mobilePatchV62=true;
 
   /* ---------- adaptive guide + simulation ---------- */
   let lastSimPanAt=0;
@@ -32,7 +32,10 @@
       oldUpdateGuideMarker(lat,lng);
       if(guideActive && guideWatchId==null && typeof map!=='undefined'){
         const now=performance.now();
-        if(now-lastSimPanAt>100){lastSimPanAt=now;try{map.panTo([lat,lng],{animate:false});}catch(e){}}
+        // Follow at roughly 30 fps. The previous 100 ms recenter made the
+        // entire map jump in visible steps even though the marker had more
+        // frequent positions.
+        if(now-lastSimPanAt>32){lastSimPanAt=now;try{map.panTo([lat,lng],{animate:false});}catch(e){}}
       }
     };
   }catch(e){}
@@ -87,13 +90,45 @@
     if(simulationKeepAliveUrl){try{URL.revokeObjectURL(simulationKeepAliveUrl);}catch(e){}simulationKeepAliveUrl=null;}
   }
   function backgroundTicker(callback){
-    let worker=null,timer=null,url=null,stopped=false;
-    const fire=()=>{if(!stopped)callback(Date.now());};
+    let worker=null,timer=null,url=null,raf=null,stopped=false;
+    // Paint with requestAnimationFrame while visible. A worker only advances
+    // the simulation while the page is hidden, where browsers pause rAF.
+    const frame=now=>{if(stopped)return;if(!document.hidden)callback(now);raf=requestAnimationFrame(frame);};
+    raf=requestAnimationFrame(frame);
+    const fire=()=>{if(!stopped&&document.hidden)callback(performance.now());};
     try{
-      const blob=new Blob(['setInterval(()=>postMessage(Date.now()),100)'],{type:'text/javascript'});
-      url=URL.createObjectURL(blob);worker=new Worker(url);worker.onmessage=e=>{if(!stopped)callback(Number(e.data)||Date.now());};
+      const blob=new Blob(['setInterval(()=>postMessage(1),100)'],{type:'text/javascript'});
+      url=URL.createObjectURL(blob);worker=new Worker(url);worker.onmessage=fire;
     }catch(e){timer=setInterval(()=>fire(),100);}
-    return()=>{stopped=true;if(worker)worker.terminate();if(timer)clearInterval(timer);if(url)URL.revokeObjectURL(url);};
+    return()=>{stopped=true;if(raf!=null)cancelAnimationFrame(raf);if(worker)worker.terminate();if(timer)clearInterval(timer);if(url)URL.revokeObjectURL(url);};
+  }
+
+  function mixPoint(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];}
+  function smoothSimPoint(path,traveled,stopArcs,nextIdx){
+    const prevIdx=Math.max(0,nextIdx-1),prevArc=stopArcs[prevIdx]??0,nextArc=stopArcs[nextIdx]??pathLengthM(path);
+    const span=Math.max(1,nextArc-prevArc),blend=Math.min(45,Math.max(12,span*.18));
+    const prev=currentGuideStops[prevIdx],next=currentGuideStops[nextIdx];
+    // Leave the exact stop pole gradually instead of jumping sideways to the
+    // road geometry on the first frame after the dwell.
+    if(prev&&traveled<=prevArc+blend){
+      const road=pointAtDistanceM(path,prevArc+blend);
+      return mixPoint([prev.lat,prev.lng],road,Math.max(0,Math.min(1,(traveled-prevArc)/blend)));
+    }
+    // Bend the last few metres of the route into the exact stop pole. This
+    // makes the marker arrive at the label/marker continuously.
+    if(next&&traveled>=nextArc-blend){
+      const road=pointAtDistanceM(path,nextArc-blend);
+      return mixPoint(road,[next.lat,next.lng],Math.max(0,Math.min(1,(traveled-(nextArc-blend))/blend)));
+    }
+    return pointAtDistanceM(path,traveled);
+  }
+
+  function paintSimulationPosition(lat,lng){
+    if(guideLastLat!=null&&hav(guideLastLat,guideLastLng,lat,lng)>=.25)guideHeadingDeg=bearingDeg(guideLastLat,guideLastLng,lat,lng);
+    guideLastLat=lat;guideLastLng=lng;
+    updateGuideMarker(lat,lng);
+    const target=currentGuideStops[guideNextIndex];
+    if(target)setGuideDistance(hav(lat,lng,target.lat,target.lng));
   }
   try{
     startGuideSim=async function(){
@@ -114,25 +149,28 @@
       if(prepareGeneration!==simPrepareGeneration||!guideActive)return;
       try{if(ledConnected)ledUploadRoute().then(()=>ledSetIndex(startIdx));}catch(e){}
       const path=currentRoutePath,totalLen=pathLengthM(path),stopArcs=stopArcLengthsAlongPath(path,currentGuideStops);
-      let traveled=Math.max(0,Math.min(totalLen,stopArcs[startIdx]||0)),lastTs=Date.now(),dwellUntil=0;
+      let traveled=Math.max(0,Math.min(totalLen,stopArcs[startIdx]||0)),lastTs=performance.now(),dwellUntil=0,currentSpeed=0;
       const initialStop=currentGuideStops[startIdx];
       simPositionWithoutFixedRadius(initialStop.lat,initialStop.lng);
       status.textContent='첫 안내방송 완료 · 시뮬레이션을 시작합니다 (속도 '+fmtSpeed(simSpeedMultiplier)+')';
       function tick(now){
         if(!guideActive){if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();guideSimRaf=null;return;}
         let dt=(now-lastTs)/1000;lastTs=now;if(!Number.isFinite(dt)||dt<0)dt=0;dt=Math.min(dt,1);
-        if(now<dwellUntil)return;
-        const speed=(typeof SIM_BASE_SPEED_MPS==='number'?SIM_BASE_SPEED_MPS:14)*Math.max(0.1,simSpeedMultiplier||1);
-        const beforeIdx=guideNextIndex;traveled=Math.min(totalLen,traveled+speed*dt);
+        if(now<dwellUntil){currentSpeed=0;return;}
+        const multiplier=Math.max(0.1,simSpeedMultiplier||1),cruise=(typeof SIM_BASE_SPEED_MPS==='number'?SIM_BASE_SPEED_MPS:14)*multiplier;
+        const accel=1.8*multiplier,decel=2.5*multiplier;
+        const beforeIdx=guideNextIndex,nextArc=stopArcs[Math.min(beforeIdx,stopArcs.length-1)]??totalLen;
+        const remaining=Math.max(0,nextArc-traveled),braking=(currentSpeed*currentSpeed)/(2*Math.max(.01,decel));
+        if(remaining<=Math.max(braking,2))currentSpeed=Math.max(0,currentSpeed-decel*dt);
+        else currentSpeed=Math.min(cruise,currentSpeed+accel*dt);
+        traveled=Math.min(nextArc,traveled+Math.max(.15,currentSpeed)*dt);
         maybeAdaptiveSimAnnouncement(traveled,stopArcs);
-        const pos=pointAtDistanceM(path,traveled);simPositionWithoutFixedRadius(pos[0],pos[1]);
-        if(guideActive && guideNextIndex>beforeIdx){
+        const pos=smoothSimPoint(path,traveled,stopArcs,beforeIdx);paintSimulationPosition(pos[0],pos[1]);
+        if(traveled>=nextArc-.05){
           const arrived=currentGuideStops[Math.min(beforeIdx,currentGuideStops.length-1)];
-          // The road geometry can run beside or slightly beyond the official
-          // stop pole. While dwelling, pin the simulation marker to the exact
-          // stop coordinates used by the visible stop marker.
-          if(arrived){simPositionWithoutFixedRadius(arrived.lat,arrived.lng);traveled=Math.max(traveled,stopArcs[beforeIdx]||traveled);}
-          if(guideNextIndex<currentGuideStops.length)dwellUntil=now+(GUIDE_DWELL_MS/Math.max(0.1,simSpeedMultiplier||1));
+          if(arrived)simPositionWithoutFixedRadius(arrived.lat,arrived.lng);
+          currentSpeed=0;
+          if(guideNextIndex<currentGuideStops.length)dwellUntil=now+(GUIDE_DWELL_MS/multiplier);
         }
         if(traveled>=totalLen-0.01){const lastStop=currentGuideStops[currentGuideStops.length-1],last=lastStop?[lastStop.lat,lastStop.lng]:path[path.length-1];simPositionWithoutFixedRadius(last[0],last[1]);if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();guideSimRaf=null;return;}
       }
