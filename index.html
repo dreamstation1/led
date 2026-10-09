@@ -559,6 +559,29 @@ body.light-ui .route{color:#fff}
   cursor:pointer;
   line-height:1;
 }
+.sel-name-wrap{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  max-width:100%;
+  min-width:0;
+}
+.stop-copy-btn{
+  flex:0 0 auto;
+  height:22px;
+  min-height:22px;
+  padding:0 6px;
+  border-radius:7px;
+  font-size:11px;
+  font-weight:800;
+  line-height:20px;
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
+}
+.stop-copy-btn.ok{background:#2c6b51;border-color:#4eaa7d;color:#fff}
+@media (pointer:coarse){
+  .stop-copy-btn{height:32px;min-height:32px;padding:0 8px;font-size:12px;line-height:30px}
+}
 .subway-lines{
   display:inline-flex;
   gap:4px;
@@ -1596,6 +1619,54 @@ function showNearby(idx){
   });
 }
 
+function legacyCopyText(text){
+  const selectAndCopy=el=>{
+    const sel=window.getSelection();
+    if(el.select){
+      try{el.focus({preventScroll:true});}catch(e){el.focus();}
+      el.select();
+      try{el.setSelectionRange(0,text.length);}catch(e){}
+    }else{
+      const range=document.createRange();
+      range.selectNodeContents(el);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    let ok=false;
+    try{ok=document.execCommand('copy');}catch(e){}
+    try{sel.removeAllRanges();}catch(e){}
+    return ok;
+  };
+  const hidden='position:fixed;top:0;left:0;width:2px;height:2px;padding:0;border:0;outline:0;box-shadow:none;background:transparent;font-size:16px;opacity:0';
+  const ta=document.createElement('textarea');
+  ta.value=text;
+  ta.setAttribute('aria-hidden','true');
+  ta.setAttribute('inputmode','none');
+  ta.style.cssText=hidden;
+  document.body.appendChild(ta);
+  let ok=selectAndCopy(ta);
+  ta.remove();
+  if(ok)return true;
+  const div=document.createElement('div');
+  div.textContent=text;
+  div.contentEditable='true';
+  div.setAttribute('aria-hidden','true');
+  div.style.cssText=hidden;
+  document.body.appendChild(div);
+  ok=selectAndCopy(div);
+  div.remove();
+  return ok;
+}
+function copyText(text){
+  text=String(text??'');
+  if(!text)return Promise.resolve(false);
+  let legacyOk=false;
+  try{legacyOk=legacyCopyText(text);}catch(e){}
+  if(navigator.clipboard&&window.isSecureContext&&typeof navigator.clipboard.writeText==='function'){
+    return navigator.clipboard.writeText(text).then(()=>true,()=>legacyOk);
+  }
+  return Promise.resolve(legacyOk);
+}
 function renderSelectedPanel(idx){
   if(idx<0)return;
   const s=STOPS[idx],sel=document.getElementById('selected');
@@ -1608,7 +1679,10 @@ function renderSelectedPanel(idx){
 
   sel.innerHTML=`
     <div class="sel-topline">
-      <div class="sel-title">${esc(s.name)}</div>
+      <div class="sel-name-wrap">
+        <div class="sel-title">${esc(s.name)}</div>
+        <button type="button" class="stop-copy-btn" id="selectedCopyBtn" title="정류소명 복사" aria-label="정류소명 복사">복사</button>
+      </div>
       ${subwayHtmlForStop(s)}
       <button class="favorite-star" id="selectedFavBtn" title="즐겨찾기">${isFavorite(s.node)?'★':'☆'}</button>
     </div>
@@ -1622,6 +1696,21 @@ function renderSelectedPanel(idx){
         : '<span class="search-empty">이 종류의 노선 없음</span>'}
     </div>`;
 
+  document.getElementById('selectedCopyBtn').onclick=async e=>{
+    e.preventDefault();
+    e.stopPropagation();
+    const btn=e.currentTarget;
+    const ok=await copyText(s.name);
+    if(!btn.isConnected)return;
+    btn.textContent=ok?'복사됨':'실패';
+    btn.classList.toggle('ok',ok);
+    document.getElementById('status').textContent=ok?`정류소명 복사됨 · ${s.name}`:'정류소명을 복사하지 못했습니다';
+    setTimeout(()=>{
+      if(!btn.isConnected)return;
+      btn.textContent='복사';
+      btn.classList.remove('ok');
+    },1200);
+  };
   document.getElementById('selectedFavBtn').onclick=()=>toggleFavorite(s.node);
   sel.querySelectorAll('.route').forEach(el=>el.onclick=()=>showRoute(el.dataset.r));
   sel.querySelectorAll('.route-filter button').forEach(btn=>{
@@ -2942,12 +3031,8 @@ setUiTheme(lsGet('busUiTheme')||'dark');
 document.getElementById('shareBtn').onclick=async()=>{
   updateUrlState({});
   const url=location.href;
-  try{
-    await navigator.clipboard.writeText(url);
-    status.textContent='현재 지도 상태 URL 복사됨';
-  }catch(e){
-    status.textContent='주소창의 URL에 현재 정류장/노선 상태가 저장됨';
-  }
+  const ok=await copyText(url);
+  status.textContent=ok?'현재 지도 상태 URL 복사됨':'주소창의 URL에 현재 정류장/노선 상태가 저장됨';
 };
 
 renderFavorites();
