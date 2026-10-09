@@ -1,6 +1,6 @@
 (function(){
-  if(window.__gaplessQueueV61)return;
-  window.__gaplessQueueV61=true;
+  if(window.__gaplessQueueV63)return;
+  window.__gaplessQueueV63=true;
 
   const BlobCache=new Map();
   const LoadCache=new Map();
@@ -34,7 +34,10 @@
     if(LoadCache.has(src))return LoadCache.get(src);
     const p=(async()=>{
       try{
-        const r=await fetch(src,{cache:'force-cache'});
+        // Revalidate once with GitHub Pages before keeping the clip in the
+        // in-memory Blob cache. Android Chrome otherwise keeps an old 404
+        // after a recording has subsequently been uploaded.
+        const r=await fetch(src,{cache:'no-cache'});
         if(!r.ok)return null;
         const blob=await r.blob();
         const url=URL.createObjectURL(blob);

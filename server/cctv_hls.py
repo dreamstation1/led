@@ -66,7 +66,13 @@ def start_stream(ch, camera_id):
         command = [
             FFMPEG, '-nostdin', '-hide_banner', '-loglevel', 'warning',
             '-rw_timeout', '10000000', '-i', source,
-            '-map', '0:v:0', '-an', '-c:v', 'copy',
+            # Several UTIC RTMP feeds contain H.264 timestamps/headers that
+            # Android decoders tolerate but iOS native HLS rejects. Normalize
+            # every feed to an iPhone-compatible H.264 transport stream.
+            '-map', '0:v:0', '-an',
+            '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency',
+            '-profile:v', 'baseline', '-level:v', '3.1', '-pix_fmt', 'yuv420p',
+            '-g', '50', '-keyint_min', '50', '-sc_threshold', '0', '-threads', '2',
             '-f', 'hls', '-hls_time', '2', '-hls_list_size', '5',
             '-hls_flags', 'delete_segments+append_list+omit_endlist+independent_segments',
             '-hls_segment_filename', str(directory / 'seg-%06d.ts'), str(playlist),
