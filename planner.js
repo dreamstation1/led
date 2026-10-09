@@ -252,6 +252,28 @@ function plannerStopLabel(node){
   const stop=STOPS[STOP_BY_NODE.get(String(node))];
   return stop?`${stop.name}${stop.ars && stop.ars!=='0'?' ('+stop.ars+')':''}`:'정류소';
 }
+function plannerRouteClass(name){
+  const category=typeof routeCategory==='function'?routeCategory(name):'';
+  return category==='지선'?'branch':(category==='간선'||category==='심야')?'trunk':'other';
+}
+function plannerSelectedOption(leg){
+  const selected=String(leg.selectedRouteId||'');
+  return (leg.routeOptions||[leg]).find(option=>String(option.data.route.id)===selected)||null;
+}
+function plannerLegNames(leg){
+  const selected=plannerSelectedOption(leg);
+  return selected?[selected.data.route.name]:(leg.routeNames||[leg.data.route.name]);
+}
+function plannerLegVariants(leg){
+  const groups=new Map();
+  for(const option of (leg.routeOptions||[leg])){
+    const nodes=option.data.route.nodes.slice(option.start,option.end+1);
+    const key=nodes.map(String).join('>');
+    if(!groups.has(key))groups.set(key,{nodes,options:[]});
+    groups.get(key).options.push(option);
+  }
+  return [...groups.values()];
+}
 function plannerArrivalTime(item,n=1){
   const seconds=Number(item?.['traTime'+n]);if(Number.isFinite(seconds)&&seconds>=0)return seconds;
   const message=String(item?.['arrmsg'+n]||'');
@@ -308,7 +330,7 @@ function plannerVehicleBadges(routeName,item,n=1){
 async function plannerLiveSummary(path){
   const rows=[];let reach=0;
   for(let i=0;i<path.legs.length;i++){
-    const leg=path.legs[i],node=leg.data.route.nodes[leg.start],names=leg.routeNames||[leg.data.route.name];
+    const base=path.legs[i],leg=plannerSelectedOption(base)||base,node=leg.data.route.nodes[leg.start],names=plannerLegNames(base);
     const items=await plannerArrivalsAt(node),best=plannerBestArrival(items,names,i?reach-45:0),item=best?.item||null;
     const sec=best?.sec??null,route=best?.route||names[0],alightNode=leg.data.route.nodes[leg.end];
     const arrivalText=item?String(item['arrmsg'+(best?.n||1)]||((sec==null?'현재 정류장 API에 도착예정 미수신':Math.ceil(sec/60)+'분 후'))):`현재 정류장 API에 다음 ${route}번 차량이 아직 잡히지 않음`;
@@ -331,10 +353,10 @@ async function plannerEnhanceDetail(path){
 }
 async function plannerTransferChance(path){
   if(!path.transfers)return null;
-  const first=path.legs[0],second=path.legs[1],origin=first.data.route.nodes[first.start],transfer=first.data.route.nodes[first.end];
+  const firstBase=path.legs[0],secondBase=path.legs[1],first=plannerSelectedOption(firstBase)||firstBase,second=plannerSelectedOption(secondBase)||secondBase,origin=first.data.route.nodes[first.start],transfer=first.data.route.nodes[first.end];
   const [originItems,transferItems]=await Promise.all([plannerArrivalsAt(origin),plannerArrivalsAt(transfer)]);
-  const firstTimes=plannerRouteArrivalTimes(originItems,first.routeNames||[first.data.route.name]);
-  const secondTimes=plannerRouteArrivalTimes(transferItems,second.routeNames||[second.data.route.name]);
+  const firstTimes=plannerRouteArrivalTimes(originItems,plannerLegNames(firstBase));
+  const secondTimes=plannerRouteArrivalTimes(transferItems,plannerLegNames(secondBase));
   if(!firstTimes.length||!secondTimes.length)return {text:'실시간 환승 정보 없음',level:'warn'};
   const rideSeconds=(first.end-first.start)*105+90,reach=firstTimes[0]+rideSeconds;
   const connection=secondTimes.find(t=>t>=reach-45);
@@ -366,21 +388,23 @@ function plannerScheduleLiveRefresh(paths){
 function plannerCloseDetail(){document.getElementById('plannerDetail')?.classList.remove('open');}
 function plannerOpenDetail(path,index){
   const panel=document.getElementById('plannerDetail');if(!panel)return;
-  const names=path.legs.map(l=>(l.routeNames||[l.data.route.name]).join(' · ')).join(' → ');
+  const names=path.legs.map(l=>plannerLegNames(l).join(' · ')).join(' → ');
   const depart=plannerDepartureDate(),arrive=new Date(depart.getTime()+path.minutes*60000);
   const origin=path.fromPlace||STOPS[path.fromIndex],destination=path.toPlace||STOPS[path.toIndex];
-  const first=path.legs[0],last=path.legs[path.legs.length-1];
+  const first=plannerSelectedOption(path.legs[0])||path.legs[0],lastBase=path.legs[path.legs.length-1],last=plannerSelectedOption(lastBase)||lastBase;
   const board=STOPS[STOP_BY_NODE.get(String(first.data.route.nodes[first.start]))],alight=STOPS[STOP_BY_NODE.get(String(last.data.route.nodes[last.end]))];
   const climate=path.legs.every(l=>(l.routeOptions||[l]).some(o=>plannerClimateRoute(o.data.route))),timeline=[];
   if(origin&&board&&hav(origin.lat,origin.lng,board.lat,board.lng)>15)timeline.push(`<div class="planner-detail-step walk"><b>${esc(origin.name||'출발지')}</b><span>🚶 ${esc(board.name)}까지 도보 약 ${fmtDist(hav(origin.lat,origin.lng,board.lat,board.lng))}</span></div>`);
   path.legs.forEach((leg,i)=>{
-    const start=plannerStopLabel(leg.data.route.nodes[leg.start]),end=plannerStopLabel(leg.data.route.nodes[leg.end]),routes=(leg.routeNames||[leg.data.route.name]).join(' · '),direction=plannerStopName(leg.data.route.nodes[leg.start+1]);
-    const stops=leg.data.route.nodes.slice(leg.start,leg.end+1).map((node,n)=>`<li${n===0?' class="board"':n===leg.end-leg.start?' class="alight"':''}>${esc(plannerStopLabel(node))}</li>`).join('');
-    timeline.push(`<div class="planner-detail-step bus"><b>${i?'환승':'승차'} ${esc(start)}</b><span class="planner-detail-route">${esc(routes)}번</span><span>다음 정류소 ${esc(direction)} 방향 · ${leg.end-leg.start}정류소</span><em>하차 ${esc(end)}</em><button type="button" class="planner-stops-toggle" aria-expanded="false">전체 정류장 펼치기</button><ol class="planner-leg-stops" hidden>${stops}</ol></div>`);
+    const active=plannerSelectedOption(leg)||leg,start=plannerStopLabel(active.data.route.nodes[active.start]),end=plannerStopLabel(active.data.route.nodes[active.end]),direction=plannerStopName(active.data.route.nodes[active.start+1]);
+    const choices=(leg.routeOptions||[leg]).map(option=>`<button type="button" class="planner-route-choice ${plannerRouteClass(option.data.route.name)}${String(option.data.route.id)===String(leg.selectedRouteId||'')?' selected':''}" data-leg-index="${i}" data-route-id="${esc(option.data.route.id)}" aria-pressed="${String(option.data.route.id)===String(leg.selectedRouteId||'')}">${esc(option.data.route.name)}번</button>`).join('');
+    const variants=plannerLegVariants(leg).map(variant=>{const routeNames=variant.options.map(option=>option.data.route.name).join(' · '),stops=variant.nodes.map((node,n)=>`<li${n===0?' class="board"':n===variant.nodes.length-1?' class="alight"':''}>${esc(plannerStopLabel(node))}</li>`).join('');return `<div class="planner-stop-variant"><strong>${esc(routeNames)}번 · ${variant.nodes.length-1}정류소</strong><button type="button" class="planner-stops-toggle" aria-expanded="false">전체 정류장 펼치기</button><ol class="planner-leg-stops" hidden>${stops}</ol></div>`;}).join('');
+    timeline.push(`<div class="planner-detail-step bus"><b>${i?'환승':'승차'} ${esc(start)}</b><div class="planner-route-pick"><span>탈 노선 선택 · 선택하지 않으면 위치로 자동 확인</span><div class="planner-route-choices">${choices}</div></div><span>다음 정류소 ${esc(direction)} 방향 · ${active.end-active.start}정류소</span><em>하차 ${esc(end)}</em><div class="planner-stop-variants">${variants}</div></div>`);
   });
   if(destination&&alight&&hav(destination.lat,destination.lng,alight.lat,alight.lng)>15)timeline.push(`<div class="planner-detail-step walk"><b>${esc(destination.name||'목적지')}</b><span>🚶 하차 후 도보 약 ${fmtDist(hav(destination.lat,destination.lng,alight.lat,alight.lng))}</span></div>`);
   panel.innerHTML=`<div class="planner-detail-head"><div><strong>${esc(names)}</strong><small>${plannerClock(depart)}~${plannerClock(arrive)} · 약 ${path.minutes}분 · 약 ${fmtDist(path.distance)}</small><small>도보 약 ${fmtDist(path.walk)} · ${path.transfers?'환승 '+path.transfers+'회':'환승 없음'} · ${path.stopCount}정류소${climate?' · 🌱 기후동행카드 가능':''}</small></div><button type="button" aria-label="상세 닫기">×</button></div><div class="planner-detail-timeline">${timeline.join('')}</div><h3>실시간 탑승 정보</h3><div class="planner-live-detail">실시간 도착정보 확인 중…</div>${path.transfers?'<div class="planner-live warn">실시간 환승 확률 계산 중…</div>':''}<button type="button" class="planner-start-guide">이 경로로 실시간 길찾기 시작</button>`;
   panel.classList.add('open');panel.querySelector('.planner-detail-head button').onclick=plannerCloseDetail;panel.querySelector('.planner-start-guide').onclick=()=>plannerStartTrip(path);
+  panel.querySelectorAll('.planner-route-choice').forEach(button=>button.onclick=()=>{const leg=path.legs[Number(button.dataset.legIndex)];leg.selectedRouteId=String(leg.selectedRouteId||'')===button.dataset.routeId?'':button.dataset.routeId;plannerDraw(path);plannerOpenDetail(path,index);});
   panel.querySelectorAll('.planner-stops-toggle').forEach(button=>button.onclick=()=>{const list=button.nextElementSibling,open=list.hidden;list.hidden=!open;button.setAttribute('aria-expanded',String(open));button.textContent=open?'전체 정류장 접기':'전체 정류장 펼치기';});
   plannerEnhanceDetail(path);
 }
@@ -446,17 +470,18 @@ async function plannerDraw(path){
   plannerMapStatus='실제 버스 노선 표시 중…';
   plannerUpdateNote();
   const roads=[];
-  path.legs.forEach((leg,j)=>{
+  path.legs.forEach((legBase,j)=>{
+    const leg=plannerSelectedOption(legBase)||legBase;
     roads.push(Promise.resolve().then(()=>fetchBusRouteGeometry(leg.data.route.id,leg.start,leg.end)).then(roadPts=>{
       if(!roadPts || roadPts.length<2)throw new Error('노선 경로 없음');
       if(plannerLayer===drawToken && plannerDrawRevision===revision)L.polyline(roadPts,{color:['#ff5a36','#4f7de0','#8f65d5','#20a487'][j%4],weight:7,opacity:.9}).addTo(drawToken);
     }));
     const first=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.start]))];
     const last=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.end]))];
-    if(first)L.marker([first.lat,first.lng]).bindPopup(`${j?'환승':'승차'}: ${esc(first.name)} · ${esc((leg.routeNames||[leg.data.route.name]).join(' · '))}`).addTo(plannerLayer);
+    if(first)L.marker([first.lat,first.lng]).bindPopup(`${j?'환승':'승차'}: ${esc(first.name)} · ${esc(plannerLegNames(legBase).join(' · '))}`).addTo(plannerLayer);
     if(last && j===path.legs.length-1)L.marker([last.lat,last.lng]).bindPopup(`하차: ${esc(last.name)}`).addTo(plannerLayer);
   });
-  const firstLeg=path.legs[0],lastLeg=path.legs[path.legs.length-1];
+  const firstLeg=plannerSelectedOption(path.legs[0])||path.legs[0],lastBase=path.legs[path.legs.length-1],lastLeg=plannerSelectedOption(lastBase)||lastBase;
   const origin=path.fromPlace||STOPS[path.fromIndex],board=STOPS[STOP_BY_NODE.get(String(firstLeg.data.route.nodes[firstLeg.start]))];
   const alight=STOPS[STOP_BY_NODE.get(String(lastLeg.data.route.nodes[lastLeg.end]))],destination=path.toPlace||STOPS[path.toIndex];
   const walkPairs=[];if(origin&&board&&hav(origin.lat,origin.lng,board.lat,board.lng)>15)walkPairs.push([origin,board]);if(alight&&destination&&hav(alight.lat,alight.lng,destination.lat,destination.lng)>15)walkPairs.push([alight,destination]);
@@ -655,15 +680,15 @@ function plannerTripProgress(trip,leg,lat,lng,vehicle){
   return {index:closest,current,next,remaining:Math.max(0,leg.end-closest),distance:best};
 }
 function plannerTripTarget(trip){
-  const leg=trip.path.legs[trip.legIndex],node=trip.phase==='riding'?leg.data.route.nodes[leg.end]:leg.data.route.nodes[leg.start];
+  const base=trip.path.legs[trip.legIndex],leg=plannerSelectedOption(base)||base,node=trip.phase==='riding'?leg.data.route.nodes[leg.end]:leg.data.route.nodes[leg.start];
   return STOPS[STOP_BY_NODE.get(String(node))];
 }
 async function plannerUpdateTrip(position){
   const trip=plannerActiveTrip;if(!trip)return;
   if(position){trip.lat=position.coords.latitude;trip.lng=position.coords.longitude;trip.speed=Number(position.coords.speed)||0;if(typeof updateGuideMarker==='function')updateGuideMarker(trip.lat,trip.lng);}
   if(!Number.isFinite(trip.lat)||!Number.isFinite(trip.lng))return;
-  let leg=trip.path.legs[trip.legIndex],board=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.start]))],alight=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.end]))];
-  const names=leg.routeNames||[leg.data.route.name],toBoard=hav(trip.lat,trip.lng,board.lat,board.lng),toAlight=hav(trip.lat,trip.lng,alight.lat,alight.lng);
+  let legBase=trip.path.legs[trip.legIndex],leg=plannerSelectedOption(legBase)||legBase,board=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.start]))],alight=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.end]))];
+  const names=plannerLegNames(legBase),toBoard=hav(trip.lat,trip.lng,board.lat,board.lng),toAlight=hav(trip.lat,trip.lng,alight.lat,alight.lng);
   let live='';
   if(trip.phase==='walk'&&toBoard<=55)trip.phase='waiting';
   if(trip.phase==='waiting'&&Date.now()-(trip.lastLive||0)>8000){
@@ -671,7 +696,7 @@ async function plannerUpdateTrip(position){
     try{
       const arrivals=await plannerArrivalsAt(leg.data.route.nodes[leg.start]);
       const best=plannerBestArrival(arrivals,names),item=best?.item||null,seconds=best?.sec??null;
-      const chosen=(leg.routeOptions||[leg]).find(option=>String(option.data.route.name)===String(item?.rtNm))||leg;
+      const chosen=plannerSelectedOption(legBase)||(legBase.routeOptions||[legBase]).find(option=>String(option.data.route.name)===String(item?.rtNm))||leg;
       const vehicles=await fetchBusPositions(chosen.data.route.id).catch(()=>[]);
       const nearbyVehicle=vehicles.filter(v=>Number.isFinite(Number(v.gpsY))&&Number.isFinite(Number(v.gpsX)))
         .map(v=>({vehicle:v,distance:hav(trip.lat,trip.lng,Number(v.gpsY),Number(v.gpsX))})).sort((a,b)=>a.distance-b.distance)[0];
@@ -724,8 +749,8 @@ async function plannerUpdateTrip(position){
   }
   const destination=trip.path.toPlace||STOPS[trip.path.toIndex];
   if(trip.phase==='finalwalk'&&destination&&hav(trip.lat,trip.lng,destination.lat,destination.lng)<=45)trip.phase='done';
-  leg=trip.path.legs[trip.legIndex];board=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.start]))];alight=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.end]))];
-  const routeNames=leg.routeNames||[leg.data.route.name],vehicleNumber=plannerVehicleNumber(trip.currentBus?.plate);
+  legBase=trip.path.legs[trip.legIndex];leg=plannerSelectedOption(legBase)||legBase;board=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.start]))];alight=STOPS[STOP_BY_NODE.get(String(leg.data.route.nodes[leg.end]))];
+  const routeNames=plannerLegNames(legBase),vehicleNumber=plannerVehicleNumber(trip.currentBus?.plate);
   const ridingDetail=progress?(progress.remaining===1?`이번 정류장에서 내리세요 · 하차 ${alight.name}`:`${progress.current?.name||'현재 정류장'} → ${progress.next?.name||alight.name} 이동 중 · 하차까지 ${progress.remaining}정류소`):`${alight.name}에서 내리세요`;
   const text=trip.phase==='walk'?`${board.name}까지 ${fmtDist(toBoard)} 걸어가세요.`:
     trip.phase==='waiting'?`${board.name}에서 ${routeNames.join(' · ')}번을 타세요.`:
