@@ -1,6 +1,6 @@
 (function(){
-  if(window.__gaplessQueueV65)return;
-  window.__gaplessQueueV65=true;
+  if(window.__gaplessQueueV66)return;
+  window.__gaplessQueueV66=true;
 
   const BlobCache=new Map();
   const LoadCache=new Map();
@@ -342,9 +342,6 @@
       if(seg)return seg;
     }
     if(recordingOnly)return {kind:'missing',category,key};
-    // Stop-name recordings are replaced by AI only when the user explicitly
-    // enables the setting. Fixed phrases retain their existing fallback.
-    if(category==='stops' && (typeof missingAudioTtsOn==='undefined'||!missingAudioTtsOn))return {kind:'missing',category,key};
     const t=await ttsInfo(category,key);
     // Do not let a slow AI server or its pre-generation queue silence an
     // entire simulation announcement. The synthesis keeps warming the cache;
@@ -467,7 +464,6 @@
   // announcement doesn't wait for synthesis when the bus gets there.
   async function warmAi(category,key){
     try{
-      if(category==='stops'&&(typeof missingAudioTtsOn==='undefined'||!missingAudioTtsOn))return;
       if(await firstPlayable(pathsFor(category,key)))return;
       const t=await ttsInfo(category,key);
       const url=await aiSynth(t.text,t.lang);
@@ -524,19 +520,20 @@
 
   async function resolveAnnouncement(stop,next,waitForAi=false){
     const stopKey=stop.audioName||stop.name;
+    const skipEnglish=new Set(['롯데마트맥스영등포점']).has(stopKey);
     const specs=next
       ? [['phrases','이번정류소'],['stops',stopKey],['phrases','다음정류소'],['stops',next.audioName||next.name]]
       : [['phrases','이번정류소'],['stops',stopKey]];
     const resolved=await Promise.all(specs.map(async s=>{
       try{return await resolveSegment(s[0],s[1],false,waitForAi);}
-      catch(e){if(s[0]==='stops'&&(typeof missingAudioTtsOn==='undefined'||!missingAudioTtsOn))return {kind:'missing',category:s[0],key:s[1]};const t=await ttsInfo(s[0],s[1]);return {kind:'tts',text:t.text,lang:t.lang,category:s[0],key:s[1]};}
+      catch(e){const t=await ttsInfo(s[0],s[1]);return {kind:'tts',text:t.text,lang:t.lang,category:s[0],key:s[1]};}
     }));
     if(!next){
-      const englishStop=await resolveSegment('stops',stopKey+' (1)',false,waitForAi);
-      if(englishStop.kind!=='missing')resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);
+      if(!skipEnglish){const englishStop=await resolveSegment('stops',stopKey+' (1)',false,waitForAi);resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);}
       resolved.push(await resolveSegment('phrases','종착',false,waitForAi));
       return resolved;
     }
+    if(skipEnglish)return resolved;
     const englishStop=await resolveSegment('stops',stopKey+' (1)',true);
     if(englishStop.kind==='audio'){
       resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);
