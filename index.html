@@ -960,6 +960,15 @@ body.light-ui .route{color:#fff}
       <div class="setting-desc" style="margin-top:7px">CCTV는 위의 ‘도로 CCTV 표시’를 함께 사용합니다. UTIC 신호자료는 인천·대전·대구의 일 1회 TOD 자료이며 서울 실시간 신호를 대체하지 않습니다.</div>
     </div>
     <div class="setting-block">
+      <div class="setting-row">
+        <div>
+          <div class="setting-title">없는 안내방송을 AI TTS로 채우기</div>
+          <div class="setting-desc">정류장 한글·영어 녹음 파일이 없을 때만 AI 음성으로 대신 재생합니다. 끄면 없는 구간은 건너뜁니다.</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="missingAudioTtsToggle"><span></span></label>
+      </div>
+    </div>
+    <div class="setting-block">
       <a href="./audio-library.html" style="display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;color:inherit;text-decoration:none">
         <div><div class="setting-title">🎙 녹음자료 찾기</div><div class="setting-desc">한국어·영어 안내방송을 검색하고 미리듣습니다.</div></div><strong aria-hidden="true">›</strong>
       </a>
@@ -1161,6 +1170,9 @@ setMapTheme(lsGet('busMapTheme')||'standard');
 
 let selectedIdx=-1, routeLayer=null, routeHitLayer=null, currentRoute=null, userMarker=null, showStops=false;
 let currentGuideStops=[], guideActive=false, guideNextIndex=0, guideApproachAnnounced=false, guideWatchId=null, guideSimRaf=null, guideUserMarker=null, guideTtsOn=true;
+// Missing stop recordings are silent by default. The user can explicitly
+// enable AI filling from Settings when synthetic replacements are wanted.
+let missingAudioTtsOn=lsGet('missingAudioTtsOn')==='1';
 // 승인된 서울 T-DATA 키가 내장되어 있으므로 최초 실행부터 신호등을
 // 켜고, 사용자가 명시적으로 끈 경우에만 끈 상태를 기억한다.
 let trafficLightOn=lsGet('trafficLightOn')!=='0';
@@ -2903,6 +2915,13 @@ document.getElementById('trafficLightToggle').onchange=e=>{
 document.getElementById('trafficLightToggle').checked=trafficLightOn;
 if(trafficLightOn)setTimeout(()=>startTrafficLightPolling(),500);
 
+document.getElementById('missingAudioTtsToggle').checked=missingAudioTtsOn;
+document.getElementById('missingAudioTtsToggle').onchange=e=>{
+  missingAudioTtsOn=e.target.checked;
+  lsSet('missingAudioTtsOn',missingAudioTtsOn?'1':'0');
+  status.textContent=missingAudioTtsOn?'없는 정류장 녹음을 AI TTS로 채웁니다.':'없는 정류장 녹음은 재생하지 않습니다.';
+};
+
 document.getElementById('busPosProxyInput').value=busPosProxyUrl;
 document.getElementById('busPosProxyInput').onchange=e=>{
   busPosProxyUrl=e.target.value.trim().replace(/\/$/,'');
@@ -4580,6 +4599,6 @@ function stopGuide(){
 <script src="./traffic-map-patch.js?v=81"></script>
 <script src="./utic-map-patch.js?v=73"></script>
 <script src="./ios-touch-patch.js?v=54"></script>
-<script src="./gapless-patch.js?v=64"></script>
+<script src="./gapless-patch.js?v=65"></script>
 </body>
 </html>
