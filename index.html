@@ -1567,15 +1567,26 @@ function groupedStopRoutes(idx){
   }
   return out;
 }
+// Route data has no explicit turnaround, so treat the stop farthest from the
+// first stop as the turning point of a round trip.
+const routeTurnCache=new Map();
+function routeTurnIndex(data){
+  if(routeTurnCache.has(data.id))return routeTurnCache.get(data.id);
+  const first=STOPS[STOP_BY_NODE.get(String(data.nodes[0]))];let turn=data.nodes.length-1,far=-1;
+  if(first)data.nodes.forEach((n,i)=>{const s=STOPS[STOP_BY_NODE.get(String(n))];if(!s)return;const d=hav(first.lat,first.lng,s.lat,s.lng);if(d>far){far=d;turn=i;}});
+  routeTurnCache.set(data.id,turn);
+  return turn;
+}
 function routeDirectionLabel(route,node){
   const data=ROUTE_BY_ID.get(String(route.id));if(!data)return '';
   const positions=data.nodes.map(String).map((n,i)=>n===String(node)?i:-1).filter(i=>i>=0);
   const p=positions[0];if(p==null)return '';
-  for(let i=p+1;i<data.nodes.length;i++){
-    const next=STOPS[STOP_BY_NODE.get(String(data.nodes[i]))];
-    if(next)return `${next.name} 방면 · 다음 ${next.name}`;
-  }
-  return '회차 방면';
+  let next=null;
+  for(let i=p+1;i<data.nodes.length&&!next;i++)next=STOPS[STOP_BY_NODE.get(String(data.nodes[i]))];
+  if(!next)return '회차 방면';
+  // "방면" is where this direction is heading (turnaround or terminus), not the next stop.
+  const turn=routeTurnIndex(data),end=STOPS[STOP_BY_NODE.get(String(data.nodes[p<turn?turn:data.nodes.length-1]))];
+  return end&&end.name!==next.name?`${end.name} 방면 · 다음 ${next.name}`:`다음 ${next.name}`;
 }
 function groupedRouteDirection(grouped,route,stop){
   const same=grouped.filter(x=>String(x.route.id)===String(route.id));
