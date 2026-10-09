@@ -1,6 +1,6 @@
 (function(){
-  if(window.__gaplessQueueV63)return;
-  window.__gaplessQueueV63=true;
+  if(window.__gaplessQueueV64)return;
+  window.__gaplessQueueV64=true;
 
   const BlobCache=new Map();
   const LoadCache=new Map();
@@ -213,6 +213,32 @@
     return out;
   }
   const BufCache=new Map();
+  const LoudnessGainCache=new WeakMap();
+  function loudnessGain(buf){
+    if(LoudnessGainCache.has(buf))return LoudnessGainCache.get(buf);
+    // Measure only blocks containing speech, so leading/trailing silence does
+    // not make a quiet recording receive an excessive boost. Every recorded
+    // phrase, Korean/English stop name and decoded AI clip is brought to the
+    // same speech RMS, with a peak ceiling to prevent clipping.
+    const block=Math.max(128,Math.round(buf.sampleRate*.04));
+    let activeEnergy=0,activeCount=0,totalEnergy=0,totalCount=0,peak=0;
+    for(let start=0;start<buf.length;start+=block){
+      const end=Math.min(buf.length,start+block);let energy=0,count=0;
+      for(let c=0;c<buf.numberOfChannels;c++){
+        const data=buf.getChannelData(c);
+        for(let i=start;i<end;i++){const v=data[i];energy+=v*v;count++;if(Math.abs(v)>peak)peak=Math.abs(v);}
+      }
+      totalEnergy+=energy;totalCount+=count;
+      if(count&&Math.sqrt(energy/count)>=.006){activeEnergy+=energy;activeCount+=count;}
+    }
+    const rms=Math.sqrt((activeCount?activeEnergy:totalEnergy)/Math.max(1,activeCount||totalCount));
+    const TARGET_RMS=.12,MAX_PEAK=.94;
+    let gain=rms>0?TARGET_RMS/rms:1;
+    gain=Math.max(.3,Math.min(4,gain));
+    if(peak>0)gain=Math.min(gain,MAX_PEAK/peak);
+    LoudnessGainCache.set(buf,gain);
+    return gain;
+  }
   function decodeUrl(url){
     const ctx=audioCtx();
     if(!ctx||!url)return Promise.resolve(null);
@@ -231,7 +257,7 @@
     return p;
   }
   // items: [{buf,gapAfter(ms)}] -> 하나의 버퍼로 합쳐 재생
-  function playBuffers(items,signal){
+  function playBuffers(items,signal,rate=1){
     return new Promise(resolve=>{
       const ctx=audioCtx();
       if(!ctx||signal.aborted||!items.length){resolve(false);return;}
@@ -243,11 +269,16 @@
       const out=ctx.createBuffer(ch,Math.max(1,total),sr);
       let off=0;
       for(const it of items){
-        for(let c=0;c<ch;c++)out.getChannelData(c).set(it.buf.getChannelData(Math.min(c,it.buf.numberOfChannels-1)),off);
+        const normalize=loudnessGain(it.buf);
+        for(let c=0;c<ch;c++){
+          const input=it.buf.getChannelData(Math.min(c,it.buf.numberOfChannels-1)),output=out.getChannelData(c);
+          for(let n=0;n<input.length;n++)output[off+n]=input[n]*normalize;
+        }
         off+=it.buf.length+gapLen(it.gapAfter);
       }
       const src=ctx.createBufferSource();
       src.buffer=out;
+      src.playbackRate.value=Math.max(.1,rate||1);
       const gain=ctx.createGain();
       gain.gain.value=typeof guideVolume==='number'?guideVolume:1;
       src.connect(gain);gain.connect(ctx.destination);
@@ -271,7 +302,7 @@
       };
       signal.addEventListener('abort',abort,{once:true});
       ctx.addEventListener?.('statechange',stateChanged);
-      const timer=setTimeout(()=>finish(true),(out.duration+5)*1000);
+      const timer=setTimeout(()=>finish(true),(out.duration/Math.max(.1,rate||1)+5)*1000);
       try{startedAt=performance.now();src.start();}catch(e){finish(false);}
     });
   }
@@ -382,10 +413,11 @@
   async function playResolvedSequence(items,signal){
     // Keep phrase/name joins short, but breathe between complete sentences.
     const gapAfter=seg=>(seg.category==='stops'||seg.key==='종점입니다')?SENTENCE_GAP_MS:SEGMENT_GAP_MS;
-    // 이어 붙인 버퍼는 재생 속도를 바꾸면 음높이도 바뀌어서 기본 속도일 때만 사용
+    // Decoded playback is also the normalization path, so use it at every
+    // guide speed. The playbackRate is applied once to the joined sequence.
     const ctx=audioCtx();
     let useBuffers=false;
-    if(ctx&&Math.abs((typeof guideRate==='number'?guideRate:1)-1)<0.01){
+    if(ctx){
       try{if(ctx.state!=='running')await Promise.race([ctx.resume(),new Promise(r=>setTimeout(r,300))]);}catch(e){}
       useBuffers=ctx.state==='running';
     }
@@ -401,7 +433,7 @@
           run.push({buf:items[j].buf,gapAfter:joinable(items[j+1])?gapAfter(items[j]):0});
           j++;
         }
-        const ok=await playBuffers(run,signal);
+        const ok=await playBuffers(run,signal,typeof guideRate==='number'?guideRate:1);
         if(signal.aborted)return;
         if(!ok){
           for(let k=i;k<j;k++){
