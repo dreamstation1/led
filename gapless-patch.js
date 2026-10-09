@@ -561,7 +561,7 @@
 
   async function resolveAnnouncement(stop,next,waitForAi=false){
     const stopKey=stop.audioName||stop.name;
-    const skipEnglish=new Set(['롯데마트맥스영등포점']).has(stopKey);
+    const skipEnglish=new Set(['롯데마트맥스영등포점','선유도역.롯데웰푸드']).has(stopKey);
     const specs=next
       ? [['phrases','이번정류소'],['stops',stopKey],['phrases','다음정류소'],['stops',next.audioName||next.name]]
       : [['phrases','이번정류소'],['stops',stopKey]];
