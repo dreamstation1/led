@@ -1,5 +1,5 @@
 // Bus trip planner based on the stop order embedded in index.html.
-const PLANNER_SORTS={optimal:'최적',time:'최소시간',distance:'최단거리',walk:'최소도보',detour:'우회 경로'};
+const PLANNER_SORTS={optimal:'최적',time:'최소시간',transfers:'최소환승',distance:'최단거리',walk:'최소도보',detour:'우회 경로'};
 const plannerRouteCache=new Map();
 const plannerRoutesById=new Map(ROUTES.map(r=>[r.id,r]));
 let plannerPaths=[],plannerSort='optimal',plannerLayer=null,plannerSelected=-1,plannerSearched=false;
@@ -56,8 +56,15 @@ function plannerPrunePaths(paths){
     if(!corridors.has(corridor))corridors.set(corridor,[]);
     corridors.get(corridor).push(path);
   }
-  return [...choices.values()].filter(path=>!corridors.get(plannerCorridor(path.legs)).some(other=>
+  const kept=[...choices.values()].filter(path=>!corridors.get(plannerCorridor(path.legs)).some(other=>
     other.transfers<path.transfers && other.walk<=path.walk && other.minutes<=path.minutes));
+  // Walking to another stop of the very bus that already stops nearer the
+  // start is pointless: board it at the closer stop and ride instead.
+  const rest=path=>path.legs.map((l,i)=>`${l.data.route.id}:${i?l.start:'*'}-${l.end}`).join('|');
+  const byRest=new Map();
+  for(const path of kept){const key=rest(path);if(!byRest.has(key))byRest.set(key,[]);byRest.get(key).push(path);}
+  return kept.filter(path=>!byRest.get(rest(path)).some(other=>
+    other!==path && other.walk<path.walk && other.minutes<=path.minutes+3));
 }
 
 function plannerRouteData(route){
@@ -183,7 +190,7 @@ function plannerFindPaths(fromIndex,toIndex,options={}){
 function plannerRank(paths,sort){
   // 환승 대기는 3분 이내가 가장 좋고 5분을 넘기면 총 이동시간에 불리하게 본다.
   const optimal=p=>p.minutes+p.walk/250+p.transfers*10+Math.max(0,p.distance-(p.directDistance||p.distance)*1.35)/450;
-  const first=p=>sort==='time'?p.minutes:sort==='distance'?p.distance:
+  const first=p=>sort==='time'?p.minutes:sort==='transfers'?p.transfers:sort==='distance'?p.distance:
     sort==='walk'?p.walk:sort==='detour'?-p.distance:optimal(p);
   return paths.slice().sort((a,b)=>first(a)-first(b)||optimal(a)-optimal(b)||a.transfers-b.transfers||a.distance-b.distance||plannerPathKey(a).localeCompare(plannerPathKey(b)));
 }
@@ -331,12 +338,20 @@ async function plannerLiveSummary(path){
   const rows=[];let reach=0;
   for(let i=0;i<path.legs.length;i++){
     const base=path.legs[i],leg=plannerSelectedOption(base)||base,node=leg.data.route.nodes[leg.start],names=plannerLegNames(base);
-    const items=await plannerArrivalsAt(node),best=plannerBestArrival(items,names,i?reach-45:0),item=best?.item||null;
-    const sec=best?.sec??null,route=best?.route||names[0],alightNode=leg.data.route.nodes[leg.end];
-    const arrivalText=item?String(item['arrmsg'+(best?.n||1)]||((sec==null?'현재 정류장 API에 도착예정 미수신':Math.ceil(sec/60)+'분 후'))):`현재 정류장 API에 다음 ${route}번 차량이 아직 잡히지 않음`;
-    const plate=item?String(item['plainNo'+(best?.n||1)]||'').trim():'';
-    rows.push(`<div><b>${i?'환승':'승차'} ${esc(route)}번</b> · ${esc(plannerStopName(node))}${plate?` · 차량 ${esc(plate)}`:''}<br>${esc(arrivalText)} <span class="route-live-meta">${plannerVehicleBadges(route,item,best?.n||1)}</span><br><b>하차</b> ${esc(plannerStopName(alightNode))} · ${leg.end-leg.start}정류소 후</div>`);
-    if(best)reach=best.sec+(leg.end-leg.start)*105+90;
+    const items=await plannerArrivalsAt(node),alightNode=leg.data.route.nodes[leg.end];
+    const options=base.routeOptions||[base],stopsFor=name=>{const o=options.find(x=>String(x.data.route.name)===String(name))||leg;return o.end-o.start;};
+    // Several buses can serve the same leg; show each bus's own next arrival.
+    const entries=names.map(route=>({route,best:plannerBestArrival(items,[route],i?reach-45:0)}))
+      .sort((a,b)=>(a.best?.sec??Infinity)-(b.best?.sec??Infinity));
+    const lines=entries.map(({route,best})=>{
+      const item=best?.item||null,sec=best?.sec??null,n=best?.n||1;
+      const arrivalText=item?String(item['arrmsg'+n]||((sec==null?'현재 정류장 API에 도착예정 미수신':Math.ceil(sec/60)+'분 후'))):`현재 정류장 API에 다음 ${route}번 차량이 아직 잡히지 않음`;
+      const plate=item?String(item['plainNo'+n]||'').trim():'';
+      return `<b>${esc(route)}번</b> ${esc(arrivalText)}${plate?` · 차량 ${esc(plate)}`:''} <span class="route-live-meta">${plannerVehicleBadges(route,item,n)}</span>${names.length>1?` <small>(${stopsFor(route)}정류소)</small>`:''}`;
+    });
+    rows.push(`<div><b>${i?'환승':'승차'}</b> ${esc(plannerStopName(node))}<br>${lines.join('<br>')}<br><b>하차</b> ${esc(plannerStopName(alightNode))}${names.length>1?'':` · ${stopsFor(names[0])}정류소 후`}</div>`);
+    const first=entries.find(e=>e.best);
+    if(first)reach=first.best.sec+stopsFor(first.route)*105+90;
   }
   return rows.join('<div style="height:5px"></div>');
 }
