@@ -107,6 +107,22 @@
     return (man?(man===1?'':sinoUnder10000(man))+'만':'')+sinoUnder10000(rest);
   }
   function koreanizeNumbers(s){return s.replace(/\d+/g,sinoNumber);}
+  // 서울시 공식 영문 정류소명(stop-en.json)을 소리 내어 읽기 좋게 다듬는다.
+  // "5(o)-dong" 은 숫자를 괄호 속 한국어 발음으로만 읽고(five o 처럼 두 번 읽지 않게),
+  // 중앙차로 표시 "(Median Bus Lane)" 은 읽지 않으며, 약어는 풀어서 읽는다.
+  const EN_ABBR=[[/\bApts\./g,'Apartments'],[/\bApt\./g,'Apartment'],[/\bUniv\./g,'University'],[/\bStn\./g,'Station'],
+    [/\bNat'l\b/g,'National'],[/\bInt'l\b/g,'International'],[/\bDept\./g,'Department'],[/\bBr\./g,'Bridge'],
+    [/\b[Bb]ldg\./g,'Building'],[/\bJct\./g,'Junction'],[/\bSt\.(?=\s*[A-Z][a-z]*'s\b)/g,'Saint']];
+  const KO_NUM_TAIL=/^(ga|dong|gil|ro|ri|gu|danji|cha|ho|ban|jigu)$/i;
+  function speakableEnglish(s){
+    s=String(s||'').replace(/​/g,'').replace(/[’´]/g,"'").replace(/\s*\(Median Bus Lane\)/gi,'');
+    s=s.replace(/\b\d+\s*\(([a-z]+)\)(?:\s*-?\s*([A-Za-z]+))?/g,(m,ko,tail)=>{
+      const w=ko.charAt(0).toUpperCase()+ko.slice(1);
+      return tail&&KO_NUM_TAIL.test(tail)?w+tail.toLowerCase():w+(tail?' '+tail:'');
+    });
+    for(const [re,to] of EN_ABBR)s=s.replace(re,to);
+    return s.replace(/\s*&\s*/g,' and ').replace(/\s*\/\s*/g,', ').replace(/[()]/g,' ').replace(/\s+/g,' ').trim();
+  }
   // 긴 정류소명을 붙여 보내면 모델이 엉뚱한 곳에서 쉰다 ("서울과학수사연구.소입구").
   // 끝에 붙은 흔한 단어(입구, 연구소, 사거리...)를 떼어 띄어 보내면 그 경계에서 쉰다.
   // 짧은 이름은 원래대로 보낸다 (서버에 이미 만들어 둔 음성을 그대로 쓰도록).
@@ -153,7 +169,7 @@
   function aiSynth(text,lang,source){
     const textLang=/^en/i.test(lang||'')?'en':'ko';
     // '가양역1번출구.우성아파트' 의 점은 읽을 때 쉼표처럼 살짝 끊어 읽게
-    let say=String(text||'').replace(/\s*[.·]\s*/g,', ').trim();
+    let say=(textLang==='en'?speakableEnglish(text):String(text||'')).replace(/\s*[.·]\s*/g,', ').replace(/(,\s*)+$/,'').trim();
     if(textLang==='ko')say=koreanizeNumbers(koreanizeLatin(say.split(', ').map(spaceLongKoreanName).join(', ')));
     if(!say||typeof fetch!=='function')return Promise.resolve(null);
     const k=textLang+'|'+say;

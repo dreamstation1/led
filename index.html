@@ -4058,10 +4058,23 @@ async function fetchGoogleTranslate(text){
     clearTimeout(timer);
   }
 }
+// Seoul's official multilingual stop names (시내버스정류소 다국어 번역, 2026-09),
+// keyed by Korean name without spaces. Preferred over machine translation,
+// which turns e.g. 개봉사거리 into "Opening Range". window.LED_BASE lets the
+// announcement exporter (another folder on the same site) load it too.
+let officialStopEnPromise=null;
+function officialStopEn(name){
+  officialStopEnPromise=officialStopEnPromise||fetch((window.LED_BASE||'')+'stop-en.json').then(r=>r.ok?r.json():{}).catch(()=>({}));
+  return officialStopEnPromise.then(t=>{const k=String(name).replace(/\s+/g,'').replace(/（/g,'(').replace(/）/g,')');return t[k]||t[k.replace(/\(중\)$/,'')]||null;});
+}
 async function translateStationName(name){
   if(!name)return name;
   if(STOP_TEXT_EN[name])return STOP_TEXT_EN[name];
   if(stationTranslateCache.has(name))return stationTranslateCache.get(name);
+  const official=await officialStopEn(name);
+  if(official){stationTranslateCache.set(name,official);return official;}
+  // "(중)" only marks a median-lane stop; machine translation reads it as "(Middle)".
+  if(/\(중\)$/.test(name)){const result=await translateStationName(name.replace(/\s*\(중\)$/,''));stationTranslateCache.set(name,result);return result;}
   if(name.includes('까치산시장')){
     const parts=await Promise.all(name.split('.').map(async part=>{
       if(part==='까치산시장')return 'Kkachisan Market';
