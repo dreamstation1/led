@@ -4090,8 +4090,13 @@ async function translateStationName(name){
   return result;
 }
 
+// Official names carry reading hints for speech ("5(o)-dong") and a median-lane
+// note; on the sign show "5-dong" and drop the note.
+function signEnglish(s){
+  return String(s||'').replace(/​/g,'').replace(/\s*\(Median Bus Lane\)/gi,'').replace(/(\d+)\s*\([a-z]+\)/g,'$1').replace(/\s+/g,' ').trim();
+}
 async function englishNameFor(stop){
-  return STOP_NAME_EN[String(stop.node)] || await translateStationName(stop.name);
+  return STOP_NAME_EN[String(stop.node)] || signEnglish(await translateStationName(stop.name));
 }
 
 function audioPaths(category,key){
