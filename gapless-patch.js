@@ -57,13 +57,32 @@
     return all.find(x=>x.url)||null;
   }
 
+  // 한국어 목소리 그룹(1/2): 같은 성우가 다른 시기에 녹음한 두 가지 목소리. 녹음이 있는 정류소는
+  // 그 녹음의 그룹(voice-groups.json)을 알고 있고, 녹음이 없는 정류소는 노선에서 가장 가까운
+  // 녹음 정류소(앞쪽 우선)와 같은 그룹 목소리로 AI 음성을 만들어 방송 중간에 목소리가 바뀌지 않게 한다.
+  let voiceGroupsPromise=null;
+  function loadVoiceGroups(){
+    voiceGroupsPromise=voiceGroupsPromise||fetch((window.LED_BASE||'')+'voice-groups.json').then(r=>r.ok?r.json():{})
+      .then(g=>new Map(Object.entries(g).map(([k,v])=>[k.replace(/\s*\(\d+\)$/,''),String(v)]))).catch(()=>new Map());
+    return voiceGroupsPromise;
+  }
+  async function voiceGroupFor(name,stops){
+    const g=await loadVoiceGroups();
+    if(g.has(name))return g.get(name);
+    const src=stops||(typeof currentGuideStops!=='undefined'?currentGuideStops:[]);
+    const list=src.map(s=>typeof s==='string'?s:(s.audioName||s.name));
+    const i=list.indexOf(name);
+    if(i<0)return '';
+    for(let d=1;d<list.length;d++)for(const j of [i-d,i+d])if(j>=0&&j<list.length&&g.has(list[j]))return g.get(list[j]);
+    return '';
+  }
   async function ttsInfo(category,key){
     if(category==='phrases_en')return {text:key==='thisstopis'?'This stop is':key,lang:'en-US'};
     if(category==='stops'&&/ \(1\)$/.test(key)){
       const name=key.replace(/ \(1\)$/,'');
       try{return {text:await translateStationName(name),lang:'en-US',source:name};}catch(e){return {text:name,lang:'en-US'};}
     }
-    if(category==='stops')return {text:String(key).replace(/ \(1\)$/,'')+'입니다',lang:'ko-KR'};
+    if(category==='stops')return {text:String(key).replace(/ \(1\)$/,'')+'입니다',lang:'ko-KR',voice:await voiceGroupFor(String(key))};
     const m={'이번정류소':'이번 정류소는','다음정류소':'다음 정류소는','종점입니다':'종점입니다'};
     return {text:m[key]||key,lang:'ko-KR'};
   }
@@ -166,13 +185,14 @@
       try{a.load();}catch(e){finish(-1);}
     });
   }
-  function aiSynth(text,lang,source){
+  function aiSynth(text,lang,source,voice){
     const textLang=/^en/i.test(lang||'')?'en':'ko';
     // '가양역1번출구.우성아파트' 의 점은 읽을 때 쉼표처럼 살짝 끊어 읽게
     let say=(textLang==='en'?speakableEnglish(text):String(text||'')).replace(/\s*[.·]\s*/g,', ').replace(/(,\s*)+$/,'').trim();
     if(textLang==='ko')say=koreanizeNumbers(koreanizeLatin(say.split(', ').map(spaceLongKoreanName).join(', ')));
     if(!say||typeof fetch!=='function')return Promise.resolve(null);
-    const k=textLang+'|'+say;
+    voice=textLang==='ko'&&/^[12]$/.test(String(voice||''))?String(voice):'';
+    const k=textLang+'|'+voice+'|'+say;
     if(AiCache.has(k))return AiCache.get(k);
     if(Date.now()<aiDownUntil)return Promise.resolve(null);
     // 서버에 한 번에 하나씩만 요청 (무료 서버처럼 느린 곳에 몰리지 않게, 가까운 정류소부터 차례로)
@@ -183,7 +203,7 @@
       const timer=setTimeout(()=>ctl.abort(),120000);
       try{
         // cut0 = 문장을 쪼개지 않음 (쉼표에서 쪼개면 앞부분이 빠지는 경우가 있었음)
-        const qs=new URLSearchParams({text:say,text_lang:textLang,...AI_TTS_REF[textLang],text_split_method:'cut0',batch_size:'1',media_type:'wav'});
+        const qs=new URLSearchParams({text:say,text_lang:textLang,...AI_TTS_REF[textLang],text_split_method:'cut0',batch_size:'1',media_type:'wav',...(voice?{voice}:{})});
         // 모델이 가끔 0.7초짜리로 잘린 소리를 내서, 글자 수에 비해 너무 짧으면 다시 만든다
         const minSec=say.replace(/[\s,.]/g,'').length/(textLang==='ko'?12:30);
         let best=null,bestDur=-1;
@@ -381,7 +401,7 @@
     // this announcement uses browser speech if it is not ready in time.
     // AI 서버(오라클 CPU)는 처음 만드는 정류소에 4~10초 걸려서, 1~2초만 기다리면
     // 거의 항상 브라우저(윈도우) 목소리로 넘어감 -> 15초까지 기다린다.
-    const aiPromise=aiSynth(t.text,t.lang,t.source),AI_WAIT_MS=15000;
+    const aiPromise=aiSynth(t.text,t.lang,t.source,t.voice),AI_WAIT_MS=15000;
     let timer=null;
     const aiUrl=waitForAi?await aiPromise:await Promise.race([aiPromise,new Promise(resolve=>{timer=setTimeout(()=>resolve(null),AI_WAIT_MS);})]);
     if(timer)clearTimeout(timer);
@@ -499,7 +519,7 @@
     try{
       if(await firstPlayable(pathsFor(category,key)))return;
       const t=await ttsInfo(category,key);
-      const url=await aiSynth(t.text,t.lang,t.source);
+      const url=await aiSynth(t.text,t.lang,t.source,t.voice);
       if(url)decodeUrl(url);
     }catch(e){}
   }
