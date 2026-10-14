@@ -4092,8 +4092,16 @@ async function translateStationName(name){
 
 // Official names carry reading hints for speech ("5(o)-dong") and a median-lane
 // note; on the sign show "5-dong" and drop the note.
+// Words are capitalized uniformly ("community service center" -> "Community
+// Service Center"); short joining words stay lowercase unless they start a
+// part, and "-dong"/"-ga" style suffixes after a hyphen are left as they are.
+const SIGN_SMALL_WORDS=new Set(['of','and','the','in','at','to','for','on']);
 function signEnglish(s){
-  return String(s||'').replace(/​/g,'').replace(/\s*\(Median Bus Lane\)/gi,'').replace(/(\d+)\s*\([a-z]+\)/g,'$1').replace(/\s+/g,' ').trim();
+  s=String(s||'').replace(/​/g,'').replace(/\s*\(Median Bus Lane\)/gi,'').replace(/(\d+)\s*\([a-z]+\)/g,'$1').replace(/\s+/g,' ').trim();
+  return s.replace(/(^|[\s(·,./&])([a-z][a-z']*)/g,(m,pre,w,off)=>{
+    const start=/(^|[,.·/(&])\s*$/.test(s.slice(0,off+pre.length));
+    return pre+(SIGN_SMALL_WORDS.has(w)&&!start?w:w.charAt(0).toUpperCase()+w.slice(1));
+  });
 }
 async function englishNameFor(stop){
   return STOP_NAME_EN[String(stop.node)] || signEnglish(await translateStationName(stop.name));
