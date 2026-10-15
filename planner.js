@@ -16,10 +16,7 @@ function plannerClimateRoute(route){
   return route?.region!=='gyeonggi' && !String(route?.id||'').startsWith('G') &&
     ['마을','지선','간선','심야'].includes(routeCategory(route.name));
 }
-// 심야버스(N번)는 밤 11시 반쯤부터 새벽까지만 다닌다. 출발 시각이 그 밖이면 경로에 넣지 않는다.
-function plannerNightBusTime(date){const m=date.getHours()*60+date.getMinutes();return m>=23*60||m<5*60+30;}
 function plannerRouteAllowed(route){
-  if(typeof routeCategory==='function'&&routeCategory(route.name)==='심야'&&!plannerNightBusTime(plannerDepartureDate()))return false;
   return !document.getElementById('plannerClimateOnly')?.checked || plannerClimateRoute(route);
 }
 
@@ -428,6 +425,39 @@ async function plannerTransferChance(path){
   if(!path.transfers)return null;
   const plan=await plannerLivePlan(path);
   return plan.chance&&{...plan.chance,text:`${plan.chance.text} · ${plannerClock(plan.at)} 갱신`};
+}
+// ---- only buses that actually run at the departure time -----------------
+// Seoul's stop-arrival data carries each route's first/last bus (firstTm/lastTm,
+// HHMM) and "운행종료" once service has ended. Departing now: a route showing
+// 운행종료 at the boarding stop is dropped. Departing later/earlier: the
+// first/last times decide. No fixed hours, so special-day night buses
+// (e.g. an N bus still running at 6:00) follow the real data.
+function plannerHHMM(v){const m=String(v||'').match(/^(\d{2})(\d{2})/);return m?Number(m[1])*60+Number(m[2]):null;}
+function plannerWithinService(first,last,date){
+  const f=plannerHHMM(first),l=plannerHHMM(last);if(f==null||l==null)return true;
+  const t=date.getHours()*60+date.getMinutes(),end=(l+60)%1440,start=(f-10+1440)%1440;  // last bus still travelling ~1 h
+  return start<=end?(t>=start&&t<=end):(t>=start||t<=end);
+}
+async function plannerOperatingFilter(paths){
+  const depart=plannerDepartureDate(),isNow=Math.abs(depart.getTime()-Date.now())<15*60000;
+  const times=new Map(),stopMsg=new Map(),checked=new Set();
+  const ok=(name,node)=>{
+    if(isNow){const m=stopMsg.get(node+'|'+name);if(m!=null)return !/운행종료/.test(m);}
+    const t=times.get(name);return t?plannerWithinService(t.first,t.last,depart):true;
+  };
+  const keep=p=>p.legs.every(l=>ok(String(l.data.route.name),String(l.data.route.nodes[l.start])));
+  for(let round=0;round<3;round++){
+    plannerPaths=paths;
+    const nodes=[...new Set(plannerDisplayPaths().flatMap(p=>p.legs.flatMap(l=>(l.routeOptions||[l]).map(o=>String(o.data.route.nodes[o.start])))))].filter(n=>!checked.has(n)).slice(0,14);
+    if(!nodes.length)break;
+    await Promise.all(nodes.map(async n=>{
+      checked.add(n);
+      try{for(const it of await plannerArrivalsAt(n)){const name=String(it.rtNm);stopMsg.set(n+'|'+name,String(it.arrmsg1||''));if(it.firstTm||it.lastTm)times.set(name,{first:it.firstTm,last:it.lastTm});}}catch(e){}
+    }));
+    const before=paths.length;paths=paths.filter(keep);
+    if(paths.length===before&&round>0)break;
+  }
+  return paths.filter(keep);
 }
 async function plannerEnhanceTransferCards(paths){
   await Promise.all(paths.slice(0,10).map(async(path,i)=>{
@@ -995,9 +1025,14 @@ if(typeof document!=='undefined'){
     await new Promise(resolve=>setTimeout(resolve,0));
     if(revision!==plannerSearchRevision)return;
     try{
-      plannerPaths=plannerViaIndex==null?
+      const found=plannerViaIndex==null?
         plannerFindPaths(plannerFromIndex,plannerToIndex):
         plannerFindViaPaths(plannerFromIndex,plannerViaIndex,plannerToIndex);
+      plannerMapStatus='운행 중인 버스 확인 중…';plannerUpdateNote();
+      const running=await plannerOperatingFilter(found);
+      if(revision!==plannerSearchRevision)return;
+      plannerPaths=running;
+      plannerMapStatus=running.length<found.length?'운행하지 않는 버스는 뺐습니다':'';
       plannerSearched=true;
     }catch(error){
       plannerPaths=[];
