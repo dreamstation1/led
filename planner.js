@@ -16,7 +16,10 @@ function plannerClimateRoute(route){
   return route?.region!=='gyeonggi' && !String(route?.id||'').startsWith('G') &&
     ['마을','지선','간선','심야'].includes(routeCategory(route.name));
 }
+// 심야버스(N번)는 밤 11시 반쯤부터 새벽까지만 다닌다. 출발 시각이 그 밖이면 경로에 넣지 않는다.
+function plannerNightBusTime(date){const m=date.getHours()*60+date.getMinutes();return m>=23*60||m<5*60+30;}
 function plannerRouteAllowed(route){
+  if(typeof routeCategory==='function'&&routeCategory(route.name)==='심야'&&!plannerNightBusTime(plannerDepartureDate()))return false;
   return !document.getElementById('plannerClimateOnly')?.checked || plannerClimateRoute(route);
 }
 
@@ -958,7 +961,8 @@ if(typeof document!=='undefined'){
   plannerInitField('from');plannerInitField('via');plannerInitField('to');
   const departure=document.getElementById('plannerDeparture');
   const now=new Date(Date.now()-new Date().getTimezoneOffset()*60000);departure.value=now.toISOString().slice(0,16);
-  departure.addEventListener('change',()=>{if(plannerSearched)plannerRender();});
+  // night buses depend on the departure time, so search again when it changes
+  departure.addEventListener('change',()=>{if(plannerSearched)document.getElementById('plannerSearch').click();});
   document.querySelectorAll('.planner-map-pick').forEach(btn=>btn.onclick=()=>{
     plannerPickKind=btn.dataset.kind;
     document.getElementById('plannerPanel').classList.remove('open');
