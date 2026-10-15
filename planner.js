@@ -294,9 +294,17 @@ async function plannerArrivalsAt(node){
   if(old&&Date.now()-old.at<15000)return old.data;
   const data=await fetchStopArrivals(stop.ars);plannerArrivalCache.set(key,{at:Date.now(),data});return data;
 }
+// Which of the wanted route names an arrival item belongs to: by name, or by the
+// shared route id (Gyeonggi buses arrive as e.g. "700부천", our name is "경기 700 · 정방향").
+function plannerItemName(item,wanted){
+  const n=String(item?.rtNm||'');if(wanted.has(n))return n;
+  const ids=typeof ROUTE_NAMES_BY_API_ID!=='undefined'?ROUTE_NAMES_BY_API_ID.get(String(item?.busRouteId||'')):null;
+  if(ids)for(const w of ids)if(wanted.has(w))return w;
+  return null;
+}
 function plannerRouteArrivalTimes(items,names){
   const wanted=new Set(names.map(String)),times=[];
-  for(const item of items){if(!wanted.has(String(item.rtNm)))continue;const nums=Object.keys(item).map(k=>{const m=k.match(/^arrmsg(\d+)$/);return m?Number(m[1]):0;}).filter(n=>n>0);if(!nums.length)nums.push(1);for(const n of [...new Set(nums)]){const value=plannerArrivalTime(item,n);if(value!=null)times.push(value);}}
+  for(const item of items){if(!plannerItemName(item,wanted))continue;const nums=Object.keys(item).map(k=>{const m=k.match(/^arrmsg(\d+)$/);return m?Number(m[1]):0;}).filter(n=>n>0);if(!nums.length)nums.push(1);for(const n of [...new Set(nums)]){const value=plannerArrivalTime(item,n);if(value!=null)times.push(value);}}
   return times.sort((a,b)=>a-b);
 }
 function plannerDepartureDate(){
@@ -307,18 +315,18 @@ function plannerDepartureDate(){
 function plannerClock(date){return date.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false});}
 function plannerMatchingArrival(items,names){
   const wanted=new Set(names.map(String));
-  return items.find(item=>wanted.has(String(item.rtNm)))||null;
+  return items.find(item=>plannerItemName(item,wanted))||null;
 }
 function plannerArrivalCandidates(items,names){
   const wanted=new Set(names.map(String)),out=[];
   for(const item of items){
-    if(!wanted.has(String(item.rtNm)))continue;
-    const vehicles=typeof orderedArrivalVehicles==='function'?orderedArrivalVehicles(item.rtNm,item):[];
+    const route=plannerItemName(item,wanted);if(!route)continue;
+    const vehicles=typeof orderedArrivalVehicles==='function'?orderedArrivalVehicles(route,item):[];
     if(vehicles.length){
-      for(const vehicle of vehicles){const sec=plannerArrivalTime(item,vehicle.n);if(sec!=null)out.push({item,vehicle,sec,route:String(item.rtNm),n:vehicle.n});}
+      for(const vehicle of vehicles){const sec=plannerArrivalTime(item,vehicle.n);if(sec!=null)out.push({item,vehicle,sec,route,n:vehicle.n});}
     }else{
       // "운행종료" (service ended) is not a bus anyone can take, even if its time field reads 0
-      const sec=/운행종료/.test(String(item.arrmsg1||''))?null:plannerArrivalTime(item,1);if(sec!=null)out.push({item,vehicle:null,sec,route:String(item.rtNm),n:1});
+      const sec=/운행종료/.test(String(item.arrmsg1||''))?null:plannerArrivalTime(item,1);if(sec!=null)out.push({item,vehicle:null,sec,route,n:1});
     }
   }
   return out.sort((a,b)=>a.sec-b.sec);
@@ -333,7 +341,8 @@ function plannerVehicleBadges(routeName,item,n=1){
   const crowd=!isVillageRouteName(routeName)&&vehicle.crowd?`<span class="route-live-badge ${congestionBadgeClass(vehicle.crowd)}">${esc(congestionLabel(vehicle.crowd))}</span>`:'';
   const type=vehicle.type?`<span class="route-live-badge ${vehicle.type==='저상'?'type-low':''}">${vehicle.type==='저상'?'♿ ':''}${esc(vehicle.type)}</span>`:'';
   const reserve=vehicle.reserve?'<span class="planner-reserve">예비차</span>':'';
-  return `${crowd}${type}${reserve}`;
+  const seats=typeof seatBadgeHtml==='function'?seatBadgeHtml(vehicle.seats):'';
+  return `${seats}${crowd}${type}${reserve}`;
 }
 // Which bus option of a leg carries this route name (stop counts differ per route).
 function plannerLegOption(base,routeName){
@@ -452,7 +461,7 @@ async function plannerOperatingFilter(paths){
     if(!nodes.length)break;
     await Promise.all(nodes.map(async n=>{
       checked.add(n);
-      try{for(const it of await plannerArrivalsAt(n)){const name=String(it.rtNm);stopMsg.set(n+'|'+name,String(it.arrmsg1||''));if(it.firstTm||it.lastTm)times.set(name,{first:it.firstTm,last:it.lastTm});}}catch(e){}
+      try{for(const it of await plannerArrivalsAt(n)){const ours=typeof ROUTE_NAMES_BY_API_ID!=='undefined'?ROUTE_NAMES_BY_API_ID.get(String(it.busRouteId||'')):null;for(const name of new Set([String(it.rtNm),...(ours||[])])){stopMsg.set(n+'|'+name,String(it.arrmsg1||''));if(it.firstTm||it.lastTm)times.set(name,{first:it.firstTm,last:it.lastTm});}}}catch(e){}
     }));
     const before=paths.length;paths=paths.filter(keep);
     if(paths.length===before&&round>0)break;
