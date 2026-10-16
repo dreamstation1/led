@@ -20,6 +20,7 @@ function plannerRouteAllowed(route){
   return !document.getElementById('plannerClimateOnly')?.checked || plannerClimateRoute(route);
 }
 
+function plannerVirtualNode(node){return /\(가상\)/.test(STOPS[STOP_BY_NODE.get(String(node))]?.name||'');}
 function plannerLegNodes(leg){return leg.data.route.nodes.slice(leg.start,leg.end+1).map(String);}
 function plannerCorridor(legs){return legs.flatMap((leg,i)=>plannerLegNodes(leg).slice(i?1:0)).join('>');}
 function plannerPathKey(path){return path.legs.map(leg=>plannerLegNodes(leg).join('>')).join('|');}
@@ -120,6 +121,9 @@ function plannerFindPaths(fromIndex,toIndex,options={}){
       if(later!=null)betterEnd={position:later,walk:nearbyEnd.walk};
     }
     if(betterEnd.position!==last.end){last.end=betterEnd.position;endWalk=betterEnd.walk;}
+    // "(가상)" stops are routing-only waypoints: buses never stop there, so no
+    // itinerary may board, transfer or get off at one.
+    if(legs.some(l=>plannerVirtualNode(l.data.route.nodes[l.start])||plannerVirtualNode(l.data.route.nodes[l.end])))return;
     const walk=startWalk+endWalk;
     const nodes=legs.flatMap((leg,i)=>plannerLegNodes(leg).slice(i?1:0));
     // A route may contain a loop, but riding past the requested destination or
