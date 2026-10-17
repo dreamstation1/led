@@ -789,6 +789,7 @@ body.light-ui .route{color:#fff}
 .bus-popup-head{display:flex;align-items:center;gap:10px;justify-content:space-between}
 .bus-popup-head .popup-name{min-width:0}
 #locBtn.following{background:#ff5a36;border-color:#ff5a36;color:#fff}
+.led-log{margin-top:6px;font-size:12px;color:#aeb9c8}.led-log summary{cursor:pointer}.led-log pre{margin:4px 0 0;max-height:220px;overflow:auto;white-space:pre-wrap;background:#11151b;border:1px solid #2b3340;border-radius:6px;padding:6px;font-size:11px;line-height:1.45}
 .bus-follow-btn{width:34px;height:34px;flex:0 0 34px;padding:0;border-radius:50%;border:1px solid #465063;background:#202630;color:#aeb9c8;font-size:17px;cursor:pointer}
 .bus-follow-btn.on{background:#ff5a36;border-color:#ff5a36;color:#fff;box-shadow:0 0 0 3px rgba(255,90,54,.22)}
 .cctv-map-icon{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#15202b;border:2px solid #55b8ff;box-shadow:0 2px 7px rgba(0,0,0,.55);font-size:16px;cursor:pointer}
@@ -3321,6 +3322,7 @@ async function ledDisconnect(){
   }
   renderGuideBar();
 }
+let ledReadBuffer='';
 async function ledReadLoop(){
   // Just drains the sign's status lines (ROUTE_OK=, CFG_OK=, ...) to the
   // console so a connection issue is debuggable - the app doesn't need to
@@ -3334,7 +3336,11 @@ async function ledReadLoop(){
     while(ledConnected && ledMode==='usb'){
       const {value,done}=await reader.read();
       if(done)break;
-      if(value)console.log('[전광판]',decoder.decode(value));
+      if(value){
+        const text=decoder.decode(value);console.log('[전광판]',text);
+        ledReadBuffer+=text;const lines=ledReadBuffer.split(/\r?\n/);ledReadBuffer=lines.pop();
+        lines.filter(Boolean).forEach(l=>ledLogAdd('←',l.slice(0,60)));
+      }
     }
     reader.releaseLock();
   }catch(e){}
@@ -3351,8 +3357,22 @@ async function ledReadLoop(){
 // only starts once the previous one has actually finished (sent or failed),
 // so nothing overlaps - callers don't need to change how they call this.
 let ledSendChain=Promise.resolve();
+// Last few commands sent and lines the sign answered, shown under 실물 전광판
+// ("전광판 통신 기록") so a stop that stays dark can be traced to either side.
+const ledLog=[];let ledLogOpen=false;
+function ledLogAdd(dir,text){
+  const now=new Date(),t=[now.getHours(),now.getMinutes(),now.getSeconds()].map(n=>String(n).padStart(2,'0')).join(':');
+  ledLog.push(t+' '+dir+' '+text);
+  while(ledLog.length>14)ledLog.shift();
+  const box=document.getElementById('ledLogBox');if(box)box.textContent=ledLog.join('\n');
+}
+function ledLogLabel(line){
+  const m=/^I:(\d+)$/.exec(line),s=m&&currentGuideStops?.[Number(m[1])];
+  return s?line+' ('+s.name+')':line.length>48?line.slice(0,48)+'…':line;
+}
 function ledSendLine(line){
   const result=ledSendChain.then(()=>ledSendLineRaw(line));
+  result.then(ok=>ledLogAdd('→',ledLogLabel(line)+(ok?'':' ✗ 전송 실패')),e=>ledLogAdd('→',ledLogLabel(line)+' ✗ '+(e?.message||e)));
   ledSendChain=result.catch(()=>{}); // keep the chain alive even if this send failed
   return result;
 }
@@ -3849,6 +3869,7 @@ function renderGuideBar(){
       <div class="guide-speed-row">
         <button type="button" id="ledConnectBtn" class="guide-btn ghost">연결 해제</button>
       </div>
+      <details class="led-log" ${ledLogOpen?'open':''} ontoggle="ledLogOpen=this.open"><summary>전광판 통신 기록 (→ 보낸 명령 · ← 전광판 응답)</summary><pre id="ledLogBox">${esc(ledLog.join('\n'))}</pre></details>
       `:`
       <div class="guide-speed-row">
         <button type="button" id="ledConnectBtn" class="guide-btn primary" ${'serial' in navigator?'':'disabled title="Web Serial은 데스크톱 Chrome/Edge에서만 지원됩니다"'}>${'serial' in navigator?'USB로 연결':'USB는 PC Chrome 전용'}</button>
