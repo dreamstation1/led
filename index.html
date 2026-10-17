@@ -4107,10 +4107,12 @@ function officialStopEn(name){
 }
 async function translateStationName(name){
   if(!name)return name;
-  if(STOP_TEXT_EN[name])return STOP_TEXT_EN[name];
   if(stationTranslateCache.has(name))return stationTranslateCache.get(name);
+  // The official English list always wins; the hand-written table below only
+  // fills names the list does not have.
   const official=await officialStopEn(name);
   if(official){stationTranslateCache.set(name,official);return official;}
+  if(STOP_TEXT_EN[name])return STOP_TEXT_EN[name];
   // "(중)" only marks a median-lane stop; machine translation reads it as "(Middle)".
   if(/\(중\)$/.test(name)){const result=await translateStationName(name.replace(/\s*\(중\)$/,''));stationTranslateCache.set(name,result);return result;}
   if(name.includes('까치산시장')){
