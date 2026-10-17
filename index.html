@@ -3457,8 +3457,19 @@ async function ledUploadRoute(){
 // sign should stay blank until the guide/sim actually starts), only from
 // startGuideSim()/startGuideLive() (the chosen start stop) and
 // onGuidePosition() (the stop being approached/arrived at).
+// Over WiFi each command is a fire-and-forget POST whose result can't be read
+// back, and the sign's small HTTP server now and then misses one - that stop
+// then never lights up while the next one is fine again. "I:" is absolute and
+// idempotent, so the same index is simply sent again a little later; a newer
+// index cancels the pending repeats.
+let ledIndexWanted=null,ledIndexRepeatTimers=[];
 async function ledSetIndex(idx){
   if(!ledConnected)return;
+  ledIndexWanted=idx;
+  ledIndexRepeatTimers.forEach(clearTimeout);ledIndexRepeatTimers=[];
+  if(ledMode==='wifi'||ledMode==='bridge'){
+    ledIndexRepeatTimers=[1500,4500].map(ms=>setTimeout(()=>{if(ledConnected&&ledIndexWanted===idx)ledSendLine('I:'+idx);},ms));
+  }
   await ledSendLine('I:'+idx);
 }
 
