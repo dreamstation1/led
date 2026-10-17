@@ -799,6 +799,10 @@ body.light-ui .route{color:#fff}
 .planner-nav-actions .planner-bus-toggle{display:inline-block;width:auto;margin:0;padding:6px 10px}
 .planner-bus-toggle.on{background:#2962ff;border-color:#2962ff;color:#fff}
 .planner-bus-icon{background:none;border:0}
+.planner-bus-icon.glow span{font-size:14px;padding:3px 9px;border-width:3px;animation:plannerBusGlow 1.1s ease-in-out infinite}
+@keyframes plannerBusGlow{0%,100%{box-shadow:0 0 0 0 var(--c),0 0 8px 2px var(--c);filter:brightness(1)}50%{box-shadow:0 0 0 9px rgba(255,255,255,0),0 0 22px 9px var(--c);filter:brightness(1.25)}}
+.planner-bus-flow{animation:plannerBusFlow .9s linear infinite}
+@keyframes plannerBusFlow{to{stroke-dashoffset:-18}}
 .planner-bus-icon span{display:inline-block;transform:translate(-50%,-50%);padding:2px 7px;border-radius:11px;border:2px solid #fff;color:#111;font:700 12px/1.3 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 5px rgba(0,0,0,.45)}
 .bus-follow-btn{width:34px;height:34px;flex:0 0 34px;padding:0;border-radius:50%;border:1px solid #465063;background:#202630;color:#aeb9c8;font-size:17px;cursor:pointer}
 .bus-follow-btn.on{background:#ff5a36;border-color:#ff5a36;color:#fff;box-shadow:0 0 0 3px rgba(255,90,54,.22)}
@@ -4810,7 +4814,7 @@ function stopGuide(){
 }
 
 </script>
-<script src="planner.js?v=20261018-1"></script>
+<script src="planner.js?v=20261018-3"></script>
 <script src="./mobile-patch.js?v=64"></script>
 <script src="./traffic-map-patch.js?v=81"></script>
 <script src="./utic-map-patch.js?v=73"></script>
