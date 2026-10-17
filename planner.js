@@ -561,6 +561,8 @@ async function plannerRestoreState(){
 function plannerCloseDetail(){document.getElementById('plannerDetail')?.classList.remove('open');plannerSaveState();}
 function plannerOpenDetail(path,index){
   const panel=document.getElementById('plannerDetail');if(!panel)return;
+  plannerDetailPath=path;
+  if(plannerBusOn&&!plannerActiveTrip&&plannerBusPath!==path){plannerBusPath=path;plannerBusRefresh();}
   const names=path.legs.map(l=>plannerLegNames(l).join(' · ')).join(' → ');
   const depart=plannerDepartureDate(),arrive=new Date(depart.getTime()+path.minutes*60000);
   const origin=path.fromPlace||STOPS[path.fromIndex],destination=path.toPlace||STOPS[path.toIndex];
@@ -576,7 +578,7 @@ function plannerOpenDetail(path,index){
     timeline.push(`<div class="planner-detail-step bus ${routeClass}"><b>${i?'환승':'승차'} ${esc(start)}</b><div class="planner-route-pick"><span>탈 노선 선택 · 선택하지 않으면 위치로 자동 확인</span><div class="planner-route-choices">${choices}</div></div><span>다음 정류소 ${esc(direction)} 방향 · ${active.end-active.start}정류소</span><em>하차 ${esc(end)}</em><div class="planner-stop-variants">${variants}</div></div>`);
   });
   if(destination&&alight&&hav(destination.lat,destination.lng,alight.lat,alight.lng)>15)timeline.push(`<div class="planner-detail-step walk"><b>${esc(destination.name||'목적지')}</b><span>🚶 하차 후 도보 약 ${fmtDist(hav(destination.lat,destination.lng,alight.lat,alight.lng))}</span></div>`);
-  panel.innerHTML=`<div class="planner-detail-head"><div><strong>${esc(names)}</strong><small>${plannerClock(depart)}~${plannerClock(arrive)} · 약 ${path.minutes}분 · 약 ${fmtDist(path.distance)}</small><small>도보 약 ${fmtDist(path.walk)} · ${path.transfers?'환승 '+path.transfers+'회':'환승 없음'} · ${path.stopCount}정류소${climate?' · 🌱 기후동행카드 가능':''}</small></div><button type="button" aria-label="상세 닫기">×</button></div><div class="planner-detail-timeline ${plannerRouteClass(first.data.route.name)}">${timeline.join('')}</div><h3>실시간 탑승 정보</h3><div class="planner-live-head"><span class="planner-live-stamp">불러오는 중…</span><button type="button" class="planner-live-refresh">🔄 새로고침</button></div><div class="planner-live-detail">실시간 도착정보 확인 중…</div>${path.transfers?'<div class="planner-live warn">실시간 환승 확률 계산 중…</div>':''}<button type="button" class="planner-start-guide">이 경로로 실시간 길찾기 시작</button>`;
+  panel.innerHTML=`<div class="planner-detail-head"><div><strong>${esc(names)}</strong><small>${plannerClock(depart)}~${plannerClock(arrive)} · 약 ${path.minutes}분 · 약 ${fmtDist(path.distance)}</small><small>도보 약 ${fmtDist(path.walk)} · ${path.transfers?'환승 '+path.transfers+'회':'환승 없음'} · ${path.stopCount}정류소${climate?' · 🌱 기후동행카드 가능':''}</small></div><button type="button" aria-label="상세 닫기">×</button></div><div class="planner-detail-timeline ${plannerRouteClass(first.data.route.name)}">${timeline.join('')}</div><h3>실시간 탑승 정보</h3><div class="planner-live-head"><span class="planner-live-stamp">불러오는 중…</span><button type="button" class="planner-live-refresh">🔄 새로고침</button></div>${plannerBusButton()}<div class="planner-live-detail">실시간 도착정보 확인 중…</div>${path.transfers?'<div class="planner-live warn">실시간 환승 확률 계산 중…</div>':''}<button type="button" class="planner-start-guide">이 경로로 실시간 길찾기 시작</button>`;
   panel.classList.add('open');panel.querySelector('.planner-detail-head button').onclick=plannerCloseDetail;panel.querySelector('.planner-start-guide').onclick=()=>plannerStartTrip(path);
   panel.querySelector('.planner-live-refresh').onclick=()=>{plannerArrivalCache.clear();panel.querySelector('.planner-live-stamp').textContent='새로고침 중…';plannerEnhanceDetail(path);};
   panel.querySelectorAll('.planner-route-choice').forEach(button=>button.onclick=()=>{const leg=path.legs[Number(button.dataset.legIndex)];leg.selectedRouteId=String(leg.selectedRouteId||'')===button.dataset.routeId?'':button.dataset.routeId;plannerDraw(path);plannerOpenDetail(path,index);});
@@ -810,9 +812,105 @@ function plannerInitField(kind){
   });
 }
 
+// ---- live positions of the buses to catch (planner detail + trip banner) ----
+// Rainbow colours, one per route, so buses of different routes can't be confused
+// with each other or with the planner's own leg lines.
+const PLANNER_BUS_COLORS=['#ff1744','#ff9100','#ffd600','#00e676','#00b0ff','#2962ff','#d500f9','#ff4081'];
+const PLANNER_BUS_REFRESH_MS=15000;
+let plannerBusOn=false,plannerBusTimer=null,plannerBusLayer=null,plannerBusPath=null,plannerBusInfo='',plannerDetailPath=null;
+// Which legs to show: during a trip only the bus to catch next (the current leg
+// before boarding, the transfer leg while riding); otherwise every leg.
+function plannerBusTargets(path){
+  const trip=plannerActiveTrip&&plannerActiveTrip.path===path?plannerActiveTrip:null;
+  let legs=path.legs.map((_,i)=>i);
+  if(trip)legs=[trip.phase==='riding'?Math.min(trip.legIndex+1,path.legs.length-1):trip.legIndex];
+  const out=[];
+  for(const i of legs){
+    const base=path.legs[i],sel=plannerSelectedOption(base);
+    for(const option of (sel?[sel]:(base.routeOptions||[base])))out.push({leg:i,option});
+  }
+  return out;
+}
+// Position of a vehicle along the route: its last passed stop, taking the
+// occurrence before the boarding stop on loop routes.
+function plannerVehicleIndex(route,v,board){
+  const last=String(v.lastStnId||'');let best=null;
+  route.nodes.forEach((n,i)=>{if(String(n)===last&&(best==null||i<=board))best=i;});
+  if(best==null){const ord=parseInt(v.sectOrd,10);if(Number.isFinite(ord)&&ord>=1)best=ord-1;}
+  return best;
+}
+async function plannerBusRefresh(){
+  const path=plannerBusPath;if(!plannerBusOn||!path||typeof fetchBusPositions!=='function')return;
+  const targets=plannerBusTargets(path),names=[...new Set(targets.map(t=>t.option.data.route.name))];
+  const color=name=>PLANNER_BUS_COLORS[names.indexOf(name)%PLANNER_BUS_COLORS.length];
+  const results=await Promise.allSettled(targets.map(t=>fetchBusPositions(t.option.data.route.id)));
+  if(!plannerBusOn||plannerBusPath!==path)return;
+  if(!plannerBusLayer)plannerBusLayer=L.layerGroup().addTo(map);
+  plannerBusLayer.clearLayers();
+  const lines=[];let failed='';
+  targets.forEach((t,k)=>{
+    const route=t.option.data.route,board=t.option.start,c=color(route.name),boardName=plannerStopName(route.nodes[board]);
+    const r=results[k];
+    // The API answers "no result" (code 4) when no bus of the route is running.
+    if(r.status!=='fulfilled'&&/노선을 찾을 수 없습니다/.test(r.reason?.message||'')){lines.push(`<span style="color:${c}">●</span> <b>${esc(route.name)}번</b> · 지금 운행 중인 차 없음`);return;}
+    if(r.status!=='fulfilled'){failed=r.reason?.message||'위치를 불러오지 못했습니다';lines.push(`<span style="color:${c}">●</span> ${esc(route.name)}번 · 위치를 못 불러옴`);return;}
+    const coming=[];
+    for(const v of r.value){
+      const lat=Number(v.gpsY),lng=Number(v.gpsX);if(!Number.isFinite(lat)||!Number.isFinite(lng))continue;
+      const at=plannerVehicleIndex(route,v,board),left=at==null?null:board-at;
+      if(left!=null&&(left<0||left>45))continue; // already passed, or far away
+      coming.push({v,lat,lng,left});
+    }
+    coming.sort((a,b)=>(a.left??99)-(b.left??99));
+    coming.forEach(n=>{
+      const plate=plannerVehicleNumber(n.v.plainNo),when=n.left==null?'':n.left===0?'곧 도착':`${n.left}정류장 전`;
+      L.marker([n.lat,n.lng],{zIndexOffset:950,icon:L.divIcon({className:'planner-bus-icon',html:`<span style="background:${c}">${esc(route.name)}</span>`,iconSize:null})})
+        .bindPopup(`<b>${esc(route.name)}번</b> ${esc(plate)}<br>${esc(boardName)}까지 ${esc(when||'위치 확인 중')}`).addTo(plannerBusLayer);
+    });
+    const soon=coming.slice(0,2).map(n=>n.left==null?'위치 확인 중':n.left===0?'곧 도착':n.left+'정류장 전').join(', ');
+    lines.push(`<span style="color:${c}">●</span> <b>${esc(route.name)}번</b> → ${esc(boardName)} · ${soon||'오는 차 없음'}`);
+  });
+  const now=new Date();
+  plannerBusInfo=lines.join('<br>')+`<small>${plannerClock(now)}:${String(now.getSeconds()).padStart(2,'0')} 갱신 · 15초마다${failed?' · '+esc(failed):''}</small>`;
+  plannerBusUi();
+}
+function plannerBusUi(){
+  if(typeof document==='undefined')return;
+  document.querySelectorAll('.planner-bus-toggle').forEach(b=>{b.classList.toggle('on',plannerBusOn);b.textContent=plannerBusOn?'🚌 실시간 버스 위치 끄기':'🚌 실시간 버스 위치';});
+  let box=document.getElementById('plannerBusBox');
+  if(!box){
+    box=document.createElement('div');box.id='plannerBusBox';
+    (document.getElementById('mapWrap')||document.body).appendChild(box);
+    box.addEventListener('click',e=>{if(e.target.closest('[data-bus-off]'))plannerBusSet(false);});
+  }
+  box.hidden=!plannerBusOn;
+  if(plannerBusOn)box.innerHTML=`<div class="planner-bus-head"><b>실시간 버스 위치</b><button type="button" data-bus-off aria-label="끄기">끄기</button></div><div class="planner-bus-lines">${plannerBusInfo||'불러오는 중…'}</div>`;
+}
+function plannerBusSet(on,path){
+  plannerBusOn=!!on;clearInterval(plannerBusTimer);plannerBusTimer=null;
+  if(plannerBusOn){
+    plannerBusPath=path||plannerBusPath;plannerBusInfo='';
+    plannerBusRefresh();plannerBusTimer=setInterval(plannerBusRefresh,PLANNER_BUS_REFRESH_MS);
+  }else{
+    plannerBusPath=null;
+    if(plannerBusLayer&&typeof map!=='undefined')map.removeLayer(plannerBusLayer);
+    plannerBusLayer=null;
+  }
+  plannerBusUi();
+}
+function plannerBusButton(){return `<button type="button" class="planner-bus-toggle${plannerBusOn?' on':''}">${plannerBusOn?'🚌 실시간 버스 위치 끄기':'🚌 실시간 버스 위치'}</button>`;}
+if(typeof document!=='undefined')document.addEventListener('click',e=>{
+  const b=e.target.closest?.('.planner-bus-toggle');if(!b)return;
+  const path=b.closest('#plannerNav')?plannerActiveTrip?.path:plannerDetailPath;
+  if(plannerBusOn&&(!path||path===plannerBusPath))plannerBusSet(false);
+  else if(path)plannerBusSet(true,path);
+});
+
 function plannerStopTrip(){
   if(plannerTripWatch!=null&&navigator.geolocation)navigator.geolocation.clearWatch(plannerTripWatch);
-  plannerTripWatch=null;clearInterval(plannerTripTimer);plannerTripTimer=null;plannerActiveTrip=null;
+  plannerTripWatch=null;clearInterval(plannerTripTimer);plannerTripTimer=null;
+  if(plannerBusOn&&plannerActiveTrip&&plannerBusPath===plannerActiveTrip.path)plannerBusSet(false);
+  plannerActiveTrip=null;
   const box=document.getElementById('plannerNav');if(box)box.hidden=true;
   plannerSaveState();
 }
@@ -913,7 +1011,7 @@ function plannerTripRender(trip,extra){
   if(trip.phase==='waiting'||trip.phase==='walk')buttons.push('<button type="button" data-act="board">🚌 탔어요</button><input type="text" inputmode="numeric" maxlength="4" placeholder="차량번호 4자리" class="planner-nav-plate"><button type="button" data-act="plate">번호로 설정</button>');
   if(trip.phase==='riding')buttons.push('<button type="button" data-act="unboard">아직 안 탔어요</button>');
   const veh=v.choiceNav?`<span class="planner-veh-nav">${v.choiceNav}</span>`:'';
-  box.innerHTML=`<strong>${trip.phase==='done'?'도착':'실시간 길찾기'} · ${esc(v.text||'')}</strong><small>${v.live||'현재 위치와 버스 위치로 탑승·하차를 자동 확인합니다.'}${veh}</small>${extra?`<small class="planner-nav-warn">${esc(extra)}</small>`:''}<small class="planner-nav-stamp">${esc(v.stamp||'')}</small><div class="planner-nav-actions">${buttons.join('')}<button type="button" data-act="refresh" title="지금 새로고침">🔄</button><button type="button" class="planner-nav-stop" data-act="stop">종료</button></div>`;
+  box.innerHTML=`<strong>${trip.phase==='done'?'도착':'실시간 길찾기'} · ${esc(v.text||'')}</strong><small>${v.live||'현재 위치와 버스 위치로 탑승·하차를 자동 확인합니다.'}${veh}</small>${extra?`<small class="planner-nav-warn">${esc(extra)}</small>`:''}<small class="planner-nav-stamp">${esc(v.stamp||'')}</small><div class="planner-nav-actions">${buttons.join('')}${plannerBusButton()}<button type="button" data-act="refresh" title="지금 새로고침">🔄</button><button type="button" class="planner-nav-stop" data-act="stop">종료</button></div>`;
   box.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{
     const act=b.dataset.act;
     if(act==='stop')plannerStopTrip();
@@ -1065,6 +1163,7 @@ function plannerStartTrip(path){
   if(!navigator.geolocation){box.innerHTML='<strong>이 기기에서는 위치를 사용할 수 없습니다.</strong>';return;}
   plannerTripWatch=navigator.geolocation.watchPosition(plannerUpdateTrip,()=>{const b=document.getElementById('plannerNav');b.hidden=false;b.innerHTML='<strong>현재 위치를 확인하지 못했습니다.</strong><small>브라우저 위치 권한을 확인해 주세요.</small><button type="button" class="planner-nav-stop">길찾기 종료</button>';b.querySelector('button').onclick=plannerStopTrip;},{enableHighAccuracy:true,maximumAge:3000,timeout:12000});
   plannerTripTimer=setInterval(()=>plannerUpdateTrip(),8000);
+  if(plannerBusOn)plannerBusPath=path;
   mapFollowSet(true);
   plannerSaveState();
 }
