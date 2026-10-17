@@ -521,6 +521,7 @@ function plannerSaveState(){
       selected:sel?plannerPathKey(sel):null,routeChoice:sel?sel.legs.map(l=>l.selectedRouteId||''):null,
       panel:!!document.getElementById('plannerPanel')?.classList.contains('open'),
       detail:!!document.getElementById('plannerDetail')?.classList.contains('open'),
+      bus:plannerBusOn?(trip&&plannerBusPath===trip.path?'trip':'detail'):null,
       trip:trip?{key:plannerPathKey(trip.path),routeChoice:trip.path.legs.map(l=>l.selectedRouteId||''),legIndex:trip.legIndex,phase:trip.phase,
         offsets:trip.offsets,currentBus:trip.currentBus,transferPlate:trip.transferPlate||null,alerts:[...trip.alerts],doneNotified:!!trip.doneNotified}:null
     }));
@@ -555,6 +556,8 @@ async function plannerRestoreState(){
       Object.assign(plannerActiveTrip,{legIndex:Math.min(st.trip.legIndex||0,p.legs.length-1),phase:st.trip.phase||'walk',offsets:st.trip.offsets||{},
         currentBus:st.trip.currentBus||null,transferPlate:st.trip.transferPlate||null,alerts:new Set(st.trip.alerts||[]),doneNotified:!!st.trip.doneNotified});
     }
+    if(st.bus==='trip'&&plannerActiveTrip)plannerBusSet(true,plannerActiveTrip.path);
+    else if(st.bus==='detail'&&plannerDetailPath)plannerBusSet(true,plannerDetailPath);
   }catch(e){console.warn('길찾기 상태 복원 실패',e);}
   finally{plannerRestoring=false;plannerSaveState();}
 }
@@ -562,7 +565,7 @@ function plannerCloseDetail(){document.getElementById('plannerDetail')?.classLis
 function plannerOpenDetail(path,index){
   const panel=document.getElementById('plannerDetail');if(!panel)return;
   plannerDetailPath=path;
-  if(plannerBusOn&&!plannerActiveTrip&&plannerBusPath!==path){plannerBusPath=path;plannerBusRefresh();}
+  if(plannerBusOn&&!plannerActiveTrip&&plannerBusPath!==path){plannerBusPath=path;plannerBusBusy=false;plannerBusRefreshNow();}
   const names=path.legs.map(l=>plannerLegNames(l).join(' · ')).join(' → ');
   const depart=plannerDepartureDate(),arrive=new Date(depart.getTime()+path.minutes*60000);
   const origin=path.fromPlace||STOPS[path.fromIndex],destination=path.toPlace||STOPS[path.toIndex];
@@ -848,8 +851,8 @@ function plannerBusWanted(path,leg){
   if(trip.phase!=='riding'&&leg===trip.legIndex)return plannerPlateOf(trip.liveChoice)||'';
   return '';
 }
-// Road the bus still has to drive to the boarding stop, as a bright rainbow
-// band (white casing + hue sweep + moving white dashes toward the stop).
+// Road the bus still has to drive to the boarding stop, as a glowing white
+// band with dashes in the route colour moving toward the stop.
 // Own panes above every other marker (signals, CCTV...) so nothing hides them.
 let plannerBusRenderer=null;
 function plannerBusPanes(){
@@ -857,18 +860,14 @@ function plannerBusPanes(){
   if(!plannerBusRenderer)plannerBusRenderer=L.svg({pane:'plannerBusLine'});
   return {pane:'plannerBusLine',renderer:plannerBusRenderer};
 }
-function plannerRainbowLine(points,layer){
+function plannerRainbowLine(points,layer,color){
   if(!points||points.length<2)return;
   const P=plannerBusPanes();
-  L.polyline(points,{...P,color:'#fff',weight:14,opacity:.95,lineCap:'round',lineJoin:'round',interactive:false}).addTo(layer);
-  const pieces=Math.min(36,points.length-1);
-  for(let i=0;i<pieces;i++){
-    const a=Math.floor(i*(points.length-1)/pieces),b=Math.floor((i+1)*(points.length-1)/pieces);
-    L.polyline(points.slice(a,b+1),{...P,color:`hsl(${Math.round(i/Math.max(1,pieces-1)*300)},100%,50%)`,weight:9,opacity:1,lineCap:'round',lineJoin:'round',interactive:false}).addTo(layer);
-  }
-  L.polyline(points,{...P,color:'#fff',weight:3,opacity:.95,dashArray:'2 16',lineCap:'round',className:'planner-bus-flow',interactive:false}).addTo(layer);
+  L.polyline(points,{...P,color:'#fff',weight:16,opacity:.45,lineCap:'round',lineJoin:'round',className:'planner-bus-glowline',interactive:false}).addTo(layer);
+  L.polyline(points,{...P,color:'#fff',weight:7,opacity:1,lineCap:'round',lineJoin:'round',interactive:false}).addTo(layer);
+  L.polyline(points,{...P,color:color||'#2962ff',weight:3,opacity:.9,dashArray:'3 14',lineCap:'round',className:'planner-bus-flow',interactive:false}).addTo(layer);
 }
-async function plannerBusApproach(route,at,board,lat,lng,layer){
+async function plannerBusApproach(route,at,board,lat,lng,layer,color){
   if(at==null||board-at<1)return;
   try{
     let pts=await fetchBusRouteGeometry(route.id,at,board);
@@ -876,8 +875,19 @@ async function plannerBusApproach(route,at,board,lat,lng,layer){
     // start the band at the bus itself, not at the stop it last passed
     let best=0,bd=Infinity;pts.forEach((q,i)=>{const d=hav(lat,lng,q[0],q[1]);if(d<bd){bd=d;best=i;}});
     pts=[[lat,lng],...pts.slice(best)];
-    plannerRainbowLine(pts,layer);
+    plannerRainbowLine(pts,layer,color);
   }catch(e){}
+}
+function plannerBusPopup(route,v,plate,boardName,when){
+  const type=typeof busTypeLabel==='function'?busTypeLabel(String(v.busType??'').trim()):'';
+  const crowd=String(v.congetion??v.congestion??'').trim();
+  const crowdText=typeof congestionLabel==='function'?congestionLabel(crowd):crowd;
+  const crowdClass=typeof congestionBadgeClass==='function'?congestionBadgeClass(crowd):'';
+  const badges=[type?`<span class="route-live-badge${type==='저상'?' low-floor':''}">${type==='저상'?'♿ ':''}${esc(type)}</span>`:'',
+    `<span class="route-live-badge ${crowdClass}">${esc(crowdText)}</span>`,
+    String(v.isFullFlag||'')==='1'?'<span class="route-live-badge crowd-high">만차</span>':'',
+    String(v.islastyn||'')==='1'?'<span class="route-live-badge">막차</span>':''].filter(Boolean).join(' ');
+  return `<b>${esc(route.name)}번</b> ${esc(plate)}<br>${esc(boardName)}까지 ${esc(when||'위치 확인 중')}<div style="margin-top:4px">${badges}</div>`;
 }
 async function plannerBusRefresh(){
   const path=plannerBusPath;if(!plannerBusOn||!path||typeof fetchBusPositions!=='function')return;
@@ -904,12 +914,12 @@ async function plannerBusRefresh(){
     coming.sort((a,b)=>(a.left??99)-(b.left??99));
     const wantedPlate=plannerBusWanted(path,t.leg);
     const target=(wantedPlate&&coming.find(n=>String(n.v.plainNo||'').trim()===wantedPlate))||coming[0];
-    if(target)plannerBusApproach(route,target.left==null?null:board-target.left,board,target.lat,target.lng,plannerBusLayer);
+    if(target)plannerBusApproach(route,target.left==null?null:board-target.left,board,target.lat,target.lng,plannerBusLayer,c);
     coming.forEach(n=>{
       const glow=n===target;
-      const plate=plannerVehicleNumber(n.v.plainNo),when=n.left==null?'':n.left===0?'곧 도착':`${n.left}정류장 전`;
+      const plate=plannerVehicleNumber(n.v.plainNo)||String(n.v.plainNo||''),when=n.left==null?'':n.left===0?'곧 도착':`${n.left}정류장 전`;
       plannerBusPanes();L.marker([n.lat,n.lng],{pane:'plannerBusMarker',zIndexOffset:glow?990:950,icon:L.divIcon({className:'planner-bus-icon'+(glow?' glow':''),html:`<span style="background:${c};--c:${c}">${glow?'★ ':''}${esc(route.name)}</span>`,iconSize:null})})
-        .bindPopup(`<b>${esc(route.name)}번</b> ${esc(plate)}<br>${esc(boardName)}까지 ${esc(when||'위치 확인 중')}`).addTo(plannerBusLayer);
+        .bindPopup(plannerBusPopup(route,n.v,plate,boardName,when)).addTo(plannerBusLayer);
     });
     const soon=coming.slice(0,2).map(n=>n.left==null?'위치 확인 중':n.left===0?'곧 도착':n.left+'정류장 전').join(', ');
     lines.push(`<span style="color:${c}">●</span> <b>${esc(route.name)}번</b> → ${esc(boardName)} · ${soon||'오는 차 없음'}`);
@@ -925,22 +935,36 @@ function plannerBusUi(){
   if(!box){
     box=document.createElement('div');box.id='plannerBusBox';
     (document.getElementById('mapWrap')||document.body).appendChild(box);
-    box.addEventListener('click',e=>{if(e.target.closest('[data-bus-off]'))plannerBusSet(false);});
+    box.addEventListener('click',e=>{
+      if(e.target.closest('[data-bus-off]'))plannerBusSet(false);
+      else if(e.target.closest('[data-bus-now]')&&plannerBusOn){plannerBusInfo=plannerBusInfo.replace(/<small>.*<\/small>$/,'<small>새로고침 중…</small>');plannerBusUi();plannerBusRefreshNow();}
+    });
   }
   box.hidden=!plannerBusOn;
-  if(plannerBusOn)box.innerHTML=`<div class="planner-bus-head"><b>실시간 버스 위치</b><button type="button" data-bus-off aria-label="끄기">끄기</button></div><div class="planner-bus-lines">${plannerBusInfo||'불러오는 중…'}</div>`;
+  if(plannerBusOn)box.innerHTML=`<div class="planner-bus-head"><b>실시간 버스 위치</b><span><button type="button" data-bus-now aria-label="지금 새로고침">🔄 지금</button> <button type="button" data-bus-off aria-label="끄기">끄기</button></span></div><div class="planner-bus-lines">${plannerBusInfo||'불러오는 중…'}</div>`;
 }
+let plannerBusBusy=false;
+async function plannerBusRefreshNow(){
+  if(!plannerBusOn||plannerBusBusy)return;
+  plannerBusBusy=true;
+  try{await plannerBusRefresh();}finally{plannerBusBusy=false;}
+  clearInterval(plannerBusTimer);if(plannerBusOn)plannerBusTimer=setInterval(plannerBusRefreshNow,PLANNER_BUS_REFRESH_MS);
+}
+// Timers stall while the phone is in another app; refresh as soon as it's back.
+if(typeof document!=='undefined')document.addEventListener('visibilitychange',()=>{if(!document.hidden&&plannerBusOn)plannerBusRefreshNow();});
 function plannerBusSet(on,path){
   plannerBusOn=!!on;clearInterval(plannerBusTimer);plannerBusTimer=null;
   if(plannerBusOn){
     plannerBusPath=path||plannerBusPath;plannerBusInfo='';
-    plannerBusRefresh();plannerBusTimer=setInterval(plannerBusRefresh,PLANNER_BUS_REFRESH_MS);
+    if(plannerBusLayer)plannerBusLayer.clearLayers();
+    plannerBusBusy=false;plannerBusRefreshNow();
   }else{
     plannerBusPath=null;
     if(plannerBusLayer&&typeof map!=='undefined')map.removeLayer(plannerBusLayer);
     plannerBusLayer=null;
   }
   plannerBusUi();
+  plannerSaveState();
 }
 function plannerBusButton(){return `<button type="button" class="planner-bus-toggle${plannerBusOn?' on':''}">${plannerBusOn?'🚌 실시간 버스 위치 끄기':'🚌 실시간 버스 위치'}</button>`;}
 if(typeof document!=='undefined')document.addEventListener('click',e=>{
