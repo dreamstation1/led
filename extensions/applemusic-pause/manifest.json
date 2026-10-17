@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "버스 방송 중 Apple Music 일시정지",
+  "description": "dreamstation1.github.io/led 에서 안내방송이 나오는 동안 Apple Music 웹 재생을 멈추고, 방송이 끝나면 다시 재생합니다.",
+  "version": "1.0",
+  "host_permissions": ["https://music.apple.com/*", "https://dreamstation1.github.io/*"],
+  "background": {"service_worker": "background.js"},
+  "content_scripts": [
+    {"matches": ["https://dreamstation1.github.io/*"], "js": ["led.js"], "run_at": "document_start"},
+    {"matches": ["https://music.apple.com/*"], "js": ["music.js"], "run_at": "document_start"},
+    {"matches": ["https://music.apple.com/*"], "js": ["music-main.js"], "run_at": "document_start", "world": "MAIN"}
+  ]
+}

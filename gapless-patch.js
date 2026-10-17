@@ -608,6 +608,15 @@
     return resolved;
   }
 
+  // Tells other tabs (via the "버스 방송 중 Apple Music 일시정지" browser
+  // extension) that an announcement is playing, so music can pause and resume.
+  let announceSignalOn=false;
+  function announceSignal(on){
+    if(announceSignalOn===on)return;
+    announceSignalOn=on;
+    try{window.postMessage({source:'led-bus',type:'announce',playing:on},location.origin);}catch(e){}
+  }
+
   try{
     announceArrival=async function(stop,next,options={}){
       window.cancelGuideAnnouncement();
@@ -618,8 +627,11 @@
       try{
         const resolved=await resolveAnnouncement(stop,next,!!options.waitForAi);
         if(controller.signal.aborted)return;
+        announceSignal(true);
         await playResolvedSequence(resolved,controller.signal);
       }finally{
+        // A newer announcement replacing this one keeps the music paused.
+        if(announcement===controller||announcement===null)announceSignal(false);
         if(announcement===controller)announcement=null;
       }
     };
