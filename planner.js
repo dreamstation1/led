@@ -9,6 +9,22 @@ const plannerArrivalCache=new Map();
 const plannerPlaces={from:null,to:null};
 let plannerPickKind=null,plannerPlaceTimer=null,plannerActiveTrip=null,plannerTripWatch=null,plannerTripTimer=null;
 let plannerLiveRefreshTimer=null,plannerRenderedPaths=[];
+// Mobile browsers throw the page away while the user is in another app, so the
+// planner (places, results, selected route, running trip) is kept in
+// localStorage and rebuilt on the next load.
+const PLANNER_STATE_KEY='plannerState.v1';
+let plannerRestoring=false,plannerDepartureEdited=false;
+// "Follow me": while on, every position fix keeps the map centred on the user.
+// Dragging the map turns it off; the 내 위치 button or a new trip turns it on.
+let mapFollowUser=false;
+function mapFollowSet(on){
+  mapFollowUser=!!on;
+  try{if(typeof locBtn!=='undefined'&&locBtn)locBtn.classList.toggle('following',mapFollowUser);}catch(e){}
+}
+function mapFollowTo(lat,lng){
+  if(!mapFollowUser||typeof map==='undefined'||!Number.isFinite(lat)||!Number.isFinite(lng))return;
+  try{map.panTo([lat,lng],{animate:true,duration:.6,easeLinearity:.5});}catch(e){}
+}
 
 function plannerClimateRoute(route){
   // 경기 숫자 노선도 이름만 보면 서울 지선/간선처럼 보인다. 기후동행
@@ -492,7 +508,57 @@ function plannerScheduleLiveRefresh(paths){
     if(path)plannerEnhanceDetail(path);
   },20000);
 }
-function plannerCloseDetail(){document.getElementById('plannerDetail')?.classList.remove('open');}
+function plannerSaveState(){
+  if(plannerRestoring||typeof document==='undefined')return;
+  try{
+    const ranked=plannerSearched?plannerDisplayPaths():[],sel=plannerSelected>=0?ranked[plannerSelected]:null,trip=plannerActiveTrip;
+    const node=i=>i!=null&&STOPS[i]?String(STOPS[i].node):null,val=id=>document.getElementById(id)?.value||'';
+    localStorage.setItem(PLANNER_STATE_KEY,JSON.stringify({
+      at:Date.now(),from:node(plannerFromIndex),via:node(plannerViaIndex),to:node(plannerToIndex),places:plannerPlaces,
+      inputs:{from:val('plannerFrom'),via:val('plannerVia'),to:val('plannerTo')},
+      departure:plannerDepartureEdited?val('plannerDeparture'):null,sort:plannerSort,
+      climate:!!document.getElementById('plannerClimateOnly')?.checked,searched:plannerSearched,
+      selected:sel?plannerPathKey(sel):null,routeChoice:sel?sel.legs.map(l=>l.selectedRouteId||''):null,
+      panel:!!document.getElementById('plannerPanel')?.classList.contains('open'),
+      detail:!!document.getElementById('plannerDetail')?.classList.contains('open'),
+      trip:trip?{key:plannerPathKey(trip.path),routeChoice:trip.path.legs.map(l=>l.selectedRouteId||''),legIndex:trip.legIndex,phase:trip.phase,
+        offsets:trip.offsets,currentBus:trip.currentBus,transferPlate:trip.transferPlate||null,alerts:[...trip.alerts],doneNotified:!!trip.doneNotified}:null
+    }));
+  }catch(e){}
+}
+async function plannerRestoreState(){
+  let st=null;try{st=JSON.parse(localStorage.getItem(PLANNER_STATE_KEY)||'null');}catch(e){}
+  if(!st||!(Date.now()-st.at<12*3600*1000))return;
+  plannerRestoring=true;
+  try{
+    const index=n=>{const i=n==null?undefined:STOP_BY_NODE.get(String(n));return i==null?null:i;};
+    plannerFromIndex=index(st.from);plannerViaIndex=index(st.via);plannerToIndex=index(st.to);
+    plannerPlaces.from=st.places?.from||null;plannerPlaces.to=st.places?.to||null;
+    [['from','plannerFrom'],['via','plannerVia'],['to','plannerTo']].forEach(([k,id])=>{const el=document.getElementById(id);if(el)el.value=st.inputs?.[k]||'';});
+    if(st.departure){document.getElementById('plannerDeparture').value=st.departure;plannerDepartureEdited=true;}
+    if(PLANNER_SORTS[st.sort])plannerSort=st.sort;
+    document.getElementById('plannerClimateOnly').checked=!!st.climate;
+    if(st.panel)document.getElementById('plannerPanel').classList.add('open');
+    plannerRender();
+    if(!st.searched||plannerFromIndex==null||plannerToIndex==null)return;
+    await document.getElementById('plannerSearch').onclick();
+    const ranked=plannerDisplayPaths(),find=key=>key?ranked.findIndex(p=>plannerPathKey(p)===key):-1;
+    const choose=(p,choice)=>(choice||[]).forEach((id,j)=>{if(p.legs[j])p.legs[j].selectedRouteId=id;});
+    const i=find(st.selected);
+    if(i>=0){
+      const p=ranked[i];choose(p,st.routeChoice);plannerSelected=i;plannerRender();plannerDraw(p);
+      if(st.detail)plannerOpenDetail(p,i);
+    }
+    const t=st.trip?find(st.trip.key):-1;
+    if(t>=0){
+      const p=ranked[t];choose(p,st.trip.routeChoice);plannerStartTrip(p);
+      Object.assign(plannerActiveTrip,{legIndex:Math.min(st.trip.legIndex||0,p.legs.length-1),phase:st.trip.phase||'walk',offsets:st.trip.offsets||{},
+        currentBus:st.trip.currentBus||null,transferPlate:st.trip.transferPlate||null,alerts:new Set(st.trip.alerts||[]),doneNotified:!!st.trip.doneNotified});
+    }
+  }catch(e){console.warn('길찾기 상태 복원 실패',e);}
+  finally{plannerRestoring=false;plannerSaveState();}
+}
+function plannerCloseDetail(){document.getElementById('plannerDetail')?.classList.remove('open');plannerSaveState();}
 function plannerOpenDetail(path,index){
   const panel=document.getElementById('plannerDetail');if(!panel)return;
   const names=path.legs.map(l=>plannerLegNames(l).join(' · ')).join(' → ');
@@ -514,6 +580,7 @@ function plannerOpenDetail(path,index){
   panel.classList.add('open');panel.querySelector('.planner-detail-head button').onclick=plannerCloseDetail;panel.querySelector('.planner-start-guide').onclick=()=>plannerStartTrip(path);
   panel.querySelector('.planner-live-refresh').onclick=()=>{plannerArrivalCache.clear();panel.querySelector('.planner-live-stamp').textContent='새로고침 중…';plannerEnhanceDetail(path);};
   panel.querySelectorAll('.planner-route-choice').forEach(button=>button.onclick=()=>{const leg=path.legs[Number(button.dataset.legIndex)];leg.selectedRouteId=String(leg.selectedRouteId||'')===button.dataset.routeId?'':button.dataset.routeId;plannerDraw(path);plannerOpenDetail(path,index);});
+  plannerSaveState();
   panel.querySelectorAll('.planner-stops-toggle').forEach(button=>button.onclick=()=>{const list=button.nextElementSibling,open=list.hidden;list.hidden=!open;button.setAttribute('aria-expanded',String(open));button.textContent=open?'전체 정류장 접기':'전체 정류장 펼치기';});
   plannerEnhanceDetail(path);
 }
@@ -549,6 +616,7 @@ function plannerRender(){
     box.appendChild(el);
   });
   plannerScheduleLiveRefresh(ranked);
+  plannerSaveState();
 }
 
 function plannerClearMap(){
@@ -746,6 +814,7 @@ function plannerStopTrip(){
   if(plannerTripWatch!=null&&navigator.geolocation)navigator.geolocation.clearWatch(plannerTripWatch);
   plannerTripWatch=null;clearInterval(plannerTripTimer);plannerTripTimer=null;plannerActiveTrip=null;
   const box=document.getElementById('plannerNav');if(box)box.hidden=true;
+  plannerSaveState();
 }
 function plannerVehicleNumber(value){
   const text=String(value||'').trim(),match=text.match(/(\d{4})\s*$/);
@@ -874,6 +943,7 @@ async function plannerUpdateTrip(position){
     trip.lat=position.coords.latitude;trip.lng=position.coords.longitude;
     trip.track.push({t:Date.now(),lat:trip.lat,lng:trip.lng});trip.track=trip.track.filter(p=>Date.now()-p.t<120000);
     if(typeof updateGuideMarker==='function')updateGuideMarker(trip.lat,trip.lng);
+    mapFollowTo(trip.lat,trip.lng);
   }
   if(!Number.isFinite(trip.lat)||!Number.isFinite(trip.lng)||trip.busy)return;
   trip.busy=true;
@@ -985,7 +1055,7 @@ async function plannerUpdateTrip(position){
     const now=new Date();view.stamp=`${plannerClock(now)}:${String(now.getSeconds()).padStart(2,'0')} 갱신`;
     plannerTripRender(trip);
     if(trip.phase==='done'&&!trip.doneNotified){trip.doneNotified=true;if(navigator.vibrate)navigator.vibrate([150,80,150]);}
-  }finally{trip.busy=false;}
+  }finally{trip.busy=false;plannerSaveState();}
 }
 function plannerStartTrip(path){
   plannerStopTrip();
@@ -995,6 +1065,8 @@ function plannerStartTrip(path){
   if(!navigator.geolocation){box.innerHTML='<strong>이 기기에서는 위치를 사용할 수 없습니다.</strong>';return;}
   plannerTripWatch=navigator.geolocation.watchPosition(plannerUpdateTrip,()=>{const b=document.getElementById('plannerNav');b.hidden=false;b.innerHTML='<strong>현재 위치를 확인하지 못했습니다.</strong><small>브라우저 위치 권한을 확인해 주세요.</small><button type="button" class="planner-nav-stop">길찾기 종료</button>';b.querySelector('button').onclick=plannerStopTrip;},{enableHighAccuracy:true,maximumAge:3000,timeout:12000});
   plannerTripTimer=setInterval(()=>plannerUpdateTrip(),8000);
+  mapFollowSet(true);
+  plannerSaveState();
 }
 
 if(typeof document!=='undefined'){
@@ -1005,7 +1077,7 @@ if(typeof document!=='undefined'){
   const departure=document.getElementById('plannerDeparture');
   const now=new Date(Date.now()-new Date().getTimezoneOffset()*60000);departure.value=now.toISOString().slice(0,16);
   // night buses depend on the departure time, so search again when it changes
-  departure.addEventListener('change',()=>{if(plannerSearched)document.getElementById('plannerSearch').click();});
+  departure.addEventListener('change',()=>{plannerDepartureEdited=true;if(plannerSearched)document.getElementById('plannerSearch').click();else plannerSaveState();});
   document.querySelectorAll('.planner-map-pick').forEach(btn=>btn.onclick=()=>{
     plannerPickKind=btn.dataset.kind;
     document.getElementById('plannerPanel').classList.remove('open');
@@ -1021,8 +1093,17 @@ if(typeof document!=='undefined'){
     document.getElementById('status').textContent='지도 위치가 길찾기에 설정되었습니다.';
   });
   document.getElementById('plannerClimateOnly').addEventListener('change',plannerInvalidateSearch);
-  document.getElementById('plannerBtn').onclick=()=>document.getElementById('plannerPanel').classList.add('open');
+  document.getElementById('plannerBtn').onclick=()=>{document.getElementById('plannerPanel').classList.add('open');plannerSaveState();};
   document.getElementById('plannerClose').onclick=()=>{document.getElementById('plannerPanel').classList.remove('open');plannerCloseDetail();};
+  if(typeof map!=='undefined')map.on('dragstart',()=>{
+    if(!mapFollowUser)return;
+    mapFollowSet(false);
+    try{status.textContent='지도를 움직여서 내 위치 따라가기를 멈췄어요 · 내 위치를 누르면 다시 따라가요';}catch(e){}
+  });
+  addEventListener('pagehide',plannerSaveState);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)plannerSaveState();});
+  // after the other patch scripts have loaded
+  addEventListener('load',()=>setTimeout(plannerRestoreState,0));
   document.getElementById('plannerSearch').onclick=async()=>{
     const note=document.getElementById('plannerNote');
     if(plannerFromIndex==null || plannerToIndex==null){note.textContent='출발·도착 정류소 또는 장소를 검색 결과에서 선택해 주세요.';return;}

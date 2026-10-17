@@ -283,6 +283,7 @@
   try{
     if(typeof locBtn!=='undefined')locBtn.onclick=()=>{
       if(!navigator.geolocation){status.textContent='이 브라우저는 위치 기능을 지원하지 않습니다.';return;}
+      try{if(typeof mapFollowSet==='function')mapFollowSet(true);}catch(e){}
       if(userWatchId!=null){
         if(trackedUser){map.setView([trackedUser.lat,trackedUser.lng],17);try{userMarker?.openPopup();}catch(e){}status.textContent='현재 위치를 계속 추적 중입니다.';}
         trafficTick();try{window.refreshTrafficMapNow?.();}catch(e){}
@@ -296,8 +297,9 @@
         if(heading==null&&prev&&hav(prev.lat,prev.lng,lat,lng)>=2)heading=bearingDeg(prev.lat,prev.lng,lat,lng);
         trackedUser={lat,lng,heading};prev={lat,lng};
         if(userMarker)userMarker.setLatLng([lat,lng]);else userMarker=L.marker([lat,lng],{zIndexOffset:1800}).addTo(map).bindPopup('내 위치');
-        locBtn.textContent='내 위치 추적 중';status.textContent='현재 위치를 찾았습니다'+(trafficLightOn?' · 주변 실시간 신호등을 확인합니다':'');
+        locBtn.textContent=(typeof mapFollowUser!=='undefined'&&mapFollowUser)?'내 위치 따라가는 중':'내 위치 추적 중';status.textContent='현재 위치를 찾았습니다'+(trafficLightOn?' · 주변 실시간 신호등을 확인합니다':'');
         if(first){first=false;map.setView([lat,lng],17);try{userMarker.openPopup();}catch(e){}}
+        else{try{if(typeof mapFollowTo==='function')mapFollowTo(lat,lng);}catch(e){}}
         trafficTick();try{window.refreshTrafficMapNow?.();}catch(e){}
       };
       const onError=e=>{

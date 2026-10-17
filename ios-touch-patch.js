@@ -86,6 +86,7 @@
     }catch(e){}
     try{
       if(firstFix){firstFix=false;map.setView([lat,lng],17);if(typeof userMarker!=='undefined'&&userMarker)userMarker.openPopup();}
+      else if(typeof mapFollowTo==='function')mapFollowTo(lat,lng);
     }catch(e){}
     try{if(typeof trafficTick==='function')trafficTick();}catch(e){}
     try{window.refreshTrafficMapNow?.();}catch(e){}
@@ -96,6 +97,7 @@
     if(!navigator.geolocation){setStatus('이 브라우저는 위치 기능을 지원하지 않습니다.');return;}
     setStatus('현재 위치 확인 중…');
     firstFix=true;prev=null;
+    try{if(typeof mapFollowSet==='function')mapFollowSet(true);}catch(e){}
     try{if(localWatchId!=null)navigator.geolocation.clearWatch(localWatchId);}catch(e){}
     try{if(typeof userWatchId!=='undefined'&&userWatchId!=null)navigator.geolocation.clearWatch(userWatchId);}catch(e){}
     const onErr=err=>setStatus(err&&err.code===1?'위치 권한이 꺼져 있습니다. Safari 위치 권한을 허용해 주세요.':'위치를 가져오지 못했습니다 · '+((err&&err.message)||'잠시 후 다시 시도해 주세요.'));
