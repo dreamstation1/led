@@ -33,7 +33,7 @@ html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;font-fam
    and doesn't get part of itself hidden behind the browser chrome. */
 #app{height:100vh;display:flex;flex-direction:column}
 @supports (height:100dvh){#app{height:100dvh}}
-#top{background:rgba(17,20,26,.98);border-bottom:1px solid #2b3038;padding:calc(9px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 9px calc(10px + env(safe-area-inset-left));z-index:1000;box-shadow:0 4px 16px rgba(0,0,0,.28)}
+#top{background:rgba(17,20,26,.98);border-bottom:1px solid #2b3038;padding:calc(9px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 9px calc(10px + env(safe-area-inset-left));z-index:1700;box-shadow:0 4px 16px rgba(0,0,0,.28)}
 .row{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
 .title{font-size:17px;font-weight:850;margin-right:4px;cursor:pointer;user-select:none}
 input,button{height:37px;border-radius:10px;border:1px solid #353c46;background:#20252c;color:#fff;padding:0 10px;font-size:14px}
@@ -931,6 +931,7 @@ body.light-ui .route{color:#fff}
     <button id="plannerBtn" title="출발·도착 정류소 경로 찾기">길찾기</button>
     <button id="favBtn" title="즐겨찾기">★</button>
     <button id="shareBtn" title="현재 상태 링크 복사">🔗</button>
+    <button id="ttsSiteBtn" title="AI 음성(TTS) 만들기 사이트 열기 (새 창)">🎙 TTS</button>
     <button id="settingsBtn" title="설정">⚙</button>
   </div>
   <div id="status">데이터 준비 중…</div>
@@ -3133,6 +3134,8 @@ document.getElementById('busPosToggle').onclick=()=>{
 document.getElementById('driverModeBtn').onclick=()=>{
   if(currentRoute)window.open('driver/?route='+encodeURIComponent(currentRoute.name),'_blank','noopener');
 };
+// AI voice (TTS) maker on the voice server - its address is hard to remember.
+document.getElementById('ttsSiteBtn').onclick=()=>window.open('https://168-110-38-243.sslip.io/','_blank','noopener');
 document.getElementById('announceMakerBtn').onclick=()=>{
   if(!currentRoute)return;
   window.open('../led-announce/?route='+encodeURIComponent(currentRoute.id),'_blank','noopener');
