@@ -46,13 +46,20 @@ main{flex:1;display:flex;min-height:0}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .row label{color:var(--muted);font-size:13px}
 input[type=number]{width:70px;font:inherit;background:#0f1318;color:var(--text);border:1px solid #3a4452;border-radius:8px;padding:6px}
-#stops{list-style:none;margin:0;padding:0;font-size:14px}
+#stops{list-style:none;margin:0;padding:0;font-size:14px;max-height:260px;overflow:auto;position:relative}
 #stops li{display:flex;justify-content:space-between;gap:8px;padding:6px 4px;border-bottom:1px solid #20262e}
 #stops li.passed{color:#5d6876}
 #stops li.next{color:#fff;font-weight:700;background:rgba(59,130,246,.15);border-radius:6px}
 #stops li small{color:var(--muted);white-space:nowrap}
 .note{color:var(--muted);font-size:12px;line-height:1.5}
 .bus-dot{width:22px;height:22px;border-radius:50%;background:var(--blue);border:3px solid #fff;box-shadow:0 0 0 6px rgba(59,130,246,.35)}
+.gaps{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gaps div{background:#10151b;border-radius:10px;padding:8px 10px}
+.gaps small{display:block;color:var(--muted);font-size:13px}
+.gaps b{font-size:26px;font-weight:800;margin-right:6px}
+.gaps span{color:var(--muted);font-size:14px}
+.live-bus{transform:translate(-50%,-50%);display:inline-block;white-space:nowrap;padding:2px 7px;border-radius:10px;border:2px solid #fff;background:#64748b;color:#fff;font:700 12px/1.3 system-ui,sans-serif;box-shadow:0 1px 5px rgba(0,0,0,.5)}
+.live-bus.ahead{background:#f97316}.live-bus.behind{background:#a855f7}.live-bus.me{background:#3b82f6}
 .sig-dot{width:12px;height:12px;border-radius:50%;background:#e5e7eb;border:2px solid #111}
 .sig-dot.next{background:#fde047;width:16px;height:16px;box-shadow:0 0 10px #fde047}
 </style>
@@ -77,6 +84,11 @@ input[type=number]{width:70px;font:inherit;background:#0f1318;color:var(--text);
       <div class="sub"><span class="dist" id="nextStopDist"></span> <span id="nextStopInfo"></span></div>
     </div>
     <div class="card">
+      <h2>앞차 · 뒤차 간격</h2>
+      <div class="gaps"><div><small>앞차</small><b id="gapAhead">–</b><span id="gapAheadD"></span></div><div><small>뒤차</small><b id="gapBehind">–</b><span id="gapBehindD"></span></div></div>
+      <div class="verdict na" id="gapAdvice">실시간 버스 위치 확인 중…</div>
+    </div>
+    <div class="card">
       <h2>앞 신호</h2>
       <div class="sig">
         <div class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></div>
@@ -87,15 +99,16 @@ input[type=number]{width:70px;font:inherit;background:#0f1318;color:var(--text);
     </div>
     <div class="card">
       <h2>설정</h2>
-      <div class="row"><label>기본 정차 시간</label><input type="number" id="dwellDefault" min="5" max="120" value="20"><label>초 · 정류장별 실제 정차 시간은 운행할수록 자동으로 기록됩니다</label></div>
+      <div class="row"><label>정류장 정차 시간은 GPS로 실제로 멈춘 시간을 재서 운행할수록 자동으로 쌓입니다.</label></div>
       <div class="row" style="margin-top:8px"><label>시뮬레이션 속도</label><span class="seg" id="simSpeedSeg"></span><button id="detourBtn" title="노선 이탈 경고 시험">이탈 테스트</button></div>
-      <div class="row" style="margin-top:8px"><label><input type="checkbox" id="voiceOn" checked> 음성 안내 (이탈 · 다음 정류장)</label></div>
+      <div class="row" style="margin-top:8px"><label><input type="checkbox" id="voiceOn"> 음성 안내 (이탈 · 다음 정류장)</label></div>
+      <div class="row" style="margin-top:8px"><label>신호 API 키 (선택)</label><input type="text" id="sigKey" placeholder="서울 T-data 인증키" style="flex:1;min-width:150px;font:inherit;background:#0f1318;color:var(--text);border:1px solid #3a4452;border-radius:8px;padding:6px"></div>
     </div>
     <div class="card">
       <h2>정류장 · 평균 정차 시간</h2>
       <ul id="stops"></ul>
     </div>
-    <p class="note">신호는 서울시 실시간 신호(교통정보 T-data)를 쓰는 참고 정보이며, 조회 한도(하루 1,000회, 메인 지도와 공유) 때문에 신호마다 접근할 때 한두 번만 확인하고 그 뒤는 남은 시간으로 계산합니다. 통과 판단은 현재 속도·남은 거리·사이 정류장의 평균 정차 시간으로 계산한 추정이며, 실제 신호와 안전 운행이 항상 우선입니다.</p>
+    <p class="note">버스 위치는 서울시 실시간 버스 위치(15초마다)이며, 앞차·뒤차까지 시간은 노선 위 거리 ÷ 지금 이 노선 버스들의 평균 속도로 잰 추정입니다. 신호는 서울시 실시간 신호(교통정보 T-data)를 쓰는 참고 정보이며, 조회 한도(하루 1,000회, 메인 지도와 공유) 때문에 신호마다 접근할 때 한두 번만 확인하고 그 뒤는 남은 시간으로 계산합니다. 통과 판단은 현재 속도·남은 거리·사이 정류장의 평균 정차 시간으로 계산한 추정이며, 실제 신호와 안전 운행이 항상 우선입니다.</p>
   </section>
   <div id="map"></div>
 </main>
@@ -118,12 +131,13 @@ let watchId=null,simTimer=null,simAlong=0,simDwellUntil=0,simSpeedMul=1,simDetou
 let nextStopIdx=-1,nextSigIdx=-1,dwellAt=null,announced=new Set(),lap=0;
 const signalCache=new Map();let lastSignalCall=0;
 const dwellDb=store.get('driverDwell',{});
-$('dwellDefault').value=store.get('driverDwellDefault',20);
-$('dwellDefault').onchange=e=>store.set('driverDwellDefault',Math.max(5,Math.min(120,Number(e.target.value)||20)));
-$('voiceOn').checked=store.get('driverVoice',true);
+$('voiceOn').checked=store.get('driverVoice',false);
+$('sigKey').value=store.get('driverSignalKey','');
+$('sigKey').onchange=e=>{store.set('driverSignalKey',e.target.value.trim());signalBackoffUntil=0;signalCache.clear();};
 $('voiceOn').onchange=e=>store.set('driverVoice',e.target.checked);
 function say(text){if(!$('voiceOn').checked||!window.speechSynthesis)return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='ko-KR';u.rate=1.05;speechSynthesis.speak(u);}catch(e){}}
-function dwellFor(stop){const d=dwellDb[route.id+':'+stop.node];return d&&d.n>=1?d.avg:Number($('dwellDefault').value)||20;}
+// measured average dwell for a stop, or null before it was ever measured
+function dwellFor(stop){const d=dwellDb[route.id+':'+stop.node];return d&&d.n>=1?d.avg:null;}
 
 // ---------- map ----------
 map=L.map('map',{zoomControl:true}).setView([37.55,126.85],14);
@@ -159,8 +173,8 @@ function selectRoute(name){
   stopLayer=L.layerGroup(route.stops.filter(s=>!s.virtual).map(s=>L.circleMarker([s.lat,s.lng],{radius:6,color:'#fff',weight:2,fillColor:'#3b82f6',fillOpacity:1}).bindTooltip(s.name))).addTo(map);
   sigLayer=L.layerGroup().addTo(map);
   route.signals.forEach(s=>{s._m=L.marker([s.lat,s.lng],{icon:L.divIcon({className:'',html:'<div class="sig-dot"></div>',iconSize:[14,14]})}).bindTooltip('🚦 '+s.name).addTo(sigLayer);});
-  map.fitBounds(routeLine.getBounds(),{padding:[30,30]});
-  along=0;nextStopIdx=-1;nextSigIdx=-1;announced.clear();renderStops();renderIdle();
+  map.invalidateSize();map.fitBounds(routeLine.getBounds(),{padding:[30,30],maxZoom:16});
+  along=0;nextStopIdx=-1;nextSigIdx=-1;announced.clear();renderStops();renderIdle();startLive();
 }
 function renderIdle(){$('nextStop').textContent='운행을 시작하세요';$('nextStopDist').textContent='';$('nextStopInfo').textContent=route.name+' · 정류장 '+route.stops.filter(s=>!s.virtual).length+'개 · 신호 '+route.signals.length+'개 · '+fmtDist(route.length);showSignal(null);}
 function renderStops(){
@@ -193,8 +207,10 @@ function onPosition(lat,lng,acc,gpsSpeed,now){
   }
   if(!busMarker)busMarker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:'<div class="bus-dot"></div>',iconSize:[22,22]}),zIndexOffset:1000}).addTo(map);
   else busMarker.setLatLng([lat,lng]);
-  if(follow)map.panTo([lat,lng],{animate:true,duration:.5});
+  if(!onPosition.zoomed){onPosition.zoomed=true;map.setView([lat,lng],16);}
+  else if(follow)map.panTo([lat,lng],{animate:true,duration:.5});
   trackDwell(now);update(now);
+  if(now-(onPosition.gapAt||0)>2000){onPosition.gapAt=now;drawLive();}
 }
 function alertOn(t){$('alert').textContent=t;$('alert').classList.add('show');}
 function alertOff(){$('alert').classList.remove('show');}
@@ -213,11 +229,11 @@ function trackDwell(now){
 // ---------- next stop / next signal ----------
 function update(now){
   const ns=route.stops.findIndex(s=>!s.virtual&&s.along>along+8);
-  if(ns!==nextStopIdx){nextStopIdx=ns;renderStops();const li=document.querySelector('#stops li.next');li&&li.scrollIntoView({block:'nearest'});}
+  if(ns!==nextStopIdx){nextStopIdx=ns;renderStops();const li=document.querySelector('#stops li.next'),ul=$('stops');if(li)ul.scrollTop=Math.max(0,li.offsetTop-ul.clientHeight/2);}
   const stop=route.stops[ns];
   if(stop){
     const d=stop.along-along;$('nextStop').textContent=stop.name;$('nextStopDist').textContent=fmtDist(d);
-    $('nextStopInfo').textContent='· 평균 정차 '+Math.round(dwellFor(stop))+'초 · '+Math.round(speed*3.6)+'km/h';
+    const dw=dwellFor(stop);$('nextStopInfo').textContent='· '+(dw==null?'정차 기록 없음':'평균 정차 '+Math.round(dw)+'초')+' · '+Math.round(speed*3.6)+'km/h';
     if(d<250&&!announced.has(ns)){announced.add(ns);say('다음 정류장은 '+stop.name+'입니다.');}
   }else{$('nextStop').textContent='종점';$('nextStopDist').textContent='';$('nextStopInfo').textContent='';}
   const si=route.signals.findIndex(s=>s.along>along+5);
@@ -252,7 +268,7 @@ async function fetchSignal(sig,dist){
   const calls=c&&c.lap===lap?c.calls+1:1;
   signalCache.set(sig.id,{...(c||{}),loading:true,at:c?.at||0,calls,lap});
   try{
-    const u=new URL(SEOUL_TDATA_URL);u.search=new URLSearchParams({apikey:SEOUL_TDATA_KEY,type:'json',numOfRows:'100',pageNo:'1',itstId:sig.id}).toString();
+    const u=new URL(SEOUL_TDATA_URL);u.search=new URLSearchParams({apikey:store.get('driverSignalKey','')||SEOUL_TDATA_KEY,type:'json',numOfRows:'100',pageNo:'1',itstId:sig.id}).toString();
     const res=await fetch(u,{cache:'no-store'});
     if(res.status===429){signalBackoffUntil=Date.now()+30*60*1000;throw new Error('오늘 신호 조회 한도(하루 1,000회)를 다 썼습니다');}
     if(!res.ok)throw new Error('HTTP '+res.status);
@@ -289,9 +305,9 @@ function showSignal(sig,dist,now=Date.now()){
   const c=signalCache.get(sig.id),ph=c?.phase;
   // stops between here and the signal add their usual dwell time
   const between=route.stops.filter(s=>!s.virtual&&s.along>along+8&&s.along<sig.along-5);
-  const dwell=between.reduce((t,s)=>t+dwellFor(s)+6,0);
+  const known=between.filter(s=>dwellFor(s)!=null),dwell=known.reduce((t,s)=>t+dwellFor(s)+6,0),unknown=between.length-known.length;
   const v_eff=Math.max(speed,speed<1?6:4),travel=dist/v_eff,eta=travel+dwell;
-  $('sigInfo').textContent=fmtDist(dist)+' 앞'+(between.length?` · 사이 정류장 ${between.length}곳(정차 약 ${Math.round(dwell)}초)`:'')+(ph?.label?' · '+ph.label:'');
+  $('sigInfo').textContent=fmtDist(dist)+' 앞'+(between.length?` · 사이 정류장 ${between.length}곳`+(known.length?`(정차 약 ${Math.round(dwell)}초)`:'')+(unknown?` · 정차 기록 없는 ${unknown}곳은 계산에서 빠짐`:''):'')+(ph?.label?' · '+ph.label:'');
   if(dist>300){$('sigSecs').textContent='–';v.className='verdict na';v.textContent='300m 안에 들어오면 신호를 확인합니다';return;}
   if(ph&&ph.expiresAt!=null&&ph.expiresAt<=now&&(ph.color==='red'||ph.color==='green')){
     // known phase already over: red turned green, green turned (yellow then) red
@@ -321,6 +337,78 @@ function showSignal(sig,dist,now=Date.now()){
   v.className='verdict '+cls;v.textContent=txt;
 }
 
+// ---------- live buses of this route + gap to the bus ahead / behind ----------
+const BUS_POS_PROXY='https://super-mud-117e.oseungjae0417.workers.dev';
+let liveLayer=null,liveTimer=null,liveBuses=[],liveSpeed=4.2,livePrev=new Map(),liveError='';
+function vehicleAlong(v){
+  const lat=Number(v.gpsY),lng=Number(v.gpsX);if(!Number.isFinite(lat)||!Number.isFinite(lng))return null;
+  // the stop it last passed fixes which pass of a loop route it is on
+  const ord=parseInt(v.sectOrd,10),cands=route.stops.map((s,i)=>({s,i})).filter(x=>x.s.node===String(v.lastStnId||''));
+  const base=cands.length?cands.reduce((a,b)=>Math.abs(b.i-(ord-1))<Math.abs(a.i-(ord-1))?b:a).s.along:null;
+  const p=base==null?project(lat,lng,0,route.shape.length):project(lat,lng,indexAt(base-80)-1,indexAt(base+1500)+1);
+  return p.d<150?{along:p.along,lat,lng}:null;
+}
+async function refreshLive(){
+  if(!route)return;
+  const r=route;
+  try{
+    const res=await fetch(BUS_POS_PROXY+'?busRouteId='+encodeURIComponent(r.id)+'&resultType=json',{cache:'no-store'});
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const d=await res.json();if(r!==route)return;
+    const code=String(d?.msgHeader?.headerCd??'0');
+    const items=code==='4'?[]:(d?.msgBody?.itemList||[]);
+    if(code!=='0'&&code!=='4')throw new Error(d?.msgHeader?.headerMsg||'오류 '+code);
+    const now=Date.now(),list=[];
+    for(const v of items){
+      const a=vehicleAlong(v);if(!a)continue;
+      const id=String(v.vehId||v.plainNo),prev=livePrev.get(id);
+      // route speed learned from how far the buses moved since the last read
+      if(prev&&now-prev.t>5000){let dA=a.along-prev.along;if(dA<-route.length/2)dA+=route.length;const sp=dA/((now-prev.t)/1000);if(sp>=0&&sp<20)liveSpeed=liveSpeed*0.85+Math.max(1.5,sp)*0.15;}
+      livePrev.set(id,{along:a.along,t:now});
+      list.push({id,plate:String(v.plainNo||'').trim().slice(-4),...a});
+    }
+    liveBuses=list;liveError='';
+  }catch(e){liveError=e.message||'위치 오류';}
+  drawLive();
+}
+function loopGap(from,to){let g=to-from;if(g<0)g+=route.length;return g;}
+function drawLive(){
+  if(!liveLayer)liveLayer=L.layerGroup().addTo(map);
+  liveLayer.clearLayers();
+  // which live bus is this one (GPS mode): nearest within 120 m of our position
+  let me=null;
+  if(running==='gps'&&pos){me=liveBuses.reduce((b,x)=>{const d=hav(pos.lat,pos.lng,x.lat,x.lng);return d<120&&(!b||d<b.d)?{x,d}:b;},null)?.x||null;}
+  const others=liveBuses.filter(x=>x!==me);
+  let ahead=null,behind=null;
+  if(running&&others.length){
+    ahead=others.reduce((b,x)=>!b||loopGap(along,x.along)<loopGap(along,b.along)?x:b,null);
+    behind=others.reduce((b,x)=>!b||loopGap(x.along,along)<loopGap(b.along,along)?x:b,null);
+    if(others.length===1){const g=loopGap(along,ahead.along);if(g>route.length/2)ahead=null;else behind=null;}
+  }
+  for(const x of liveBuses){
+    const cls=x===me?'me':x===ahead?'ahead':x===behind?'behind':'';
+    const label=(x===me?'내 차 ':x===ahead?'앞차 ':x===behind?'뒤차 ':'')+(x.plate||'');
+    L.marker([x.lat,x.lng],{zIndexOffset:900,icon:L.divIcon({className:'',html:`<span class="live-bus ${cls}">🚌 ${esc(label)}</span>`,iconSize:null})}).addTo(liveLayer);
+  }
+  const min=m=>Math.max(0,Math.round(m/liveSpeed/60));
+  const show=(el,dEl,x,g)=>{$(el).textContent=x?min(g)+'분':'–';$(dEl).textContent=x?fmtDist(g):'';};
+  const gA=ahead?loopGap(along,ahead.along):null,gB=behind?loopGap(behind.along,along):null;
+  show('gapAhead','gapAheadD',ahead,gA);show('gapBehind','gapBehindD',behind,gB);
+  const adv=$('gapAdvice');
+  if(liveError){adv.className='verdict na';adv.textContent='버스 위치를 못 받았습니다 ('+liveError+')';return;}
+  if(!running){adv.className='verdict na';adv.textContent=`지금 ${route.name} ${liveBuses.length}대 운행 중 · 운행을 시작하면 앞뒤 간격을 보여줍니다`;return;}
+  if(!ahead&&!behind){adv.className='verdict na';adv.textContent='같은 노선의 다른 버스가 없습니다';return;}
+  if(ahead&&behind){
+    const diff=min(gB)-min(gA);
+    if(diff>=3){adv.className='verdict warn';adv.textContent=`앞차에 붙음 (뒤차보다 ${diff}분 가까움) → 천천히`;}
+    else if(diff<=-3){adv.className='verdict warn';adv.textContent=`뒤차에 쫓김 (앞차보다 ${-diff}분 가까움) → 조금 서두르기`;}
+    else{adv.className='verdict ok';adv.textContent=`간격 고름 · 차이 ${Math.abs(diff)}분`;}
+  }else{adv.className='verdict na';adv.textContent=ahead?'뒤차 없음':'앞차 없음';}
+  adv.textContent+=` · 평균 ${Math.round(liveSpeed*3.6)}km/h 기준`;
+}
+function startLive(){clearInterval(liveTimer);liveBuses=[];livePrev.clear();refreshLive();liveTimer=setInterval(refreshLive,15000);}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&route)refreshLive();});
+
 // ---------- run modes ----------
 async function keepAwake(){try{wakeLock=await navigator.wakeLock?.request('screen');}catch(e){}}
 function setRunning(mode){
@@ -329,13 +417,13 @@ function setRunning(mode){
 }
 function startGps(){
   if(!navigator.geolocation){alert('이 기기에서는 위치를 쓸 수 없습니다.');return;}
-  setRunning('gps');lap++;follow=true;lastAlong=null;announced.clear();keepAwake();
+  setRunning('gps');lap++;onPosition.zoomed=false;follow=true;lastAlong=null;announced.clear();keepAwake();
   $('nextStop').textContent='위치 확인 중…';
   watchId=navigator.geolocation.watchPosition(p=>onPosition(p.coords.latitude,p.coords.longitude,p.coords.accuracy,p.coords.speed,Date.now()),
     e=>{$('nextStop').textContent='위치를 받을 수 없습니다';$('nextStopInfo').textContent=e.message||'';},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
 }
 function startSim(){
-  setRunning('sim');lap++;follow=true;lastAlong=null;announced.clear();simAlong=0;simDwellUntil=0;simDetour=0;keepAwake();
+  setRunning('sim');lap++;onPosition.zoomed=false;follow=true;lastAlong=null;announced.clear();simAlong=0;simDwellUntil=0;simDetour=0;keepAwake();
   let t=performance.now(),stopDone=new Set();
   simTimer=setInterval(()=>{
     const now=performance.now(),dt=(now-t)/1000*simSpeedMul;t=now;
@@ -356,12 +444,13 @@ function stopRun(){
   if(watchId!=null)navigator.geolocation.clearWatch(watchId);watchId=null;clearInterval(simTimer);simTimer=null;
   try{wakeLock?.release();}catch(e){}wakeLock=null;
   offRoute=false;offSince=null;alertOff();if(busMarker){map.removeLayer(busMarker);busMarker=null;}
-  setRunning(null);if(route){along=0;lastAlong=null;nextStopIdx=-1;renderStops();renderIdle();}
+  setRunning(null);if(route){along=0;lastAlong=null;nextStopIdx=-1;renderStops();renderIdle();drawLive();}
 }
 $('startGps').onclick=startGps;$('startSim').onclick=startSim;$('stopBtn').onclick=stopRun;
 $('detourBtn').onclick=()=>{simDetour=simDetour?0:120;$('detourBtn').classList.toggle('on',!!simDetour);};
 [1,4,10].forEach(m=>{const b=document.createElement('button');b.textContent=m+'x';b.classList.toggle('on',m===1);b.onclick=()=>{simSpeedMul=m;document.querySelectorAll('#simSpeedSeg button').forEach(x=>x.classList.toggle('on',x===b));};$('simSpeedSeg').appendChild(b);});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&running)keepAwake();});
+addEventListener('resize',()=>map.invalidateSize());
 
 // ---------- boot ----------
 fetch('routes.json').then(r=>r.json()).then(d=>{
