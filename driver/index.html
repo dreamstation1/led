@@ -144,6 +144,7 @@ input[type=number]{width:70px;font:inherit;background:#0f1318;color:var(--text);
     <div class="card compact">
       <div class="gaps"><div><small>앞차</small><b id="gapAhead">–</b><span id="gapAheadD"></span></div><div><small>뒤차</small><b id="gapBehind">–</b><span id="gapBehindD"></span></div></div>
       <div class="verdict na small" id="gapAdvice">실시간 버스 위치 확인 중…</div>
+      <div class="sub" id="schedInfo"></div>
     </div>
   </section>
   <div id="map"></div>
@@ -496,6 +497,12 @@ async function refreshLive(){
   }catch(e){liveError=e.message||'위치 오류';}
   drawLive();
 }
+// official timetable: today's headway (Sunday counted as 공휴일)
+function todayHeadway(){
+  const sc=route.schedule;if(!sc)return null;const d=new Date().getDay();
+  const kind=d===0?'holiday':d===6?'saturday':'weekday';
+  return {min:sc.headway[kind],label:{weekday:'평일',saturday:'토요일',holiday:'공휴일'}[kind],first:sc.first,last:sc.last};
+}
 function loopGap(from,to){let g=to-from;if(g<0)g+=route.length;return g;}
 function drawLive(){
   if(!liveLayer)liveLayer=L.layerGroup().addTo(map);
@@ -519,16 +526,17 @@ function drawLive(){
   const show=(el,dEl,x,g)=>{$(el).textContent=x?min(g)+'분':'–';$(dEl).textContent=x?fmtDist(g):'';};
   const gA=ahead?loopGap(along,ahead.along):null,gB=behind?loopGap(behind.along,along):null;
   show('gapAhead','gapAheadD',ahead,gA);show('gapBehind','gapBehindD',behind,gB);
-  const adv=$('gapAdvice');
+  const adv=$('gapAdvice'),hw0=todayHeadway();
+  $('schedInfo').textContent=hw0?`운행 ${hw0.first}~${hw0.last} · 배차 ${hw0.label} ${hw0.min}분 · ${liveBuses.length}대 운행 중`:'';
   if(liveError){adv.className='verdict na';adv.textContent='버스 위치를 못 받았습니다 ('+liveError+')';return;}
   if(!running){adv.className='verdict na';adv.textContent=`지금 ${route.name} ${liveBuses.length}대 운행 중 · 운행을 시작하면 앞뒤 간격을 보여줍니다`;return;}
   if(!ahead&&!behind){adv.className='verdict na';adv.textContent='같은 노선의 다른 버스가 없습니다';return;}
-  if(ahead&&behind){
-    const diff=min(gB)-min(gA);
-    if(diff>=3){adv.className='verdict warn';adv.textContent=`앞차에 붙음 (뒤차보다 ${diff}분 가까움) → 천천히`;}
-    else if(diff<=-3){adv.className='verdict warn';adv.textContent=`뒤차에 쫓김 (앞차보다 ${-diff}분 가까움) → 조금 서두르기`;}
-    else{adv.className='verdict ok';adv.textContent=`간격 고름 · 차이 ${Math.abs(diff)}분`;}
-  }else{adv.className='verdict na';adv.textContent=ahead?'뒤차 없음':'앞차 없음';}
+  const hw=todayHeadway(),H=hw?.min;
+  const mA=ahead?min(gA):null,mB=behind?min(gB):null;
+  if(H&&mA!=null&&mA<=H-3){adv.className='verdict warn';adv.textContent=`앞차와 ${mA}분 · 배차 ${H}분보다 ${H-mA}분 가까움 → 천천히`;}
+  else if(H&&mB!=null&&mB<=H-3){adv.className='verdict warn';adv.textContent=`뒤차와 ${mB}분 · 배차 ${H}분보다 ${H-mB}분 가까움 → 조금 서두르기`;}
+  else if(H){adv.className='verdict ok';adv.textContent=`배차 ${H}분 간격대로 운행 중`;}
+  else{adv.className='verdict na';adv.textContent='배차 정보 없음';}
   $('gapAheadD').title=$('gapBehindD').title=`평균 ${Math.round(liveSpeed*3.6)}km/h 기준 추정`;
 }
 function startLive(){clearInterval(liveTimer);liveBuses=[];livePrev.clear();refreshLive();liveTimer=setInterval(refreshLive,15000);}
