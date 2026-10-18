@@ -4630,8 +4630,18 @@ function startGuideLive(){
   status.textContent='실시간 위치 추적을 시작했습니다.'+(liveStartIdx>0?' · '+currentGuideStops[liveStartIdx].name+'부터':'');
   // maximumAge:0 forces a fresh GPS fix every time instead of reusing a cached
   // one, so the dot/announcements track genuinely live movement.
+  // Jump the map to the rider on the first fix, then keep them centred
+  // (dragging the map pauses this; 내 위치 resumes it - see planner.js).
+  let firstLiveFix=true;
+  try{mapFollowSet(true);}catch(e){}
+  status.textContent+=' · 내 위치 찾는 중…';
   guideWatchId=navigator.geolocation.watchPosition(
-    p=>onGuidePosition(p.coords.latitude,p.coords.longitude),
+    p=>{
+      const lat=p.coords.latitude,lng=p.coords.longitude;
+      if(firstLiveFix){firstLiveFix=false;map.setView([lat,lng],Math.max(map.getZoom(),17),{animate:false});status.textContent=status.textContent.replace(' · 내 위치 찾는 중…','');}
+      else{try{mapFollowTo(lat,lng);}catch(e){}}
+      onGuidePosition(lat,lng);
+    },
     err=>{status.textContent='위치 오류: '+err.message+' (시뮬레이션으로 먼저 테스트해보세요)';},
     {enableHighAccuracy:true,maximumAge:0,timeout:15000}
   );
