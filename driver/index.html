@@ -154,8 +154,8 @@ input[type=number]{width:70px;font:inherit;background:#0f1318;color:var(--text);
       <div class="row" style="margin-top:8px"><label>시뮬레이션 속도</label><span class="seg" id="simSpeedSeg"></span><button id="detourBtn" title="노선 이탈 경고 시험">이탈 테스트</button></div>
       <div class="row" style="margin-top:8px"><label><input type="checkbox" id="voiceOn"> 음성 안내 (이탈 · 다음 정류장)</label></div>
       <div class="row" style="margin-top:8px"><label id="sigBudget"></label></div>
-      <div class="row" style="margin-top:8px"><label>버스 위치 API 키 (선택)</label><input type="text" id="busKey" placeholder="공공데이터포털 서울 버스위치정보 인증키" style="flex:1;min-width:150px;font:inherit;background:#0f1318;color:var(--text);border:1px solid #3a4452;border-radius:8px;padding:6px"></div>
-      <div class="row" style="margin-top:8px"><label>신호 API 키 (선택)</label><input type="text" id="sigKey" placeholder="서울 T-data 인증키" style="flex:1;min-width:150px;font:inherit;background:#0f1318;color:var(--text);border:1px solid #3a4452;border-radius:8px;padding:6px"></div>
+      <div class="row" style="margin-top:8px"><label>버스 위치 API 키 (선택)</label><input type="text" id="busKey" placeholder="공공데이터포털 인증키 또는 URL 통째로" style="flex:1;min-width:150px;font:inherit;background:#0f1318;color:var(--text);border:1px solid #3a4452;border-radius:8px;padding:6px"></div>
+      <div class="row" style="margin-top:8px"><label>신호 API 키 (선택)</label><input type="text" id="sigKey" placeholder="T-data 인증키 또는 받은 API URL 통째로" style="flex:1;min-width:150px;font:inherit;background:#0f1318;color:var(--text);border:1px solid #3a4452;border-radius:8px;padding:6px"></div>
     </details>
     <details class="card" id="stopsBox">
       <summary>정류장 · 평균 정차 시간</summary>
@@ -186,8 +186,10 @@ const dwellDb=store.get('driverDwell',{});
 $('voiceOn').checked=store.get('driverVoice',false);
 $('sigKey').value=store.get('driverSignalKey','');
 $('busKey').value=store.get('driverBusKey','');
-$('busKey').onchange=e=>{store.set('driverBusKey',e.target.value.trim());if(route)startLive();};
-$('sigKey').onchange=e=>{store.set('driverSignalKey',e.target.value.trim());signalBackoffUntil=0;signalCache.clear();store.set('driverSigBudget',null);$('sigBudget').textContent=sigBudgetText();};
+$('busKey').onchange=e=>{e.target.value=keyFrom(e.target.value,'serviceKey');store.set('driverBusKey',e.target.value);if(route)startLive();};
+// the portals hand out a full URL ("...?apikey=XXXX"); keep only the key
+function keyFrom(text,param){const t=String(text||'').trim(),m=t.match(new RegExp('[?&]'+param+'=([^&\\s]+)','i'));return m?m[1]:t;}
+$('sigKey').onchange=e=>{e.target.value=keyFrom(e.target.value,'apikey');store.set('driverSignalKey',e.target.value);signalBackoffUntil=0;signalCache.clear();store.set('driverSigBudget',null);$('sigBudget').textContent=sigBudgetText();};
 $('voiceOn').onchange=e=>store.set('driverVoice',e.target.checked);
 function say(text){if(!$('voiceOn').checked||!window.speechSynthesis)return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='ko-KR';u.rate=1.05;speechSynthesis.speak(u);}catch(e){}}
 // measured average dwell for a stop, or null before it was ever measured
