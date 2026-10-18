@@ -150,6 +150,7 @@ input[type=number]{width:70px;font:inherit;background:#0f1318;color:var(--text);
       <div class="row"><label>정류장 정차 시간은 GPS로 실제로 멈춘 시간을 재서 운행할수록 자동으로 쌓입니다.</label></div>
       <div class="row" style="margin-top:8px"><label>시뮬레이션 속도</label><span class="seg" id="simSpeedSeg"></span><button id="detourBtn" title="노선 이탈 경고 시험">이탈 테스트</button></div>
       <div class="row" style="margin-top:8px"><label><input type="checkbox" id="voiceOn"> 음성 안내 (이탈 · 다음 정류장)</label></div>
+      <div class="row" style="margin-top:8px"><label id="sigBudget"></label></div>
       <div class="row" style="margin-top:8px"><label>신호 API 키 (선택)</label><input type="text" id="sigKey" placeholder="서울 T-data 인증키" style="flex:1;min-width:150px;font:inherit;background:#0f1318;color:var(--text);border:1px solid #3a4452;border-radius:8px;padding:6px"></div>
     </details>
     <details class="card" id="stopsBox">
@@ -180,7 +181,7 @@ const signalCache=new Map();let lastSignalCall=0;
 const dwellDb=store.get('driverDwell',{});
 $('voiceOn').checked=store.get('driverVoice',false);
 $('sigKey').value=store.get('driverSignalKey','');
-$('sigKey').onchange=e=>{store.set('driverSignalKey',e.target.value.trim());signalBackoffUntil=0;signalCache.clear();};
+$('sigKey').onchange=e=>{store.set('driverSignalKey',e.target.value.trim());signalBackoffUntil=0;signalCache.clear();store.set('driverSigBudget',null);$('sigBudget').textContent=sigBudgetText();};
 $('voiceOn').onchange=e=>store.set('driverVoice',e.target.checked);
 function say(text){if(!$('voiceOn').checked||!window.speechSynthesis)return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='ko-KR';u.rate=1.05;speechSynthesis.speak(u);}catch(e){}}
 // measured average dwell for a stop, or null before it was ever measured
@@ -289,7 +290,7 @@ function update(now){
   const sig=route.signals[si];
   if(!sig){showSignal(null);return;}
   const dist=sig.along-along;
-  if(dist<=300)fetchSignal(sig,dist).catch(()=>{});
+  if(dist<=300)maybeReadSignal(sig,dist).catch(()=>{});
   showSignal(sig,dist,now);
 }
 
@@ -303,47 +304,91 @@ function recTime(r){const u=Number(r?.trsmUtcTime);if(Number.isFinite(u)&&u>1e12
 // The Seoul key allows 1,000 calls a day, shared with the main map, so each
 // signal is read once on approach (within 300 m) and at most once more when the
 // phase we know has ended while the bus is still well short of it.
+// ---- how signals are read (same idea as the main map) ----
+// One read gives every movement of the intersection with its remaining time.
+// Nothing changes until the first of them runs out (e.g. a left arrow with 5 s
+// left), so the next read is scheduled for exactly then - plus the yellow
+// clearance when that first one is a green. In between, the state is counted
+// down locally: green -> yellow -> red, red -> green.
+// The key allows 1,000 reads a day, so reads are also paced over the rest of
+// the day (token bucket) and only happen within 300 m of the next signal.
+const SIG_DAILY=1000,SIG_RESERVE=20,SIG_BURST=25,YELLOW_SEC=3.5;
 let signalBackoffUntil=0;
-async function fetchSignal(sig,dist){
+function sigBudget(){
+  const day=new Date().toLocaleDateString('sv');let b=store.get('driverSigBudget',null);
+  if(!b||b.day!==day)b={day,used:0,tokens:SIG_BURST,at:Date.now(),blocked:false};
+  return b;
+}
+function sigRefill(b,now){
+  const end=new Date(now);end.setHours(24,0,0,0);
+  const leftCalls=SIG_DAILY-SIG_RESERVE-b.used,leftSec=Math.max(600,(end-now)/1000);
+  b.tokens=Math.min(SIG_BURST,b.tokens+Math.max(0,(now-b.at)/1000)*Math.max(0,leftCalls)/leftSec);b.at=now;
+  return leftCalls;
+}
+function sigTake(){
+  const b=sigBudget(),now=Date.now(),left=sigRefill(b,now);
+  if(b.blocked||left<=0||b.tokens<1){store.set('driverSigBudget',b);return false;}
+  b.tokens-=1;b.used+=1;store.set('driverSigBudget',b);return true;
+}
+function sigBudgetText(){const b=sigBudget();sigRefill(b,Date.now());return `오늘 신호 조회 ${b.used}/${SIG_DAILY}회`+(b.blocked?' · 한도 초과(자정에 초기화)':'');}
+function sigDir(sig){const from=(sig.heading+180)%360;return DIRS.reduce((a,b)=>gap(a.deg,from)<=gap(b.deg,from)?a:b);}
+// one movement of the bus's approach, counted down to "now"
+function movement(rec,dir,type,now){
+  const stem=dir.key+type+'sg',st=rec?.[stem+'StatNm'];if(st==null||st==='')return null;
+  const raw=rec[stem+'RmdrCs'],dur=raw==null||raw===''?null:Number(raw)/10,ts=recTime(rec);
+  const actual=statusColor(st),expiresAt=Number.isFinite(dur)&&dur>=0&&dur<3600&&Number.isFinite(ts)?ts+dur*1000:null;
+  let color=actual,until=expiresAt,predicted=false;
+  if(expiresAt!=null&&now>=expiresAt){
+    predicted=true;const over=(now-expiresAt)/1000;
+    if(actual==='green'){if(over<YELLOW_SEC){color='yellow';until=expiresAt+YELLOW_SEC*1000;}else{color='red';until=null;}}
+    else if(actual==='yellow'){color='red';until=null;}
+    else{color='green';until=null;}
+  }
+  return {color,expiresAt:until,predicted,actual,rawExpiry:expiresAt};
+}
+function phaseNow(rec,sig,now){
+  if(!rec||!Object.keys(rec).length)return null;
+  const dir=sigDir(sig);
+  const straight=movement(rec,dir,'St',now)||movement(rec,dir,'Bs',now),left=movement(rec,dir,'Lt',now);
+  const turningLeft=sig.turn<-32&&sig.turn>-155,g=turningLeft&&left?left:straight||left;
+  if(!g)return null;
+  return {...g,label:dir.label+' 진입 · '+(turningLeft&&left?'좌회전':'직진')};
+}
+// when the first movement of this approach runs out (+ yellow after a green)
+function nextReadAt(rec,sig){
+  const dir=sigDir(sig),ts=recTime(rec),times=[];
+  for(const type of ['St','Lt','Ut','Bs','Pd']){
+    const stem=dir.key+type+'sg',raw=rec?.[stem+'RmdrCs'];if(raw==null||raw==='')continue;
+    const sec=Number(raw)/10;if(!Number.isFinite(sec)||sec<=0||sec>=3600)continue;
+    times.push(ts+(sec+(statusColor(rec[stem+'StatNm'])==='green'?YELLOW_SEC:0))*1000+250);
+  }
+  return times.length?Math.max(Date.now()+3000,Math.min(...times)):Date.now()+30000;
+}
+async function maybeReadSignal(sig,dist){
   const c=signalCache.get(sig.id),now=Date.now();
   if(now<signalBackoffUntil||c?.loading)return;
-  if(c){
-    const expired=!c.phase||c.phase.expiresAt==null||c.phase.expiresAt<=now;
-    if(c.lap===lap&&(c.calls>=2||!expired||dist<120||now-c.at<20000))return;
-  }
-  if(now-lastSignalCall<4000)return;
-  lastSignalCall=now;
-  const calls=c&&c.lap===lap?c.calls+1:1;
-  signalCache.set(sig.id,{...(c||{}),loading:true,at:c?.at||0,calls,lap});
+  const fresh=c&&c.lap===lap;
+  // first read on approach; afterwards only when the known countdown has run out
+  if(fresh&&(c.error?now-c.at<30000:!(c.nextAt&&now>=c.nextAt&&dist>30)))return;
+  if(!sigTake()){if(c)c.saving=true;else signalCache.set(sig.id,{at:now,lap,saving:true});return;}
+  signalCache.set(sig.id,{...(c||{}),loading:true,lap});
   try{
     const u=new URL(SEOUL_TDATA_URL);u.search=new URLSearchParams({apikey:store.get('driverSignalKey','')||SEOUL_TDATA_KEY,type:'json',numOfRows:'100',pageNo:'1',itstId:sig.id}).toString();
     const res=await fetch(u,{cache:'no-store'});
-    if(res.status===429){signalBackoffUntil=Date.now()+30*60*1000;throw new Error('오늘 신호 조회 한도(하루 1,000회)를 다 썼습니다');}
+    if(res.status===429){const b=sigBudget();b.blocked=true;store.set('driverSigBudget',b);throw new Error('오늘 신호 조회 한도(하루 1,000회)를 다 썼습니다');}
     if(!res.ok)throw new Error('HTTP '+res.status);
     const data=await res.json(),root=data?.response||data,items=root?.body?.items?.item??root?.items?.item??root?.item??(Array.isArray(root)?root:[]);
     const rows=(Array.isArray(items)?items:[items]).filter(r=>r&&String(r.itstId)===String(sig.id)).sort((a,b)=>recTime(b)-recTime(a));
     const newest=recTime(rows[0]),rec=rows.filter(r=>newest-recTime(r)<=5000).reverse().reduce((o,r)=>{for(const[k,v]of Object.entries(r))if(v!==''&&v!=null)o[k]=v;return o;},{});
-    signalCache.set(sig.id,{at:Date.now(),phase:pickPhase(rec,sig),calls,lap});
+    const ok=Object.keys(rec).length&&Number.isFinite(recTime(rec))&&Date.now()-recTime(rec)<60000;
+    signalCache.set(sig.id,{at:Date.now(),lap,rec:ok?rec:null,nextAt:ok?nextReadAt(rec,sig):null,empty:!ok});
   }catch(e){
     // a blocked 429 reaches the page as a failed fetch without a status
     const msg=e instanceof TypeError?'신호 서버 응답 없음 (조회 한도 초과일 수 있음)':e.message||'신호 오류';
     if(e instanceof TypeError)signalBackoffUntil=Date.now()+5*60*1000;
-    signalCache.set(sig.id,{at:Date.now(),error:msg,calls,lap});
+    signalCache.set(sig.id,{at:Date.now(),lap,error:msg,rec:c?.rec||null,nextAt:c?.nextAt||null});
   }
-}
-function movement(rec,dir,type,now){
-  const stem=dir.key+type+'sg',st=rec?.[stem+'StatNm'];if(st==null||st==='')return null;
-  const raw=rec[stem+'RmdrCs'],dur=raw==null||raw===''?null:Number(raw)/10,ts=recTime(rec);
-  return {color:statusColor(st),expiresAt:Number.isFinite(dur)&&dur>=0&&dur<3600?ts+dur*1000:null};
-}
-function pickPhase(rec,sig){
-  if(!rec||!Object.keys(rec).length)return null;
-  const now=Date.now(),ts=recTime(rec);if(!Number.isFinite(ts)||now-ts>20000)return null;
-  const from=(sig.heading+180)%360,dir=DIRS.reduce((a,b)=>gap(a.deg,from)<=gap(b.deg,from)?a:b);
-  let straight=movement(rec,dir,'St',now)||movement(rec,dir,'Bs',now);const left=movement(rec,dir,'Lt',now);
-  const turningLeft=sig.turn<-32&&sig.turn>-155,g=turningLeft&&left?left:straight||left;
-  if(!g)return null;
-  return {color:g.color,expiresAt:g.expiresAt,label:dir.label+' 진입 · '+(turningLeft&&left?'좌회전':'직진')};
+  $('sigBudget').textContent=sigBudgetText();
 }
 function setGauge(risk,label){
   const g=document.querySelector('.gauge');
@@ -356,22 +401,23 @@ function showSignal(sig,dist,now=Date.now()){
   const v=$('verdict');
   if(!sig){$('sigName').textContent='앞 신호';$('sigInfo').textContent='';$('sigSecs').textContent='–';v.className='verdict na';v.textContent=running?'앞쪽에 신호 없음':'신호 정보 대기';return;}
   $('sigName').textContent='🚦 '+sig.name;
-  const c=signalCache.get(sig.id),ph=c?.phase;
+  const c=signalCache.get(sig.id),ph=c?.rec?phaseNow(c.rec,sig,now):null;
   // stops between here and the signal add their usual dwell time
   const between=route.stops.filter(s=>!s.virtual&&s.along>along+8&&s.along<sig.along-5);
   const known=between.filter(s=>dwellFor(s)!=null),dwell=known.reduce((t,s)=>t+dwellFor(s)+6,0),unknown=between.length-known.length;
   const v_eff=Math.max(speed,speed<1?6:4),travel=dist/v_eff,eta=travel+dwell;
   $('sigInfo').textContent=fmtDist(dist)+' 앞'+(between.length?` · 사이 정류장 ${between.length}곳`+(known.length?`(정차 약 ${Math.round(dwell)}초)`:'')+(unknown?` · 정차 기록 없는 ${unknown}곳은 계산에서 빠짐`:''):'')+(ph?.label?' · '+ph.label:'');
   if(dist>300){$('sigSecs').textContent='–';v.className='verdict na';v.textContent='300m 안에 들어오면 신호를 확인합니다';return;}
-  if(ph&&ph.expiresAt!=null&&ph.expiresAt<=now&&(ph.color==='red'||ph.color==='green')){
-    // known phase already over: red turned green, green turned (yellow then) red
-    const was=ph.color;$('sigSecs').textContent='–';
-    document.querySelector('.lights .'+(was==='red'?'g':'r')).classList.add('on');
-    v.className='verdict '+(was==='red'?'ok':'no');v.textContent=was==='red'?'녹색으로 바뀜 (추정) · 통과 가능성 높음':'적색으로 바뀜 (추정) · 정지 예상';setGauge(was==='red'?25:85,'추정');return;
+  if(ph&&ph.expiresAt==null){
+    // counted down past what we know: green -> red, or red -> green
+    document.querySelector('.lights .'+(ph.color==='green'?'g':'r')).classList.add('on');$('sigSecs').textContent='–';
+    const go=ph.color==='green';v.className='verdict '+(go?'ok':'no');
+    v.textContent=go?'녹색으로 바뀜 (추정) · 통과 가능성 높음':'적색 (추정) · 정지 예상'+(c?.nextAt&&c.nextAt>now?'':' · 곧 다시 확인');
+    setGauge(go?25:85,'추정');return;
   }
-  if(!ph||ph.expiresAt==null||ph.expiresAt<=now){
+  if(!ph){
     $('sigSecs').textContent='–';v.className='verdict na';
-    v.textContent=c?.error?'신호 정보를 받지 못했습니다 ('+c.error+')':c&&!c.loading&&!ph?'이 교차로는 실시간 신호 정보가 없습니다':'신호 확인 중…';return;
+    v.textContent=c?.error?'신호 정보를 받지 못했습니다 ('+c.error+')':c?.empty?'이 교차로는 실시간 신호 정보가 없습니다':c?.saving&&!c?.rec?'조회 아끼는 중 · 하루 한도를 시간에 맞춰 나눠 씁니다':'신호 확인 중…';return;
   }
   const R=(ph.expiresAt-now)/1000;
   document.querySelector('.lights .'+({red:'r',yellow:'y',green:'g'}[ph.color]||'r')).classList.add('on');
@@ -524,6 +570,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&running)k
 addEventListener('resize',()=>map.invalidateSize());
 
 // ---------- boot ----------
+$('sigBudget').textContent=sigBudgetText();
 fetch('routes.json').then(r=>r.json()).then(d=>{
   DATA=d;
   d.routes.forEach(r=>{const b=document.createElement('button');b.textContent=r.name;b.onclick=()=>selectRoute(r.name);$('routeSeg').appendChild(b);});
