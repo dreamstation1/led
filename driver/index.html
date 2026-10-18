@@ -140,6 +140,7 @@ input[type=number]{width:70px;font:inherit;background:#0f1318;color:var(--text);
     <div class="card compact">
       <div class="nextrow"><div><small>다음 정류장</small><div class="big" id="nextStop">운행을 시작하세요</div></div><div class="dist" id="nextStopDist"></div></div>
       <div class="sub" id="nextStopInfo"></div>
+      <div class="sub" id="gpsInfo"></div>
     </div>
     <div class="card compact">
       <div class="gaps"><div><small>앞차</small><b id="gapAhead">–</b><span id="gapAheadD"></span></div><div><small>뒤차</small><b id="gapBehind">–</b><span id="gapBehindD"></span></div></div>
@@ -203,13 +204,16 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,att
 let follow=true;map.on('dragstart',()=>{follow=false;});
 
 // ---------- route geometry ----------
-function project(lat,lng,from,to){
+function project(lat,lng,from,to,lo=-Infinity,hi=Infinity){
   // nearest point on the polyline between shape indices [from,to)
   const pts=route.shape;let best={d:Infinity,along:0,i:0};
   const kx=Math.cos(lat*Math.PI/180)*111320,ky=110540;
   for(let i=Math.max(0,from);i<Math.min(pts.length-1,to);i++){
     const ax=(pts[i][1]-lng)*kx,ay=(pts[i][0]-lat)*ky,bx=(pts[i+1][1]-lng)*kx,by=(pts[i+1][0]-lat)*ky;
-    const dx=bx-ax,dy=by-ay,len2=dx*dx+dy*dy;let t=len2?-(ax*dx+ay*dy)/len2:0;t=Math.max(0,Math.min(1,t));
+    const dx=bx-ax,dy=by-ay,len2=dx*dx+dy*dy,span=cum[i+1]-cum[i]||1;
+    // optional limits on the position along the line (in metres)
+    const tl=Math.max(0,(lo-cum[i])/span),th=Math.min(1,(hi-cum[i])/span);if(tl>th)continue;
+    let t=len2?-(ax*dx+ay*dy)/len2:0;t=Math.max(tl,Math.min(th,t));
     const px=ax+t*dx,py=ay+t*dy,d=Math.hypot(px,py);
     if(d<best.d)best={d,along:cum[i]+t*(cum[i+1]-cum[i]),i};
   }
@@ -243,32 +247,63 @@ function renderStops(){
 }
 
 // ---------- position updates ----------
+// GPS handling:
+// - the real fix is always drawn (small dot + accuracy circle);
+// - the bus symbol snaps to the road only when the fix is close to it;
+// - a jump to another part of the line (loop routes pass the same road twice)
+//   is accepted only after 3 fixes agree, so jitter can't fling the bus around;
+// - speed comes from the phone's GPS speed, or from real distance between
+//   fixes, never from the position along the line.
+let rawDot=null,rawCircle=null,onRoad=false,pendingJump=null,lastFix=null,routeDist=Infinity,lastFixAlongAt=0;
 function onPosition(lat,lng,acc,gpsSpeed,now){
-  pos={lat,lng};
-  // search near the previous position first (loop routes reuse roads), then everywhere
-  let p=lastAlong==null?project(lat,lng,0,route.shape.length):project(lat,lng,indexAt(lastAlong-300)-1,indexAt(lastAlong+600)+1);
-  if(p.d>60){const g=project(lat,lng,0,route.shape.length);if(g.d<p.d-20)p=g;}
-  const limit=Math.max(50,(acc||0)*1.5);
-  // off-route: away from the line for 8 s
+  pos={lat,lng};acc=Number.isFinite(acc)?acc:20;
+  // speed
+  let meas=Number.isFinite(gpsSpeed)&&gpsSpeed>=0?gpsSpeed:null;
+  if(meas==null&&lastFix){const dt=(now-lastFix.t)/1000,d=hav(lastFix.lat,lastFix.lng,lat,lng);if(dt>0.5)meas=d>Math.max(3,acc*0.5)?d/dt:0;}
+  lastFix={lat,lng,t:now};
+  if(meas!=null)speed=speed*0.5+Math.min(25,meas)*0.5;
+  // where on the line
+  // a fix can only move the bus as far as it could really have driven since the last one
+  const reach=lastFixAlongAt?Math.max(60,speed*Math.min(10,(now-lastFixAlongAt)/1000)*2.5+40):400;
+  const near=lastAlong==null?null:project(lat,lng,indexAt(lastAlong-60)-1,indexAt(lastAlong+reach)+1,lastAlong-60,lastAlong+reach);
+  const glob=project(lat,lng,0,route.shape.length);
+  let p=near&&near.d<=Math.max(40,acc)?near:glob;
+  if(near&&p===glob&&Math.abs(glob.along-lastAlong)>150){
+    // looks like a jump to another pass of the line: wait for confirmation
+    if(pendingJump&&Math.abs(pendingJump.along-glob.along)<120){pendingJump.n++;}else pendingJump={along:glob.along,n:1};
+    if(pendingJump.n<3)p=near;else pendingJump=null;
+  }else pendingJump=null;
+  routeDist=p.d;
+  const limit=Math.max(50,acc*1.5);
+  onRoad=p.d<=Math.max(35,acc);
+  // off-route alarm: away from the line for 8 s
   if(p.d>limit){offSince=offSince||now;backSince=null;if(!offRoute&&now-offSince>8000){offRoute=true;alertOn('⚠ 노선 이탈 · 경로에서 '+fmtDist(p.d)+' 벗어남');say('노선을 이탈했습니다. 경로로 돌아가 주세요.');if(navigator.vibrate)navigator.vibrate([400,150,400]);}}
   else{offSince=null;if(offRoute){backSince=backSince||now;if(now-backSince>3000){offRoute=false;alertOff();say('노선으로 돌아왔습니다.');}}}
   if(offRoute)$('alert').textContent='⚠ 노선 이탈 · 경로에서 '+fmtDist(p.d)+' 벗어남';
-  if(!offRoute){
-    const prev=along;along=p.along;
-    if(lastAlong!=null){const dA=along-lastAlong;wrongWay=dA<-3?wrongWay+(-dA):Math.max(0,wrongWay-Math.max(0,dA));
+  if(p.d<=limit){
+    along=p.along;lastFixAlongAt=now;
+    if(lastAlong!=null){const dA=along-lastAlong;wrongWay=dA<-4&&speed>1.5?wrongWay+(-dA):Math.max(0,wrongWay-Math.max(0,dA));
       if(wrongWay>60&&!$('alert').classList.contains('show')){alertOn('⚠ 노선 반대 방향으로 가는 중');say('노선 반대 방향입니다.');}
       if(wrongWay<10&&$('alert').textContent.includes('반대'))alertOff();}
     lastAlong=along;
-    const dt=(now-(onPosition.t||now))/1000;onPosition.t=now;
-    const meas=gpsSpeed!=null&&gpsSpeed>=0?gpsSpeed:(dt>0?Math.max(0,(along-prev)/dt):speed);
-    speed=speed*0.6+meas*0.4;
   }
-  if(!busMarker)busMarker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:'<div class="bus-dot"></div>',iconSize:[22,22]}),zIndexOffset:1000}).addTo(map);
-  else if(offRoute)busMarker.setLatLng([lat,lng]); // on the road the 200 ms ticker places it
-  if(!onPosition.zoomed){onPosition.zoomed=true;map.setView([lat,lng],16);}
-  else if(follow)map.panTo([lat,lng],{animate:true,duration:.5});
+  // drawing
+  if(running==='gps'){
+    if(!rawDot){rawCircle=L.circle([lat,lng],{radius:acc,color:'#60a5fa',weight:1,fillOpacity:.12,interactive:false}).addTo(map);
+      rawDot=L.circleMarker([lat,lng],{radius:5,color:'#fff',weight:2,fillColor:'#60a5fa',fillOpacity:1,interactive:false}).addTo(map);}
+    else{rawDot.setLatLng([lat,lng]);rawCircle.setLatLng([lat,lng]).setRadius(acc);}
+  }
+  const shown=onRoad?pointAt(along):[lat,lng];
+  if(!busMarker)busMarker=L.marker(shown,{icon:L.divIcon({className:'',html:'<div class="bus-dot"></div>',iconSize:[22,22]}),zIndexOffset:1000}).addTo(map);
+  else busMarker.setLatLng(shown);
+  if(!onPosition.zoomed){onPosition.zoomed=true;map.setView(shown,16);}
+  else if(follow)map.panTo(shown,{animate:true,duration:.5});
   fixAt=now;fixAlong=along;
-  trackDwell(now);update(now);
+  $('gpsInfo').textContent=running==='gps'?`GPS ±${Math.round(acc)}m · 경로까지 ${fmtDist(p.d)} · ${Math.round(speed*3.6)}km/h${onRoad?'':' · 노선 밖'}`:'';
+  if(p.d>300){
+    $('nextStop').textContent='노선에서 '+fmtDist(p.d)+' 떨어져 있음';$('nextStopDist').textContent='';
+    $('nextStopInfo').textContent='노선 위로 가면 다음 정류장과 신호를 보여줍니다';showSignal(null);
+  }else{trackDwell(now);update(now);}
   if(now-(onPosition.gapAt||0)>2000){onPosition.gapAt=now;drawLive();}
 }
 function alertOn(t){$('alert').textContent=t;$('alert').classList.add('show');}
@@ -555,12 +590,12 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&route&&li
 // ---------- 5x a second: move the bus and the signal estimate between fixes ----------
 let fixAt=0,fixAlong=0;
 setInterval(()=>{
-  if(!running||!route||offRoute||!busMarker)return;
-  const now=Date.now(),dt=Math.min(3,(now-fixAt)/1000);
-  const a=Math.min(route.length,fixAlong+(speed>0.8?speed*dt:0));
+  if(!running||!route||!busMarker||!onRoad||offRoute)return;
+  const now=Date.now(),dt=(now-fixAt)/1000;if(dt>2.5||speed<1.5)return;
+  const a=Math.min(route.length,fixAlong+Math.min(40,speed*dt));
   const p=pointAt(a);busMarker.setLatLng(p);
   if(follow&&running==='gps')map.panTo(p,{animate:false});
-  const sig=route.signals[nextSigIdx];if(sig){const saved=along;along=a;showSignal(sig,sig.along-a,now);along=saved;}
+  const sig=route.signals[nextSigIdx];if(sig&&routeDist<=300){const saved=along;along=a;showSignal(sig,sig.along-a,now);along=saved;}
 },200);
 
 // ---------- run modes ----------
@@ -571,13 +606,13 @@ function setRunning(mode){
 }
 function startGps(){
   if(!navigator.geolocation){alert('이 기기에서는 위치를 쓸 수 없습니다.');return;}
-  setRunning('gps');lap++;onPosition.zoomed=false;follow=true;lastAlong=null;announced.clear();keepAwake();
+  setRunning('gps');lap++;onPosition.zoomed=false;speed=0;follow=true;lastAlong=null;announced.clear();keepAwake();
   $('nextStop').textContent='위치 확인 중…';
   watchId=navigator.geolocation.watchPosition(p=>onPosition(p.coords.latitude,p.coords.longitude,p.coords.accuracy,p.coords.speed,Date.now()),
     e=>{$('nextStop').textContent='위치를 받을 수 없습니다';$('nextStopInfo').textContent=e.message||'';},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
 }
 function startSim(){
-  setRunning('sim');lap++;onPosition.zoomed=false;follow=true;lastAlong=null;announced.clear();simAlong=0;simDwellUntil=0;simDetour=0;keepAwake();
+  setRunning('sim');lap++;onPosition.zoomed=false;speed=0;follow=true;lastAlong=null;announced.clear();simAlong=0;simDwellUntil=0;simDetour=0;keepAwake();
   let t=performance.now(),stopDone=new Set();
   simTimer=setInterval(()=>{
     const now=performance.now(),dt=(now-t)/1000*simSpeedMul;t=now;
@@ -598,6 +633,7 @@ function stopRun(){
   if(watchId!=null)navigator.geolocation.clearWatch(watchId);watchId=null;clearInterval(simTimer);simTimer=null;
   try{wakeLock?.release();}catch(e){}wakeLock=null;
   offRoute=false;offSince=null;alertOff();if(busMarker){map.removeLayer(busMarker);busMarker=null;}
+  if(rawDot){map.removeLayer(rawDot);map.removeLayer(rawCircle);rawDot=rawCircle=null;}lastFix=null;pendingJump=null;onRoad=false;lastFixAlongAt=0;$('gpsInfo').textContent='';
   setRunning(null);if(route){along=0;lastAlong=null;nextStopIdx=-1;renderStops();renderIdle();drawLive();}
 }
 $('liveBtn').onclick=()=>setLive(!liveOn);
