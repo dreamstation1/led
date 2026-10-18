@@ -143,7 +143,8 @@ input[type=number]{width:70px;font:inherit;background:#0f1318;color:var(--text);
     </div>
     <div class="card compact">
       <div class="gaps"><div><small>앞차</small><b id="gapAhead">–</b><span id="gapAheadD"></span></div><div><small>뒤차</small><b id="gapBehind">–</b><span id="gapBehindD"></span></div></div>
-      <div class="verdict na small" id="gapAdvice">실시간 버스 위치 확인 중…</div>
+      <div class="verdict na small" id="gapAdvice">실시간 위치 꺼짐</div>
+      <button id="liveBtn" style="width:100%;margin-top:6px">🚌 실시간 위치 켜기</button>
       <div class="sub" id="schedInfo"></div>
     </div>
   </section>
@@ -474,7 +475,7 @@ function vehicleAlong(v){
   return p.d<150?{along:p.along,lat,lng}:null;
 }
 async function refreshLive(){
-  if(!route)return;
+  if(!route||!liveOn)return;
   const r=route;
   try{
     const res=await fetch(busPosUrl(r.id),{cache:'no-store'});
@@ -527,6 +528,7 @@ function drawLive(){
   const gA=ahead?loopGap(along,ahead.along):null,gB=behind?loopGap(behind.along,along):null;
   show('gapAhead','gapAheadD',ahead,gA);show('gapBehind','gapBehindD',behind,gB);
   const adv=$('gapAdvice'),hw0=todayHeadway();
+  if(!liveOn){$('schedInfo').textContent=hw0?`운행 ${hw0.first}~${hw0.last} · 배차 ${hw0.label} ${hw0.min}분`:'';adv.className='verdict na small';adv.textContent='실시간 위치 꺼짐 · 켜면 20초마다 앞차·뒤차 간격을 봅니다';$('gapAhead').textContent=$('gapBehind').textContent='–';$('gapAheadD').textContent=$('gapBehindD').textContent='';return;}
   $('schedInfo').textContent=hw0?`운행 ${hw0.first}~${hw0.last} · 배차 ${hw0.label} ${hw0.min}분 · ${liveBuses.length}대 운행 중`:'';
   if(liveError){adv.className='verdict na';adv.textContent='버스 위치를 못 받았습니다 ('+liveError+')';return;}
   if(!running){adv.className='verdict na';adv.textContent=`지금 ${route.name} ${liveBuses.length}대 운행 중 · 운행을 시작하면 앞뒤 간격을 보여줍니다`;return;}
@@ -539,8 +541,16 @@ function drawLive(){
   else{adv.className='verdict na';adv.textContent='배차 정보 없음';}
   $('gapAheadD').title=$('gapBehindD').title=`평균 ${Math.round(liveSpeed*3.6)}km/h 기준 추정`;
 }
-function startLive(){clearInterval(liveTimer);liveBuses=[];livePrev.clear();refreshLive();liveTimer=setInterval(refreshLive,15000);}
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&route)refreshLive();});
+// Live positions are off by default (they share the daily API quota with the
+// main map); when switched on they are read every 20 s.
+const LIVE_POLL_MS=20000;let liveOn=false;
+function startLive(){
+  clearInterval(liveTimer);liveTimer=null;liveBuses=[];livePrev.clear();liveError='';
+  if(liveOn){refreshLive();liveTimer=setInterval(refreshLive,LIVE_POLL_MS);}
+  drawLive();
+}
+function setLive(on){liveOn=!!on;$('liveBtn').classList.toggle('on',liveOn);$('liveBtn').textContent=liveOn?'🚌 실시간 위치 끄기':'🚌 실시간 위치 켜기';startLive();}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&route&&liveOn)refreshLive();});
 
 // ---------- 5x a second: move the bus and the signal estimate between fixes ----------
 let fixAt=0,fixAlong=0;
@@ -590,6 +600,7 @@ function stopRun(){
   offRoute=false;offSince=null;alertOff();if(busMarker){map.removeLayer(busMarker);busMarker=null;}
   setRunning(null);if(route){along=0;lastAlong=null;nextStopIdx=-1;renderStops();renderIdle();drawLive();}
 }
+$('liveBtn').onclick=()=>setLive(!liveOn);
 $('startGps').onclick=startGps;$('startSim').onclick=startSim;$('stopBtn').onclick=stopRun;
 $('detourBtn').onclick=()=>{simDetour=simDetour?0:120;$('detourBtn').classList.toggle('on',!!simDetour);};
 [1,4,10].forEach(m=>{const b=document.createElement('button');b.textContent=m+'x';b.classList.toggle('on',m===1);b.onclick=()=>{simSpeedMul=m;document.querySelectorAll('#simSpeedSeg button').forEach(x=>x.classList.toggle('on',x===b));};$('simSpeedSeg').appendChild(b);});
