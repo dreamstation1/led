@@ -1,6 +1,6 @@
 (function(){
-  if(window.__gaplessQueueV66)return;
-  window.__gaplessQueueV66=true;
+  if(window.__gaplessQueueV67)return;
+  window.__gaplessQueueV67=true;
 
   // The embedded page manifest can lag behind newly uploaded recordings.
   // Refresh it before resolving a name, while retaining the offline manifest.
@@ -27,6 +27,28 @@
   const TOUCH_DEVICE=(()=>{try{return navigator.maxTouchPoints>0||matchMedia('(pointer:coarse)').matches||/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);}catch(e){return false;}})();
   const SEGMENT_GAP_MS=TOUCH_DEVICE?0:180;
   const SENTENCE_GAP_MS=TOUCH_DEVICE?0:450;
+  // Independently draw on each synthesized English stop announcement.
+  // Actual recordings already contain their original trailing announcements.
+  const ENGLISH_TTS_EXTRA_PROBABILITY=.7;
+  const ENGLISH_TTS_EXTRAS=Array.from({length:28},(_,i)=>'audio/tts-extra-'+String(i+1).padStart(2,'0')+'.wav');
+  function chooseEnglishTtsExtra(seg,random=Math.random){
+    if(!seg||seg.category!=='stops'||! / \(1\)$/.test(seg.key)||!(seg.kind==='tts'||seg.ai))return null;
+    if(random()>=ENGLISH_TTS_EXTRA_PROBABILITY)return null;
+    return ENGLISH_TTS_EXTRAS[Math.floor(random()*ENGLISH_TTS_EXTRAS.length)];
+  }
+  async function appendEnglishTtsExtra(items){
+    const index=items.findIndex(seg=>seg?.category==='stops'&&/ \(1\)$/.test(seg.key)&&(seg.kind==='tts'||seg.ai));
+    if(index<0)return items;
+    const path=chooseEnglishTtsExtra(items[index]);
+    if(!path)return items;
+    try{
+      const url=await loadBlobUrl((window.LED_BASE||'')+path);
+      if(!url)return items;
+      const extra=await audioSegment(url,{category:'extras',key:path,immediate:true});
+      if(extra)items.splice(index+1,0,extra);
+    }catch(e){/* A missing optional clip must not interrupt the stop announcement. */}
+    return items;
+  }
   let primeEl=null;
   let announcement=null;
   window.cancelGuideAnnouncement=function(){
@@ -489,7 +511,7 @@
 
   async function playResolvedSequence(items,signal){
     // Keep phrase/name joins short, but breathe between complete sentences.
-    const gapAfter=seg=>(seg.category==='stops'||seg.key==='종점입니다')?SENTENCE_GAP_MS:SEGMENT_GAP_MS;
+    const gapAfter=(seg,next)=>next?.immediate?0:(seg.category==='stops'||seg.key==='종점입니다')?SENTENCE_GAP_MS:SEGMENT_GAP_MS;
     // Decoded playback is also the normalization path, so use it at every
     // guide speed. The playbackRate is applied once to the joined sequence.
     const ctx=audioCtx();
@@ -508,7 +530,7 @@
         let j=i;
         const run=[];
         while(joinable(items[j])){
-          run.push({buf:items[j].buf,gapAfter:joinable(items[j+1])?gapAfter(items[j]):0});
+          run.push({buf:items[j].buf,gapAfter:joinable(items[j+1])?gapAfter(items[j],items[j+1]):0});
           j++;
         }
         const ok=await playBuffers(run,signal,typeof guideRate==='number'?guideRate:1);
@@ -517,10 +539,10 @@
           for(let k=i;k<j;k++){
             await playAudioSegment(items[k],signal);
             if(signal.aborted)return;
-            if(k+1<j)await pauseBetween(gapAfter(items[k]),signal);
+            if(k+1<j)await pauseBetween(gapAfter(items[k],items[k+1]),signal);
           }
         }
-        if(j<items.length)await pauseBetween(gapAfter(items[j-1]),signal);
+        if(j<items.length)await pauseBetween(gapAfter(items[j-1],items[j]),signal);
         i=j;
         continue;
       }
@@ -528,7 +550,7 @@
       else await playAudioSegment(seg,signal);
       if(signal.aborted)return;
       // Wait for actual playback completion, including recorded/TTS transitions.
-      if(i+1<items.length)await pauseBetween(gapAfter(seg),signal);
+      if(i+1<items.length)await pauseBetween(gapAfter(seg,items[i+1]),signal);
       i++;
     }
   }
@@ -647,6 +669,8 @@
       unlock();
       try{
         const resolved=await resolveAnnouncement(stop,next,!!options.waitForAi);
+        if(controller.signal.aborted)return;
+        await appendEnglishTtsExtra(resolved);
         if(controller.signal.aborted)return;
         announceSignal(true);
         await playResolvedSequence(resolved,controller.signal);

@@ -1,0 +1,258 @@
+{
+  "probability": 0.7,
+  "selection": "independent uniform draw; repeats allowed",
+  "clips": [
+    {
+      "id": "extra-01",
+      "title": "준공영제·교통복지",
+      "source": "금강수목원아파트 (1).wav",
+      "path": "audio/tts-extra-01.wav",
+      "start": 2.5,
+      "end": 15.39,
+      "duration": 12.89
+    },
+    {
+      "id": "extra-02",
+      "title": "서울시내버스 홍보",
+      "source": "63빌딩.가톨릭대학교여의도성모병원 (1).wav",
+      "path": "audio/tts-extra-02.wav",
+      "start": 5.6,
+      "end": 13.26,
+      "duration": 7.66
+    },
+    {
+      "id": "extra-03",
+      "title": "손잡이·정차 후 하차·이륜차 주의",
+      "source": "KT강서지사 (1).wav",
+      "path": "audio/tts-extra-03.wav",
+      "start": 2.3,
+      "end": 13.980022675736961,
+      "duration": 11.6801
+    },
+    {
+      "id": "extra-04",
+      "title": "손잡이는 안전벨트",
+      "source": "가양2단지성지아파트.동양고등학교+ 한보구암마을아파트 (1).wav",
+      "path": "audio/tts-extra-04.wav",
+      "start": 4.7,
+      "end": 15.3,
+      "duration": 10.6
+    },
+    {
+      "id": "extra-05",
+      "title": "정차 후 천천히 하차",
+      "source": "갈산초등학교후문 (1).wav",
+      "path": "audio/tts-extra-05.wav",
+      "start": 2.78,
+      "end": 13.460022675736962,
+      "duration": 10.6801
+    },
+    {
+      "id": "extra-06",
+      "title": "앞문 승차·뒷문 하차",
+      "source": "가양2단지성지아파트.동양고등학교 (1).wav",
+      "path": "audio/tts-extra-06.wav",
+      "start": 4.78,
+      "end": 14.12501133786848,
+      "duration": 9.345
+    },
+    {
+      "id": "extra-07",
+      "title": "교통약자석 양보",
+      "source": "KBS별관 (1).wav",
+      "path": "audio/tts-extra-07.wav",
+      "start": 1.52,
+      "end": 14.5299375,
+      "duration": 13.0099
+    },
+    {
+      "id": "extra-08",
+      "title": "승하차 휴대폰·주변·소지품 확인",
+      "source": "공항동송정중학교 (1).wav",
+      "path": "audio/tts-extra-08.wav",
+      "start": 2.63,
+      "end": 14.00750566893424,
+      "duration": 11.3775
+    },
+    {
+      "id": "extra-09",
+      "title": "폭언·폭행 금지",
+      "source": "가양동 2 (1).wav",
+      "path": "audio/tts-extra-09.wav",
+      "start": 1.88,
+      "end": 9.34,
+      "duration": 7.46
+    },
+    {
+      "id": "extra-10",
+      "title": "차내 안쪽으로 이동",
+      "source": "공항시장역3번출구 (1).wav",
+      "path": "audio/tts-extra-10.wav",
+      "start": 9.27,
+      "end": 13.187528344671202,
+      "duration": 3.9176
+    },
+    {
+      "id": "extra-11",
+      "title": "출발 버스 뛰어타기 금지",
+      "source": "개화초교.개화산역2번출구 (1).wav",
+      "path": "audio/tts-extra-11.wav",
+      "start": 4.38,
+      "end": 12.190022675736962,
+      "duration": 7.8101
+    },
+    {
+      "id": "extra-12",
+      "title": "차내 통화·대화 자제",
+      "source": "강서한강자이아파트 (1).wav",
+      "path": "audio/tts-extra-12.wav",
+      "start": 3.03,
+      "end": 13.99,
+      "duration": 10.96
+    },
+    {
+      "id": "extra-13",
+      "title": "음식물·개방 음료 반입 안내",
+      "source": "공항중학교.마곡엠밸리9,10단지 (1).wav",
+      "path": "audio/tts-extra-13.wav",
+      "start": 4.87,
+      "end": 21.41,
+      "duration": 16.54
+    },
+    {
+      "id": "extra-14",
+      "title": "하차 태그·기후동행카드",
+      "source": "양천구청 (1).wav",
+      "path": "audio/tts-extra-14.wav",
+      "start": 1.76,
+      "end": 12.3199375,
+      "duration": 10.5599
+    },
+    {
+      "id": "extra-15",
+      "title": "부정승차 안내",
+      "source": "국회의사당역5번출구 (1).wav",
+      "path": "audio/tts-extra-15.wav",
+      "start": 7.98,
+      "end": 13.550022675736962,
+      "duration": 5.5701
+    },
+    {
+      "id": "extra-16",
+      "title": "버스 음성광고 모집",
+      "source": "강서구청별관 (1).wav",
+      "path": "audio/tts-extra-16.wav",
+      "start": 1.9,
+      "end": 11.14,
+      "duration": 9.24
+    },
+    {
+      "id": "extra-17",
+      "title": "120 동행콜택시 홍보",
+      "source": "경남아너스빌아파트 (1).wav",
+      "path": "audio/tts-extra-17.wav",
+      "start": 2.6,
+      "end": 15.64,
+      "duration": 13.04
+    },
+    {
+      "id": "extra-18",
+      "title": "서울시내버스 홍보",
+      "source": "동산교회 (1).wav",
+      "path": "audio/tts-extra-18.wav",
+      "start": 1.36,
+      "end": 7.537505668934241,
+      "duration": 6.1775
+    },
+    {
+      "id": "extra-19",
+      "title": "정차 후 하차·오토바이·자전거 주의",
+      "source": "등촌3동대림아파트 (1).wav",
+      "path": "audio/tts-extra-19.wav",
+      "start": 2.65,
+      "end": 14.16,
+      "duration": 11.51
+    },
+    {
+      "id": "extra-20",
+      "title": "승하차 휴대폰·주변·소지품 확인",
+      "source": "KBS스포츠월드 (1).wav",
+      "path": "audio/tts-extra-20.wav",
+      "start": 1.86,
+      "end": 12.6,
+      "duration": 10.74
+    },
+    {
+      "id": "extra-21",
+      "title": "음식물·개방 음료 반입 안내",
+      "source": "공덕시장 (1).wav",
+      "path": "audio/tts-extra-21.wav",
+      "start": 1.64,
+      "end": 12.06,
+      "duration": 10.42
+    },
+    {
+      "id": "extra-22",
+      "title": "유실물·120 문의",
+      "source": "동도중학교.서울디자인고등학교 (1).wav",
+      "path": "audio/tts-extra-22.wav",
+      "start": 3.8,
+      "end": 19.85,
+      "duration": 16.05
+    },
+    {
+      "id": "extra-23",
+      "title": "친환경 버스 홍보",
+      "source": "오류1동주민센터.오류문화센터 (1).wav",
+      "path": "audio/tts-extra-23.wav",
+      "start": 4.48,
+      "end": 14.18,
+      "duration": 9.7
+    },
+    {
+      "id": "extra-24",
+      "title": "외로움 없는 서울",
+      "source": "공항동주민센터 (1).wav",
+      "path": "audio/tts-extra-24.wav",
+      "start": 2.73,
+      "end": 15.85,
+      "duration": 13.12
+    },
+    {
+      "id": "extra-25",
+      "title": "서울런 홍보",
+      "source": "구로디지털단지역 (1).wav",
+      "path": "audio/tts-extra-25.wav",
+      "start": 2.67,
+      "end": 14.380022675736962,
+      "duration": 11.7101
+    },
+    {
+      "id": "extra-26",
+      "title": "교통카드 전환·교통비 홍보",
+      "source": "공항동천주교회 (1).wav",
+      "path": "audio/tts-extra-26.wav",
+      "start": 1.95,
+      "end": 10.560022675736962,
+      "duration": 8.6101
+    },
+    {
+      "id": "extra-27",
+      "title": "서울형 입원생활비 지원",
+      "source": "신목동역2번출구 (1).wav",
+      "path": "audio/tts-extra-27.wav",
+      "start": 6.9,
+      "end": 19.41002267573696,
+      "duration": 12.5101
+    },
+    {
+      "id": "extra-28",
+      "title": "저상버스·이동권·교통복지",
+      "source": "신촌역8번출구 (1).wav",
+      "path": "audio/tts-extra-28.wav",
+      "start": 2.48,
+      "end": 15.56,
+      "duration": 13.08
+    }
+  ]
+}
