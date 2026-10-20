@@ -65,7 +65,12 @@
   function syncOverlay(){
     targetBtn=findLocBtn();
     if(!targetBtn){overlay.style.display='none';return;}
+    // Never intercept a control belonging to the trip planner.
+    if(targetBtn.closest('#plannerPanel,#plannerDetail,#plannerNav')){overlay.style.display='none';return;}
+    overlay.style.display='none';
     const r=targetBtn.getBoundingClientRect();
+    const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+    if(!hit||!(hit===targetBtn||targetBtn.contains(hit))){return;}
     if(r.width<4||r.height<4||r.bottom<0||r.right<0||r.top>innerHeight||r.left>innerWidth){overlay.style.display='none';return;}
     overlay.style.display='block';overlay.style.left=r.left+'px';overlay.style.top=r.top+'px';overlay.style.width=r.width+'px';overlay.style.height=r.height+'px';
   }
