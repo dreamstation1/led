@@ -2,6 +2,26 @@
   if(window.__gaplessQueueV66)return;
   window.__gaplessQueueV66=true;
 
+  // The embedded page manifest can lag behind newly uploaded recordings.
+  // Refresh it before resolving a name, while retaining the offline manifest.
+  const recordingManifestReady=(async()=>{
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),3000);
+    try{
+      const response=await fetch((window.LED_BASE||'')+'audio-files.json',{cache:'no-cache',signal:controller.signal});
+      if(!response.ok)return;
+      const names=await response.json();
+      if(!Array.isArray(names)||!names.every(name=>typeof name==='string'))return;
+      const manifest=document.getElementById('audioFileManifest');
+      let embedded=[];
+      try{embedded=JSON.parse(manifest?.textContent||'[]');}catch(e){}
+      const merged=new Set([...(Array.isArray(embedded)?embedded:[]),...names]);
+      if(manifest)manifest.textContent=JSON.stringify([...merged]);
+      if(typeof audioPaths==='function')audioPaths.manifest=merged;
+    }catch(e){/* Keep the embedded manifest when offline. */}
+    finally{clearTimeout(timer);}
+  })();
+
   const BlobCache=new Map();
   const LoadCache=new Map();
   const TOUCH_DEVICE=(()=>{try{return navigator.maxTouchPoints>0||matchMedia('(pointer:coarse)').matches||/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);}catch(e){return false;}})();
@@ -392,6 +412,7 @@
   }
 
   async function resolveSegment(category,key,recordingOnly=false,waitForAi=false){
+    await recordingManifestReady;
     const found=await firstPlayable(pathsFor(category,key));
     if(found){
       const seg=await audioSegment(found.url,{category,key});
@@ -576,7 +597,7 @@
 
   async function resolveAnnouncement(stop,next,waitForAi=false){
     const stopKey=stop.audioName||stop.name;
-    const skipEnglish=new Set(['롯데마트맥스영등포점','선유도역.롯데웰푸드']).has(stopKey);
+    const skipEnglish=new Set(['롯데마트맥스영등포점']).has(stopKey);
     const specs=next
       ? [['phrases','이번정류소'],['stops',stopKey],['phrases','다음정류소'],['stops',next.audioName||next.name]]
       : [['phrases','이번정류소'],['stops',stopKey]];
