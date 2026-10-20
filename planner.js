@@ -539,7 +539,7 @@ async function plannerRestoreState(){
     if(st.departure){document.getElementById('plannerDeparture').value=st.departure;plannerDepartureEdited=true;}
     if(PLANNER_SORTS[st.sort])plannerSort=st.sort;
     document.getElementById('plannerClimateOnly').checked=!!st.climate;
-    if(st.panel)document.getElementById('plannerPanel').classList.add('open');
+    if(st.panel&&!plannerCompactScreen())document.getElementById('plannerPanel').classList.add('open');
     plannerRender();
     if(!st.searched||plannerFromIndex==null||plannerToIndex==null)return;
     await document.getElementById('plannerSearch').onclick();
@@ -548,7 +548,7 @@ async function plannerRestoreState(){
     const i=find(st.selected);
     if(i>=0){
       const p=ranked[i];choose(p,st.routeChoice);plannerSelected=i;plannerRender();plannerDraw(p);
-      if(st.detail)plannerOpenDetail(p,i);
+      if(st.detail&&!plannerCompactScreen())plannerOpenDetail(p,i);
     }
     const t=st.trip?find(st.trip.key):-1;
     if(t>=0){
@@ -1263,7 +1263,7 @@ if(typeof document!=='undefined'){
     document.getElementById('status').textContent='지도 위치가 길찾기에 설정되었습니다.';
   });
   document.getElementById('plannerClimateOnly').addEventListener('change',plannerInvalidateSearch);
-  document.getElementById('plannerBtn').onclick=()=>{plannerCloseDetail();plannerPickKind=null;document.getElementById('plannerPanel').classList.add('open');plannerSaveState();};
+  document.getElementById('plannerBtn').onclick=()=>{plannerCloseDetail();plannerPickKind=null;document.getElementById('plannerPanel').classList.add('open');const scroll=document.querySelector('#plannerPanel>.planner-scroll');if(scroll)scroll.scrollTop=0;plannerSaveState();};
   document.getElementById('plannerClose').onclick=plannerShowMap;
   if(typeof map!=='undefined')map.on('dragstart',()=>{
     if(!mapFollowUser)return;
@@ -1315,6 +1315,7 @@ if(typeof document!=='undefined'){
 // Keep the map reachable without ending an active trip.
 function plannerCompactScreen(){return matchMedia('(max-width: 900px)').matches;}
 function plannerShowMap(){
+  document.body.classList.remove('planner-overlay-open');
   document.getElementById('plannerPanel')?.classList.remove('open');
   document.getElementById('plannerDetail')?.classList.remove('open');
   document.querySelectorAll('.planner-suggestions').forEach(el=>el.style.display='none');
@@ -1326,31 +1327,91 @@ function plannerShowMap(){
 if(typeof document!=='undefined'){
   const style=document.createElement('style');style.id='planner-mobile-layout';
   style.textContent=`
+    .planner-scroll{display:contents}
+    .mobile-map-actions{display:contents}
     #plannerPanel,#plannerDetail{box-sizing:border-box;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
-    .planner-head,.planner-detail-head{position:sticky;top:-1px;z-index:10;background:#171b21;padding:8px 0}
     #plannerClose,.planner-detail-head>button{min-width:44px;min-height:44px;touch-action:manipulation}
     #mapWrap>.planner-nav{z-index:1200}
-    .planner-map-return{display:block;width:100%;min-height:44px;margin:8px 0}
     @media(max-width:900px){
-      #plannerPanel,#plannerDetail{position:fixed;inset:auto 0 0;left:0;top:auto;width:100%;max-width:100%;height:auto;max-height:68vh;max-height:min(68dvh,var(--planner-viewport-height,68dvh));border-radius:16px 16px 0 0;padding:8px max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));overflow-y:auto;overflow-x:hidden;z-index:1400}
-      #plannerDetail{z-index:1401}
+      #top{flex:0 0 auto;padding:6px max(8px,env(safe-area-inset-right)) 5px max(8px,env(safe-area-inset-left))}
+      #top>.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px;align-items:center}
+      #top .title{grid-column:1/-1;width:auto;font-size:14px;line-height:20px;margin:0}
+      #top>.row>.search-wrap,#top #routeSearchWrap{grid-column:1;min-width:0;width:100%;max-width:none}
+      #top #stopBtn,#top #routeBtn{grid-column:2;min-width:76px;height:36px;font-size:12px;padding:0 8px}
+      #top .search-wrap input{width:100%;height:36px;min-width:0;font-size:16px}
+      .mobile-map-actions{grid-column:1/-1;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;min-width:0;padding:1px 0}
+      #top .mobile-map-actions button{width:auto;min-width:0;max-width:100%;height:36px;min-height:36px;padding:0 2px;font-size:11px;letter-spacing:-.3px;white-space:nowrap}
+      #top #status{font-size:11px;margin-top:3px}
+      #topDetailsWrap{margin-top:3px}#topDetailsBar{padding:4px 0;gap:5px}
+      #topDetailsBar button{height:28px;min-height:28px;font-size:10px;padding:0 8px}
+      #topDetails{max-height:90px;overflow:auto}
+      #settingsPanel,#favoritesPanel{position:fixed;inset:var(--mobile-tools-bottom,210px) 8px auto;width:auto;max-width:none;max-height:calc(var(--mobile-visible-height,100dvh) - var(--mobile-tools-bottom,210px) - 8px);overflow-y:auto;z-index:2000}
+      body.planner-overlay-open #top>.row>.search-wrap,body.planner-overlay-open #stopBtn,body.planner-overlay-open #routeBtn,body.planner-overlay-open #status,body.planner-overlay-open #topDetailsWrap{display:none}
+      #plannerPanel,#plannerDetail{position:fixed;inset:auto 8px var(--planner-sheet-bottom,8px);width:auto;max-width:none;height:var(--planner-sheet-height,70dvh);max-height:var(--planner-sheet-height,70dvh);min-height:0;margin:0;border:1px solid #465363;border-radius:14px;padding:0;overflow:hidden;z-index:4000;isolation:isolate}
+      #plannerPanel.open,#plannerDetail.open{display:flex;flex-direction:column}
+      #plannerDetail{z-index:4001}
+      #plannerPanel>.planner-head,#plannerDetail>.planner-detail-head{position:relative;top:auto;z-index:2;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:52px;margin:0;padding:4px 10px;border-bottom:1px solid #39424e;background:#171b21}
+      #plannerPanel #plannerClose,#plannerDetail>.planner-detail-head>button{flex:0 0 auto;width:auto;min-width:92px;height:44px;padding:0 10px;font-size:14px;white-space:nowrap}
+      #plannerPanel>.planner-scroll,#plannerDetail>.planner-scroll{display:block;flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:4px 10px max(10px,env(safe-area-inset-bottom));scroll-padding:12px;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
       #plannerPanel input,#plannerPanel select,.planner-nav input{font-size:16px}
-      .planner-field-row{flex-wrap:wrap}
-      .planner-field-row input{flex-basis:55%;width:0}
-      .planner-field-row button{min-height:44px}
-      .planner-time-row{flex-wrap:wrap}
-      .planner-time-row input{max-width:100%;box-sizing:border-box}
-      #mapWrap>.planner-nav{max-height:30%;overflow:auto}
-      body:has(#plannerPanel.open) #plannerNav,body:has(#plannerDetail.open) #plannerNav{display:none}
+      #plannerPanel .planner-field{margin-top:6px}
+      #plannerPanel .planner-field-row{flex-wrap:nowrap;gap:5px}
+      #plannerPanel .planner-field-row input{flex:1 1 0;width:0;min-width:0}
+      #plannerPanel input:not([type=checkbox]){height:38px;min-height:38px}
+      #plannerPanel .planner-field-row button{height:38px;min-height:38px;padding:0 7px}
+      #plannerPanel .planner-map-pick{width:36px;flex:0 0 36px}
+      #plannerSwap{height:34px;min-height:34px;margin-top:6px;padding:4px}
+      #plannerPanel .planner-time-row{margin-top:6px;flex-wrap:nowrap}
+      #plannerPanel .planner-time-row input{max-width:100%;min-width:0;box-sizing:border-box}
+      #plannerPanel .planner-options{margin-top:6px;padding:7px;font-size:11px}
+      #plannerPanel .planner-options input[type=checkbox]{flex:0 0 18px;min-width:18px;max-width:18px;height:18px}
+      #plannerPanel #plannerSearch{height:38px;margin-top:6px}
+      #plannerPanel .planner-controls{gap:5px;margin-top:7px}
+      #plannerPanel .planner-controls button{height:34px;min-height:34px;font-size:11px;padding:0 7px}
+      #plannerPanel .planner-suggestions{position:relative;top:auto;max-height:140px;margin-top:4px}
+      #plannerDetail .planner-detail-head strong{font-size:14px}
+      #mapWrap>.planner-nav{max-height:35%;overflow:auto}
+      body.planner-overlay-open #plannerNav{display:none}
     }
   `;document.head.appendChild(style);
-  const detail=document.getElementById('plannerDetail');
-  new MutationObserver(()=>{
-    if(!detail.classList.contains('open')||detail.querySelector('.planner-map-return'))return;
-    const button=document.createElement('button');button.type='button';button.className='planner-map-return';button.textContent='지도 보기';button.onclick=plannerShowMap;
-    detail.querySelector('.planner-detail-head')?.after(button);
-  }).observe(detail,{childList:true});
-  function updatePlannerViewport(){document.documentElement.style.setProperty('--planner-viewport-height',Math.max(120,(window.visualViewport?.height||innerHeight)-12)+'px');}
-  window.visualViewport?.addEventListener('resize',updatePlannerViewport);window.addEventListener('resize',updatePlannerViewport);updatePlannerViewport();
+  const panel=document.getElementById('plannerPanel'),detail=document.getElementById('plannerDetail'),mapWrap=document.getElementById('mapWrap');
+  const row=document.querySelector('#top>.row');
+  if(row&&!row.querySelector('.mobile-map-actions')){
+    const actions=document.createElement('div');actions.className='mobile-map-actions';actions.setAttribute('aria-label','지도 도구');
+    for(const id of ['allBtn','locBtn','plannerBtn','favBtn','shareBtn','ttsSiteBtn','settingsBtn']){const button=document.getElementById(id);if(button)actions.appendChild(button);}
+    row.appendChild(actions);
+    actions.addEventListener('click',e=>{if(e.target.closest('button')?.id!=='plannerBtn'&&document.body.classList.contains('planner-overlay-open')){plannerShowMap();syncPlannerLayout();}},{capture:true});
+  }
+  function wrapPlannerContent(el,headSelector){
+    const head=el?.querySelector(headSelector);if(!head)return;
+    if(!el.querySelector(':scope>.planner-scroll')){
+      const scroll=document.createElement('div');scroll.className='planner-scroll';
+      for(const child of [...el.childNodes])if(child!==head)scroll.appendChild(child);
+      el.appendChild(scroll);
+    }
+    const close=head.querySelector('button');
+    if(close){close.textContent=plannerCompactScreen()?'지도 보기 ×':'×';close.setAttribute('aria-label','길찾기 닫고 지도 보기');}
+  }
+  function syncPlannerLayout(){
+    const compact=plannerCompactScreen();
+    for(const el of [panel,detail])if(el){const parent=compact?document.body:mapWrap;if(parent&&el.parentNode!==parent)parent.appendChild(el);}
+    wrapPlannerContent(panel,'.planner-head');wrapPlannerContent(detail,'.planner-detail-head');
+    document.body.classList.toggle('planner-overlay-open',compact&&[panel,detail].some(el=>el?.classList.contains('open')));
+    const top=document.getElementById('top');
+    if(top)document.documentElement.style.setProperty('--mobile-tools-bottom',Math.max(8,top.getBoundingClientRect().bottom+6)+'px');
+    if(typeof map!=='undefined')requestAnimationFrame(()=>map.invalidateSize?.({pan:false}));
+  }
+  const observer=new MutationObserver(syncPlannerLayout);
+  for(const el of [panel,detail])if(el)observer.observe(el,{childList:true,attributes:true,attributeFilter:['class']});
+  function updatePlannerViewport(){
+    const vv=window.visualViewport,height=vv?.height||innerHeight,top=vv?.offsetTop||0;
+    document.documentElement.style.setProperty('--mobile-visible-height',height+'px');
+    document.documentElement.style.setProperty('--planner-sheet-height',Math.max(140,Math.min(height*.70,height-80))+'px');
+    document.documentElement.style.setProperty('--planner-sheet-bottom',Math.max(8,innerHeight-height-top+8)+'px');
+    syncPlannerLayout();
+  }
+  window.visualViewport?.addEventListener('resize',updatePlannerViewport);
+  window.visualViewport?.addEventListener('scroll',updatePlannerViewport);
+  window.addEventListener('resize',updatePlannerViewport);updatePlannerViewport();
   document.addEventListener('keydown',e=>{if(e.key==='Escape')plannerShowMap();});
 }
