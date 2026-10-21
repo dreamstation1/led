@@ -1310,7 +1310,7 @@ const StopCanvas=L.Layer.extend({
     // Station labels are opt-in and clickable.
     if(showStops && z>=15){
       for(let i=0;i<STOPS.length;i++){
-        const s=STOPS[i];
+        const s=STOPS[i];if(s.mode==='subway')continue;
         if(!b.contains([s.lat,s.lng]))continue;
 
         const p=map.latLngToContainerPoint([s.lat,s.lng]);
@@ -1585,7 +1585,7 @@ function applyUrlState(){
 function nearestStopAt(cp,maxPx=14){
   const b=map.getBounds();let best=-1,bd=maxPx*maxPx;
   for(let i=0;i<STOPS.length;i++){
-    const s=STOPS[i];if(!b.contains([s.lat,s.lng]))continue;
+    const s=STOPS[i];if(s.mode==='subway'||!b.contains([s.lat,s.lng]))continue;
     const p=map.latLngToContainerPoint([s.lat,s.lng]),dx=p.x-cp.x,dy=p.y-cp.y,d=dx*dx+dy*dy;
     if(d<bd){bd=d;best=i}
   }
@@ -1645,7 +1645,7 @@ function showNearby(idx){
   const s=STOPS[idx],arr=[];
   for(let i=0;i<STOPS.length;i++){
     if(i===idx)continue;
-    const t=STOPS[i];if(Math.abs(t.lat-s.lat)>.012||Math.abs(t.lng-s.lng)>.015)continue;
+    const t=STOPS[i];if(t.mode==='subway')continue;if(Math.abs(t.lat-s.lat)>.012||Math.abs(t.lng-s.lng)>.015)continue;
     const d=hav(s.lat,s.lng,t.lat,t.lng);if(d<=1200)arr.push([d,i]);
   }
   arr.sort((a,b)=>a[0]-b[0]);
@@ -1861,6 +1861,7 @@ setInterval(()=>{
   button.title=stopArrivalRefreshBusy?'도착정보 새로고침 중':left>0?`다시 새로고침 ${Math.ceil(left/1000)}초`:'도착정보 지금 새로고침';
 },250);
 function selectStop(idx,fly=false){
+  if(STOPS[idx]?.mode==='subway'){window.openSubwayStation?.(STOPS[idx].node);return;}
   selectedIdx=idx;const s=STOPS[idx];
   if(fly)map.setView([s.lat,s.lng],18);
   stopCanvas._reset();
@@ -1908,6 +1909,7 @@ function stopMatches(q,limit=30){
   const nq=normText(q),qWithoutStation=nq.replace(/역$/,'');
   const exact=[],prefix=[],contains=[];
   STOPS.forEach((s,i)=>{
+    if(s.mode==='subway')return;
     const name=s.name.toLowerCase(),nn=normText(name),ars=String(s.ars).toLowerCase();
     if(ars===q||nn===nq||nn===qWithoutStation||nn.replace(/역$/,'')===qWithoutStation)exact.push(i);
     else if(nn.startsWith(nq)||nn.startsWith(qWithoutStation)||ars.startsWith(q))prefix.push(i);
@@ -4842,5 +4844,8 @@ function stopGuide(){
 <script src="./utic-map-patch.js?v=73"></script>
 <script src="./ios-touch-patch.js?v=55"></script>
 <script src="./gapless-patch.js?v=67"></script>
+<script src="./subway-routing.js?v=1"></script>
+<script src="./subway-api.js?v=1"></script>
+<script src="./subway.js?v=1"></script>
 </body>
 </html>

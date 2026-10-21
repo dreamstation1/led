@@ -528,6 +528,7 @@ function plannerSaveState(){
   }catch(e){}
 }
 async function plannerRestoreState(){
+  if(window.subwayReady)await window.subwayReady;
   let st=null;try{st=JSON.parse(localStorage.getItem(PLANNER_STATE_KEY)||'null');}catch(e){}
   if(!st||!(Date.now()-st.at<12*3600*1000))return;
   plannerRestoring=true;
