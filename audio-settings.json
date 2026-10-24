@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "stops": {
+    "선유도역롯데웰푸드": {
+      "english": "off"
+    },
+    "롯데마트맥스영등포점": {
+      "english": "off"
+    },
+    "삼환아파트": {
+      "korean": "tts"
+    },
+    "영등포시장역4번출구": {
+      "korean": "tts",
+      "english": "tts"
+    }
+  }
+}

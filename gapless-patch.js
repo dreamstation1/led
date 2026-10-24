@@ -1,21 +1,38 @@
 (function(){
-  if(window.__gaplessQueueV68)return;
-  window.__gaplessQueueV68=true;
+  if(window.__gaplessQueueV69)return;
+  window.__gaplessQueueV69=true;
 
   // Explicit user choices take precedence over recordings, imports and AI fallback.
-  const STOP_AUDIO_RULES={
+  const STOP_AUDIO_RULES=Object.assign(Object.create(null),{
     '선유도역롯데웰푸드':{english:'off'},
     '롯데마트맥스영등포점':{english:'off'},
-    '삼환아파트':{korean:'tts'}
-  };
+    '삼환아파트':{korean:'tts'},
+    '영등포시장역4번출구':{korean:'tts',english:'tts'}
+  });
   const stopAudioKey=name=>String(name||'').replace(/\s*\(1\)$/, '').replace(/[\s.·ㆍ]/g,'');
   const skipStopEnglish=name=>STOP_AUDIO_RULES[stopAudioKey(name)]?.english==='off';
+  const forceStopEnglishTts=name=>['auto','tts'].includes(STOP_AUDIO_RULES[stopAudioKey(name)]?.english);
   function suppressStopRecording(category,key){
     if(category!=='stops')return false;
     const rule=STOP_AUDIO_RULES[stopAudioKey(key)];
-    return / \(1\)$/.test(key)?rule?.english==='off':rule?.korean==='tts';
+    return / \(1\)$/.test(key)?['off','tts'].includes(rule?.english):rule?.korean==='tts';
   }
-  const REMOVED_STOP_RECORDINGS=new Set(['선유도역.롯데웰푸드 (1).wav','삼환아파트.wav']);
+
+  // Shared management settings are authoritative; remember them for offline use.
+  const audioSettingsReady=(async()=>{
+    const apply=data=>{if(!data||data.version!==1||!data.stops||typeof data.stops!=='object')return;
+      for(const [name,rule] of Object.entries(data.stops)){if(!rule||typeof rule!=='object')continue;
+        const target=STOP_AUDIO_RULES[stopAudioKey(name)]||(STOP_AUDIO_RULES[stopAudioKey(name)]={});
+        if(['auto','tts'].includes(rule.korean))target.korean=rule.korean;
+        if(['auto','tts','off'].includes(rule.english))target.english=rule.english;
+      }
+    };
+    try{apply(JSON.parse(localStorage.getItem('ledAudioSettings.v1')||'null'));}catch(e){}
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),3000);
+    try{const r=await fetch((window.LED_BASE||'')+'audio-settings.json',{cache:'no-cache',signal:controller.signal});
+      if(r.ok){const data=await r.json();apply(data);try{localStorage.setItem('ledAudioSettings.v1',JSON.stringify(data));}catch(e){}}
+    }catch(e){}finally{clearTimeout(timer);}
+  })();
 
   // The embedded page manifest can lag behind newly uploaded recordings.
   // Refresh it before resolving a name, while retaining the offline manifest.
@@ -28,9 +45,7 @@
       const names=await response.json();
       if(!Array.isArray(names)||!names.every(name=>typeof name==='string'))return;
       const manifest=document.getElementById('audioFileManifest');
-      let embedded=[];
-      try{embedded=JSON.parse(manifest?.textContent||'[]');}catch(e){}
-      const merged=new Set([...(Array.isArray(embedded)?embedded:[]),...names].filter(name=>!REMOVED_STOP_RECORDINGS.has(name)));
+      const merged=new Set(names);
       if(manifest)manifest.textContent=JSON.stringify([...merged]);
       if(typeof audioPaths==='function')audioPaths.manifest=merged;
     }catch(e){/* Keep the embedded manifest when offline. */}
@@ -82,7 +97,11 @@
 
   function pathsFor(category,key){
     if(suppressStopRecording(category,key))return [];
-    try{if(typeof audioPaths==='function')return audioPaths(category,key)||[];}catch(e){}
+    try{if(typeof audioPaths==='function'){
+      const paths=audioPaths(category,key)||[],canonical=String(key).replace(/\s/g,'');
+      const formats=[...(audioPaths.manifest||[])].filter(name=>/\.(?:m4a|ogg)$/i.test(name)&&name.split('/').pop().replace(/\.[^.]+$/,'').replace(/\s/g,'')===canonical).map(name=>'audio/'+name.split('/').map(encodeURIComponent).join('/'));
+      return [...new Set([...paths,...formats])];
+    }}catch(e){}
     const s=String(key||'');
     return ['audio/'+s+'.wav','audio/'+s+'.mp3','audio/'+category+'/'+s+'.wav','audio/'+category+'/'+s+'.mp3'];
   }
@@ -450,8 +469,8 @@
   }
 
   async function resolveSegment(category,key,recordingOnly=false,waitForAi=false){
+    await Promise.all([recordingManifestReady,audioSettingsReady]);
     if(category==='stops'&&/ \(1\)$/.test(key)&&skipStopEnglish(key))return {kind:'missing',category,key};
-    await recordingManifestReady;
     const found=await firstPlayable(pathsFor(category,key));
     if(found){
       const seg=await audioSegment(found.url,{category,key});
@@ -579,6 +598,7 @@
   // Pre-generate the AI clip for an upcoming stop that has no recording, so the
   // announcement doesn't wait for synthesis when the bus gets there.
   async function warmAi(category,key){
+    await audioSettingsReady;
     if(category==='stops'&&/ \(1\)$/.test(key)&&skipStopEnglish(key))return;
     try{
       if(await firstPlayable(pathsFor(category,key)))return;
@@ -636,6 +656,7 @@
   document.addEventListener('click',unlock,{capture:true,passive:true});
 
   async function resolveAnnouncement(stop,next,waitForAi=false){
+    await audioSettingsReady;
     const stopKey=stop.audioName||stop.name;
     const skipEnglish=skipStopEnglish(stopKey)||skipStopEnglish(stop.name);
     const specs=next
@@ -662,7 +683,7 @@
       // too, so the English ending is never silently dropped.
       const stopNameUsesTts=resolved.some((seg,i)=>specs[i][0]==='stops'&&(seg.kind==='tts'||seg.ai));
       const englishSeg=await resolveSegment('stops',stopKey+' (1)',false,waitForAi);
-      if(stopNameUsesTts||englishSeg.ai){
+      if(forceStopEnglishTts(stopKey)||stopNameUsesTts||englishSeg.ai){
         resolved.push(await resolveSegment('phrases_en','thisstopis'),englishSeg);
       }
     }

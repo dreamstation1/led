@@ -1,0 +1,38 @@
+const assert=require('node:assert/strict');
+const {filename,fileInfo,planChanges,GithubAudioStore}=require('../audio-library-manager.js');
+assert.equal(filename('영등포시장역4번출구','english','phone.WAV'),'영등포시장역4번출구 (1).wav');
+assert.equal(filename('영등포시장역4번출구 (1)','english','phone.mp3'),'영등포시장역4번출구 (1).mp3');
+for(const name of ['../secret','a/b','a\\b','',String.fromCharCode(0)])assert.throws(()=>filename(name,'korean','x.wav'));
+assert.throws(()=>filename('정류소','korean','x.html'));
+const settings={version:1,stops:{선유도역롯데웰푸드:{english:'off'},삼환아파트:{korean:'tts'}}};
+const snapshot={files:['선유도역.롯데웰푸드 (1).wav','삼환아파트.wav','삭제.wav'],settings};
+let p=planChanges(snapshot,{deletes:new Set(['선유도역.롯데웰푸드 (1).wav','삭제.wav']),uploads:new Map([['삼환아파트.wav',{}]])});
+assert.equal(p.settings.stops.선유도역롯데웰푸드.english,'off');assert.equal(p.settings.stops.삼환아파트.korean,'tts');assert.equal(p.settings.stops.삭제.korean,'tts');assert.equal(p.files.length,1);
+p=planChanges(snapshot,{rules:new Map([['change',{station:'삼환아파트',language:'korean',mode:'auto'}]])});assert.equal(p.settings.stops.삼환아파트.korean,'auto');assert.equal(settings.stops.삼환아파트.korean,'tts','do not mutate snapshot');
+assert.throws(()=>planChanges(snapshot,{deletes:new Set(['../index.html'])}));
+const formats=planChanges({files:['정류소.wav','정류소.mp3','정류소 (1).wav'],settings},{uploads:new Map([['정류소.m4a',{}]])});assert.deepEqual(new Set(formats.files),new Set(['정류소.m4a','정류소 (1).wav']));assert.equal(formats.tree.length,2,'replace old extensions for the same language');
+const calls=[];let conflict=false;
+const base64=s=>Buffer.from(JSON.stringify(s)).toString('base64');
+const fetcher=async(url,opts)=>{const body=opts.body?JSON.parse(opts.body):null,path=url.split('/repos/dreamstation1/led')[1];calls.push({path,method:opts.method,body,headers:opts.headers});let value;
+ if(path==='')value={permissions:{push:true}};
+ else if(path==='/git/ref/heads/main')value={object:{sha:'head'}};
+ else if(path==='/git/commits/head')value={tree:{sha:'baseTree'}};
+ else if(path==='/git/trees/baseTree?recursive=1')value={tree:[{path:'audio-files.json',sha:'manifest',type:'blob'},{path:'audio-settings.json',sha:'settings',type:'blob'},{path:'audio/삭제.wav',sha:'recording',type:'blob'}]};
+ else if(path==='/git/blobs/manifest')value={content:base64(['삭제.wav'])};
+ else if(path==='/git/blobs/settings')value={content:base64(settings)};
+ else if(path==='/git/blobs'&&opts.method==='POST'){assert.equal(body.encoding,'base64');assert.equal(Buffer.from(body.content,'base64').toString(),'audio bytes');value={sha:'newAudio'};}
+ else if(path==='/git/trees'&&opts.method==='POST')value={sha:'newTree'};
+ else if(path==='/git/commits'&&opts.method==='POST')value={sha:'newCommit'};
+ else if(path==='/git/refs/heads/main'&&opts.method==='PATCH'){if(conflict)return {ok:false,status:422};value={};}
+ else throw Error('Unexpected route '+path);
+ return {ok:true,status:200,json:async()=>value};};
+(async()=>{const store=new GithubAudioStore(fetcher);await assert.rejects(()=>store.snapshot(),/연결/);await store.connect('test-token');
+ const result=await store.publish({deletes:new Set(['삭제.wav']),uploads:new Map([['새정류소 (1).wav',new Blob(['audio bytes'])]]),rules:new Map()});
+ assert.deepEqual(result.files,['새정류소 (1).wav']);assert.equal(result.settings.stops.삭제.korean,'tts');
+ const tree=calls.find(c=>c.method==='POST'&&c.path==='/git/trees').body;assert.equal(tree.base_tree,'baseTree');assert.equal(tree.tree.find(e=>e.path==='audio/삭제.wav').sha,null);assert.equal(tree.tree.find(e=>e.path==='audio/새정류소 (1).wav').sha,'newAudio');assert.ok(tree.tree.some(e=>e.path==='audio-settings.json'));assert.ok(tree.tree.some(e=>e.path==='audio-files.json'));
+ const commit=calls.find(c=>c.method==='POST'&&c.path==='/git/commits').body;assert.deepEqual(commit.parents,['head']);assert.equal(calls.at(-1).body.force,false);assert.equal(calls.filter(c=>c.method==='PATCH').length,1,'all changes become visible together');
+ conflict=true;await assert.rejects(()=>store.publish({deletes:new Set(),uploads:new Map(),rules:new Map()}),/다른 변경/);
+ assert.ok(calls.every(c=>c.headers.Authorization==='Bearer test-token'));
+ store.disconnect();await assert.rejects(()=>store.snapshot(),/연결/);
+ console.log('PASS: filenames and path validation, preserved exclusions, explicit mode changes, UTF-8 manifests, atomic upload/delete/settings commit, fast-forward conflict refusal and disconnect');
+})().catch(e=>{console.error(e);process.exitCode=1});
