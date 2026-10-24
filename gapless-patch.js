@@ -1,6 +1,21 @@
 (function(){
-  if(window.__gaplessQueueV67)return;
-  window.__gaplessQueueV67=true;
+  if(window.__gaplessQueueV68)return;
+  window.__gaplessQueueV68=true;
+
+  // Explicit user choices take precedence over recordings, imports and AI fallback.
+  const STOP_AUDIO_RULES={
+    '선유도역롯데웰푸드':{english:'off'},
+    '롯데마트맥스영등포점':{english:'off'},
+    '삼환아파트':{korean:'tts'}
+  };
+  const stopAudioKey=name=>String(name||'').replace(/\s*\(1\)$/, '').replace(/[\s.·ㆍ]/g,'');
+  const skipStopEnglish=name=>STOP_AUDIO_RULES[stopAudioKey(name)]?.english==='off';
+  function suppressStopRecording(category,key){
+    if(category!=='stops')return false;
+    const rule=STOP_AUDIO_RULES[stopAudioKey(key)];
+    return / \(1\)$/.test(key)?rule?.english==='off':rule?.korean==='tts';
+  }
+  const REMOVED_STOP_RECORDINGS=new Set(['선유도역.롯데웰푸드 (1).wav','삼환아파트.wav']);
 
   // The embedded page manifest can lag behind newly uploaded recordings.
   // Refresh it before resolving a name, while retaining the offline manifest.
@@ -15,7 +30,7 @@
       const manifest=document.getElementById('audioFileManifest');
       let embedded=[];
       try{embedded=JSON.parse(manifest?.textContent||'[]');}catch(e){}
-      const merged=new Set([...(Array.isArray(embedded)?embedded:[]),...names]);
+      const merged=new Set([...(Array.isArray(embedded)?embedded:[]),...names].filter(name=>!REMOVED_STOP_RECORDINGS.has(name)));
       if(manifest)manifest.textContent=JSON.stringify([...merged]);
       if(typeof audioPaths==='function')audioPaths.manifest=merged;
     }catch(e){/* Keep the embedded manifest when offline. */}
@@ -66,6 +81,7 @@
   }
 
   function pathsFor(category,key){
+    if(suppressStopRecording(category,key))return [];
     try{if(typeof audioPaths==='function')return audioPaths(category,key)||[];}catch(e){}
     const s=String(key||'');
     return ['audio/'+s+'.wav','audio/'+s+'.mp3','audio/'+category+'/'+s+'.wav','audio/'+category+'/'+s+'.mp3'];
@@ -434,6 +450,7 @@
   }
 
   async function resolveSegment(category,key,recordingOnly=false,waitForAi=false){
+    if(category==='stops'&&/ \(1\)$/.test(key)&&skipStopEnglish(key))return {kind:'missing',category,key};
     await recordingManifestReady;
     const found=await firstPlayable(pathsFor(category,key));
     if(found){
@@ -562,6 +579,7 @@
   // Pre-generate the AI clip for an upcoming stop that has no recording, so the
   // announcement doesn't wait for synthesis when the bus gets there.
   async function warmAi(category,key){
+    if(category==='stops'&&/ \(1\)$/.test(key)&&skipStopEnglish(key))return;
     try{
       if(await firstPlayable(pathsFor(category,key)))return;
       const t=await ttsInfo(category,key);
@@ -619,7 +637,7 @@
 
   async function resolveAnnouncement(stop,next,waitForAi=false){
     const stopKey=stop.audioName||stop.name;
-    const skipEnglish=new Set(['롯데마트맥스영등포점']).has(stopKey);
+    const skipEnglish=skipStopEnglish(stopKey)||skipStopEnglish(stop.name);
     const specs=next
       ? [['phrases','이번정류소'],['stops',stopKey],['phrases','다음정류소'],['stops',next.audioName||next.name]]
       : [['phrases','이번정류소'],['stops',stopKey]];
