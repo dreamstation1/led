@@ -1,5 +1,5 @@
 // App shell v70: red-to-green prediction and adjacent bus stops.
-const CACHE_NAME='bus-map-shell-v152-20261024-audio-manager';
+const CACHE_NAME='bus-map-shell-v153-20261103-subway-markers';
 const SHELL_FILES=['./audio-settings.json','./audio-library-manager.js','./subway.js','./subway-api.js','./subway-routing.js','./data/subway-network.json','./','./index.html','./audio-library.html','./audio-files.json','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./utic-map-patch.js','./traffic-intersections.js','./cctv-data.json','./ios-touch-patch.js','./gyeonggi-stops-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(f=>new URL(f,self.registration.scope).href));
 const PATCH_URLS=new Set(['audio-settings.json','audio-library-manager.js','subway.js','subway-api.js','subway-routing.js','planner.js','request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','utic-map-patch.js','ios-touch-patch.js','gyeonggi-stops-patch.js','audio-files.json'].map(f=>new URL('./'+f,self.registration.scope).href));
