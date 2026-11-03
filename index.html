@@ -490,6 +490,7 @@ body.light-ui .route{color:#fff}
 .search-wrap{position:relative;flex:1;min-width:190px}
 .search-wrap input{width:100%}
 .route-kind-tag{display:inline-block;padding:0 6px;margin-left:4px;border-radius:6px;background:#33465c;color:#d9e6f5;font-size:11px;font-weight:600;vertical-align:1px}.route-info-ends{font-weight:600;margin:2px 0 4px}.route-info-row{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:13px}.route-info-row b{color:#ffd36b}
+.other-region-wrap{margin-top:8px}#otherRegionRoutes{max-height:170px;overflow-y:auto;overscroll-behavior:contain}.other-region-btn{min-height:34px;padding:4px 12px;border-radius:17px;border:1px solid #3fbf7f;background:#163626;color:#cfeedd;font-weight:600}.other-route .route-cat{background:#1f6f43}
 #routeSearchWrap{max-width:190px}
 #searchResults,#routeSearchResults{
   position:absolute;
@@ -1658,6 +1659,40 @@ function showNearby(idx){
   });
 }
 
+// 정류소 정보 안의 '경기·인천 버스 보기': 서울 도착정보에는 오지만 우리 노선 자료에 없는 인천·경기 광역버스와,
+// 같은 이름의 바로 옆 경기 정류소(경기 정류소 번호로 따로 저장됨)에 서는 경기버스를 함께 보여준다.
+let otherRegionOpen=lsGet('otherRegionOpen')==='1';
+// 패널을 다시 그리면 노선 칩의 도착정보가 지워지므로 다시 붙인다(10초 캐시라 추가 호출 없음)
+function reannotateStop(idx){for(const ars of new Set(stopGroupIndices(idx).map(i=>STOPS[i]?.ars).filter(Boolean)))annotateArrivalTimes(ars);}
+const OTHER_ROUTE_TYPES={'6':'광역','7':'인천','8':'경기'};
+function splitRegionRouteName(rtNm){const m=String(rtNm||'').match(/^([A-Za-z]*\d[\dA-Za-z-]*)([가-힣]+)$/);return m?{no:m[1],region:m[2]}:{no:String(rtNm||''),region:''};}
+async function renderOtherRegionRoutes(idx,grouped){
+  const box=document.getElementById('otherRegionRoutes');if(!box)return;box.innerHTML='<span class="search-empty">불러오는 중…</span>';
+  const s=STOPS[idx],group=stopGroupIndices(idx).map(i=>STOPS[i]);
+  const ownIds=new Set(grouped.map(({route:r})=>arrivalApiRouteId(r))),ownNames=new Set(grouped.map(({route:r})=>String(r.name)));
+  const chips=[],seen=new Set();
+  for(const st of group){
+    if(st.region==='gyeonggi'||!st.ars)continue;
+    let items=[];try{items=await fetchStopArrivals(st.ars);}catch(e){}
+    for(const it of items){
+      const id=String(it.busRouteId||'');if(!id||ownIds.has(id)||ownNames.has(String(it.rtNm))||seen.has(id))continue;seen.add(id);
+      const nm=splitRegionRouteName(it.rtNm),tag=nm.region||OTHER_ROUTE_TYPES[String(it.routeType)]||'기타';
+      const ours=ROUTES.find(r=>arrivalApiRouteId(r)===id);
+      chips.push({no:nm.no,tag,it,ars:st.ars,routeId:ours?.id||'',dir:it.adirection||''});
+    }
+  }
+  // 같은 이름·80m 이내 경기 정류소의 경기 노선(도착정보에 안 나온 것)
+  for(const g of STOPS){if(g.region!=='gyeonggi'||g.name!==s.name||hav(s.lat,s.lng,g.lat,g.lng)>80)continue;
+    for(const ref of g.routes||[]){const r=ROUTE_BY_ID.get(String(ref.id));if(!r)continue;const id=arrivalApiRouteId(r);if(ownIds.has(id)||seen.has(id))continue;seen.add(id);
+      const ep=routeEndpoints(r);chips.push({no:String(r.name).replace(/^경기\s*/,'').replace(/\s*·.*$/,''),tag:'경기',it:null,ars:'',routeId:r.id,dir:ep?ep.to:''});}}
+  if(!box.isConnected)return;
+  if(!chips.length){box.innerHTML='<span class="search-empty">이 정류소에 서는 경기·인천 버스가 없어요</span>';return;}
+  chips.sort((a,b)=>a.no.localeCompare(b.no,'ko',{numeric:true}));
+  box.innerHTML=chips.map((c,i)=>{const v=c.it?orderedArrivalVehicles(c.no,c.it)[0]:null;return `<span class="route other-route" data-other="${i}">${esc(c.no)}<span class="route-cat">${esc(c.tag)}</span>${c.dir?`<span class="route-direction">${esc(c.dir)} 방향</span>`:''}${v?`<span class="route-arrival"> · ${esc(v.msg)}</span>`:''}${c.it?'<button type="button" class="route-arrival-more">다음차들</button>':''}</span>`;}).join('');
+  box.querySelectorAll('[data-other]').forEach(el=>{const c=chips[Number(el.dataset.other)];
+    el.querySelector('.route-arrival-more')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();showArrivalDetails(c.no,c.it,c.routeId||String(c.it.busRouteId),c.ars);});
+    el.onclick=()=>{if(c.routeId)showRoute(c.routeId);else if(c.it)showArrivalDetails(c.no,c.it,String(c.it.busRouteId),c.ars);};});
+}
 function renderSelectedPanel(idx){
   if(idx<0)return;
   const s=STOPS[idx],sel=document.getElementById('selected');
@@ -1684,16 +1719,19 @@ function renderSelectedPanel(idx){
       ${filtered.length
          ? filtered.map(({route:r,stop})=>`<span class="route" data-ars="${esc(stop.ars)}" data-r="${esc(r.id)}" data-route-name="${esc(r.name)}">${esc(r.name)}<span class="route-cat">${routeCategory(r.name)}</span><span class="route-direction">${esc(groupedRouteDirection(grouped,r,stop))}</span></span>`).join('')
         : '<span class="search-empty">이 종류의 노선 없음</span>'}
-    </div>`;
+    </div>
+    <div class="other-region-wrap"><button type="button" id="otherRegionBtn" class="other-region-btn" aria-expanded="${otherRegionOpen}">${otherRegionOpen?'경기·인천 버스 접기 ▲':'경기·인천 버스 보기 ▼'}</button><div class="routes" id="otherRegionRoutes"${otherRegionOpen?'':' hidden'}></div></div>`;
 
   document.getElementById('selectedFavBtn').onclick=()=>toggleFavorite(s.node);
   document.getElementById('selectedStopCopy').onclick=async e=>{e.stopPropagation();try{await navigator.clipboard.writeText(s.name);}catch(_){const ta=document.createElement('textarea');ta.value=s.name;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();}document.getElementById('status').textContent=`정류소명 복사됨: ${s.name}`;};
   document.getElementById('stopArrivalRefresh').onclick=()=>refreshSelectedStopArrivals(true);
+  document.getElementById('otherRegionBtn').onclick=()=>{otherRegionOpen=!otherRegionOpen;lsSet('otherRegionOpen',otherRegionOpen?'1':'0');renderSelectedPanel(idx);reannotateStop(idx);};
+  if(otherRegionOpen)renderOtherRegionRoutes(idx,grouped);
   sel.querySelectorAll('.route').forEach(el=>el.onclick=()=>showRoute(el.dataset.r));
   sel.querySelectorAll('.route-filter button').forEach(btn=>{
     btn.onclick=()=>{
       currentRouteFilter=btn.dataset.filter;
-      renderSelectedPanel(idx);
+      renderSelectedPanel(idx);reannotateStop(idx);
     };
   });
 }
@@ -1705,14 +1743,18 @@ const STOP_ARRIVAL_DAILY_CAP=3000;
 function stopArrivalCallKey(){ return 'stopArrivalCalls_'+new Date().toISOString().slice(0,10); }
 function stopArrivalCallsToday(){ return parseInt(lsGet(stopArrivalCallKey())||'0',10); }
 function stopArrivalRecordCall(){ lsSet(stopArrivalCallKey(), String(stopArrivalCallsToday()+1)); }
+const stopArrivalCache=new Map();// 같은 정류소를 10초 안에 다시 조회하면 재사용(호출 한도 절약)
 async function fetchStopArrivals(arsId){
   if(!busPosProxyUrl || !arsId)return [];
+  const cached=stopArrivalCache.get(String(arsId));if(cached&&Date.now()-cached.at<10000)return cached.items;
   if(stopArrivalCallsToday()>=STOP_ARRIVAL_DAILY_CAP)return [];
   stopArrivalRecordCall();
   const res=await fetch(`${busPosProxyUrl}?mode=arrival&arsId=${encodeURIComponent(arsId)}&resultType=json`);
   if(!res.ok)return [];
   const data=await res.json();
-  return (data && data.msgBody && data.msgBody.itemList) || [];
+  const items=(data && data.msgBody && data.msgBody.itemList) || [];
+  stopArrivalCache.set(String(arsId),{at:Date.now(),items});
+  return items;
 }
 // arrmsg1...arrmsg5는 API가 이미 "3분 후 도착[2번째 전]" 같은 자연스러운
 // 한국어 문구로 내려주는 값 - 기본 칩에는 첫 차량(arrmsg1)만 표시하고,
@@ -1780,31 +1822,29 @@ function showArrivalDetails(routeName,it,routeId,arsId){
 // 도착정보 API는 차량 2대(arrmsg1·2)까지만 준다. 그 뒤 차량은 노선 전체 버스 위치(getBusPosByRtid)를
 // 이 정류장 순서와 비교해 "N정류장 전"과 예상 시간을 추정해서 이어 붙인다.
 async function appendLaterVehicles(panel,routeName,it,routeId,arsId,shownCount){
-  const route=ROUTE_BY_ID.get(String(routeId||''));if(!route?.nodes?.length)return;
+  const route=ROUTE_BY_ID.get(String(routeId||''))||(it?.busRouteId?{id:String(it.busRouteId),routeId:String(it.busRouteId)}:null);if(!route)return;
   const card=panel.querySelector('.arrival-detail-card');if(!card)return;
+  const staOrd=parseInt(it?.staOrd,10);if(!Number.isInteger(staOrd))return;
   const box=document.createElement('div');box.className='arrival-later';box.innerHTML='<div class="setting-desc">뒤따라오는 차량 위치 확인 중…</div>';card.appendChild(box);
   try{
-    const nodes=route.nodes.map(String),stId=String(it?.stId||'');
-    const stopNodes=new Set(stId?[stId]:STOPS.filter(s=>String(s.ars)===String(arsId)).map(s=>String(s.node)));
-    const hits=[];nodes.forEach((n,i)=>{if(stopNodes.has(n))hits.push(i);});
-    if(!hits.length){box.remove();return;}
-    const ord=parseInt(it?.staOrd,10),stopIdx=Number.isInteger(ord)?hits.reduce((a,b)=>Math.abs(b-(ord-1))<Math.abs(a-(ord-1))?b:a):hits[0];
+    // 도착정보(staOrd·sectOrd1/2·vehId1/2)와 차량위치(sectOrd·vehId)는 같은 노선 순번을 쓴다 → 남은 정류장 = staOrd - sectOrd
+    const shownIds=new Set([1,2].map(n=>String(it?.['vehId'+n]||'')).filter(Boolean));
+    const known=[1,2].map(n=>{const o=parseInt(it?.['sectOrd'+n],10),sec=Number(it?.['traTime'+n]);return Number.isInteger(o)&&staOrd-o>0?{away:staOrd-o,sec}:null;}).filter(Boolean);
+    const lastShownAway=known.length?Math.max(...known.map(k=>k.away)):0;
+    const rates=known.filter(k=>k.sec>0).map(k=>k.sec/k.away);
+    const perStop=rates.length?Math.min(240,Math.max(45,rates.reduce((a,b)=>a+b,0)/rates.length)):100;
     const items=await fetchBusPositions(route.id);
     if(!panel.isConnected)return;
-    const shownPlates=new Set([1,2,3,4,5].map(n=>String(it?.['plainNo'+n]||'')).filter(Boolean));
-    // 정류장당 소요시간: 첫 차량의 남은 시간 ÷ 남은 정류장 수, 없으면 정류장당 1분 40초
-    const rates=[1,2].map(n=>{const sec=Number(it?.['traTime'+n]),stops=Number((String(it?.['arrmsg'+n]||'').match(/(\d+)번째 전/)||[])[1]);return sec>0&&stops>0?sec/stops:null;}).filter(x=>x!=null);
-    const perStop=rates.length?Math.min(240,Math.max(50,rates.reduce((a,b)=>a+b,0)/rates.length)):100;
     const later=[];
     for(const v of items){
-      if(shownPlates.has(String(v.plainNo||'')))continue;
-      const sec=busSectionFor(v,nodes);if(!sec||sec.reverse)continue;
-      const away=stopIdx-sec.fromIndex;if(away<=0||away>nodes.length)continue;
+      if(shownIds.has(String(v.vehId||'')))continue;
+      const away=staOrd-parseInt(v.sectOrd,10);
+      if(!Number.isInteger(away)||away<=0||away<=lastShownAway&&shownIds.size>=2)continue;
       later.push({v,away,min:Math.max(1,Math.round(away*perStop/60))});
     }
     later.sort((a,b)=>a.away-b.away);
     if(!later.length){box.innerHTML='<div class="setting-desc">그 뒤로 이 정류장 쪽으로 오는 차량이 아직 없습니다.</div>';return;}
-    box.innerHTML='<div class="setting-desc" style="margin:8px 0 4px">뒤따라오는 차량 · 버스 위치 기준 예상 시간</div>'+later.map((x,i)=>{const type=busTypeLabel(x.v.busType);return `<div class="arrival-vehicle"><strong>${shownCount+i+1}번째 차량 · 약 ${x.min}분 후 (${x.away}정류장 전)</strong><div class="arrival-vehicle-meta">${type?`<span class="route-live-badge ${type==='저상'?'type-low':''}">${type==='저상'?'♿ ':''}${esc(type)}</span>`:''}${!isVillageRouteName(routeName)&&x.v.congetion&&['3','4','5','6'].includes(String(x.v.congetion))?`<span class="route-live-badge ${congestionBadgeClass(String(x.v.congetion))}">${esc(congestionLabel(String(x.v.congetion)))}</span>`:''}${x.v.islastyn==='1'?'<span class="route-live-badge">막차</span>':''}<span class="route-live-badge">${esc(String(x.v.plainNo||'').slice(-4))}</span></div></div>`;}).join('');
+    box.innerHTML='<div class="setting-desc" style="margin:8px 0 4px">뒤따라오는 차량 · 버스 위치 기준 예상 시간</div>'+later.map((x,i)=>{const type=busTypeLabel(x.v.busType);return `<div class="arrival-vehicle"><strong>${shownCount+i+1}번째 차량 · 약 ${x.min}분 후 (${x.away}정류장 전)</strong><div class="arrival-vehicle-meta">${type?`<span class="route-live-badge ${type==='저상'?'type-low':''}">${type==='저상'?'♿ ':''}${esc(type)}</span>`:''}${!isVillageRouteName(routeName)&&['3','4','5','6'].includes(String(x.v.congetion))?`<span class="route-live-badge ${congestionBadgeClass(String(x.v.congetion))}">${esc(congestionLabel(String(x.v.congetion)))}</span>`:''}${x.v.islastyn==='1'?'<span class="route-live-badge">막차</span>':''}<span class="route-live-badge">${esc(String(x.v.plainNo||'').slice(-4))}</span></div></div>`;}).join('');
   }catch(e){if(box.isConnected)box.innerHTML='<div class="setting-desc">뒤따라오는 차량 위치를 불러오지 못했어요. '+esc(e.message||'')+'</div>';}
 }
 // Seoul arrivals name Gyeonggi buses like "700부천" but carry the same route id
@@ -4915,7 +4955,7 @@ function stopGuide(){
 <script src="./utic-map-patch.js?v=73"></script>
 <script src="./ios-touch-patch.js?v=55"></script>
 <script src="./gapless-patch.js?v=67"></script>
-<script src="./gyeonggi-stops-patch.js?v=48"></script>
+<script src="./gyeonggi-stops-patch.js?v=49"></script>
 <script src="./subway-routing.js?v=3"></script>
 <script src="./subway-api.js?v=1"></script>
 <script src="./subway.js?v=5"></script>

@@ -94,6 +94,6 @@
     syncButton();
   }
 
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{addSetting();addButton();redraw();},{once:true});
-  else{addSetting();addButton();setTimeout(redraw,0);}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{addSetting();redraw();},{once:true});
+  else{addSetting();setTimeout(redraw,0);}
 })();
