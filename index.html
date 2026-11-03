@@ -2968,6 +2968,7 @@ window.openPersistentCctv=openPersistentCctv;window.closePersistentCctv=closePer
 async function refreshCctvLayer(){
   const generation=++cctvLoadGeneration;
   if(!cctvOn){clearCctvMarkers();return;}
+  if(map.getZoom()<14){clearCctvMarkers();return;}
   if(!itsCctvKey){clearCctvMarkers();document.getElementById('status').textContent='설정에서 ITS CCTV 인증키를 입력해 주세요';return;}
   const b=map.getBounds(),url=new URL(ITS_CCTV_API);
   url.search=new URLSearchParams({apiKey:itsCctvKey,type:'all',cctvType:'4',minX:String(b.getWest()),maxX:String(b.getEast()),minY:String(b.getSouth()),maxY:String(b.getNorth()),getType:'json'}).toString();
@@ -2986,9 +2987,15 @@ async function refreshCctvLayer(){
     }finally{clearTimeout(timer);}
     if(generation!==cctvLoadGeneration||!cctvOn)return;
     const rows=cctvRows(data);clearCctvMarkers();
+    // 화면 중심에서 가까운 CCTV 최대 25개만 표시
+    const c=map.getCenter(),near=[];
     for(const row of rows){
       const lat=Number(String(row.coordy||'').replace(/;/g,'')),lng=Number(String(row.coordx||'').replace(/;/g,''));
       if(!Number.isFinite(lat)||!Number.isFinite(lng)||!b.pad(.15).contains([lat,lng]))continue;
+      near.push({row,lat,lng,d:(lat-c.lat)**2+((lng-c.lng)*.8)**2});
+    }
+    near.sort((x,y)=>x.d-y.d);
+    for(const {row,lat,lng} of near.slice(0,25)){
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'cctv-map-icon',html:'📹',iconSize:[30,30],iconAnchor:[15,15]}),zIndexOffset:700}).addTo(map);
       marker.on('click',()=>openRoadCctv(row));marker.bindTooltip(String(row.cctvname||'도로 CCTV').replace(/;+$/,'').trim());cctvMarkers.push(marker);
     }
@@ -4844,8 +4851,8 @@ function stopGuide(){
 <script src="./utic-map-patch.js?v=73"></script>
 <script src="./ios-touch-patch.js?v=55"></script>
 <script src="./gapless-patch.js?v=67"></script>
-<script src="./subway-routing.js?v=1"></script>
+<script src="./subway-routing.js?v=2"></script>
 <script src="./subway-api.js?v=1"></script>
-<script src="./subway.js?v=3"></script>
+<script src="./subway.js?v=4"></script>
 </body>
 </html>

@@ -3,8 +3,8 @@
 'use strict';
 class Heap{
  constructor(){this.a=[];}
- push(v){const a=this.a;let i=a.length;a.push(v);while(i){const p=(i-1)>>1;if(a[p].cost<=v.cost)break;a[i]=a[p];i=p;}a[i]=v;}
- pop(){const a=this.a,v=a[0],last=a.pop();if(a.length){let i=0;while(i*2+1<a.length){let j=i*2+1;if(j+1<a.length&&a[j+1].cost<a[j].cost)j++;if(a[j].cost>=last.cost)break;a[i]=a[j];i=j;}a[i]=last;}return v;}
+ push(v){const a=this.a;let i=a.length;a.push(v);while(i){const p=(i-1)>>1;if(a[p].f<=v.f)break;a[i]=a[p];i=p;}a[i]=v;}
+ pop(){const a=this.a,v=a[0],last=a.pop();if(a.length){let i=0;while(i*2+1<a.length){let j=i*2+1;if(j+1<a.length&&a[j+1].f<a[j].f)j++;if(a[j].f>=last.f)break;a[i]=a[j];i=j;}a[i]=last;}return v;}
 }
 function distance(a,b){const rad=Math.PI/180,x=(b.lat-a.lat)*rad,y=(b.lng-a.lng)*rad;return 6371000*2*Math.asin(Math.sqrt(Math.sin(x/2)**2+Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(y/2)**2));}
 function build(network,busStops,busRoutes){
@@ -20,14 +20,16 @@ function build(network,busStops,busRoutes){
  return {nodes,adj,routes};
 }
 function nearby(graph,point){return [...graph.nodes].filter(([,s])=>s.mode==='subway'||s.routes?.length).map(([node,s])=>({node,meters:distance(point,s),rail:s.mode==='subway'})).filter(s=>s.meters<=(s.rail?1000:650)).sort((a,b)=>a.meters-b.meters).filter((s,i,a)=>a.slice(0,i).filter(p=>p.rail===s.rail).length<(s.rail?8:14));}
-function search(graph,from,to,{allowed=()=>true,maxBoardings=4,maxVisits=140000,penalties=new Map(),startNode=null,endNode=null}={}){
+function search(graph,from,to,{allowed=()=>true,maxBoardings=4,maxVisits=600000,penalties=new Map(),startNode=null,endNode=null}={}){
  const starts=startNode?[{node:startNode,meters:0}]:nearby(graph,from),ends=new Map((endNode?[{node:endNode,meters:0}]:nearby(graph,to)).map(x=>[x.node,x.meters]));if(!starts.length||!ends.size)return null;
- const heap=new Heap(),best=new Map();let visits=0,winner=null,winnerCost=Infinity;
- const key=v=>`${v.node}|${v.route||''}|${v.boardings}|${+v.rail}`;
- function put(v){const k=key(v);if(v.cost>=(best.get(k)??Infinity))return;best.set(k,v.cost);heap.push(v);}
+ const heap=new Heap(),best=new Map(),target=endNode?graph.nodes.get(endNode)||to:to;
+ // A* heuristic: straight-line distance at 100 km/h (faster than any train here) keeps the search aimed at the destination.
+ const h=n=>{const s=graph.nodes.get(n);return s&&target?distance(s,target)/1000/35*60:0;};let visits=0,winner=null,winnerCost=Infinity;
+ const key=v=>`${v.node}|${v.route||''}|${+v.rail}`;
+ function put(v){const k=key(v);if(v.cost>=(best.get(k)??Infinity))return;best.set(k,v.cost);v.f=v.cost+h(v.node);heap.push(v);}
  for(const s of starts)put({node:s.node,route:null,boardings:0,rail:false,cost:s.meters/75,walk:s.meters,previous:null,edge:null});
  while(heap.a.length&&visits++<maxVisits){const v=heap.pop();if(v.cost!==best.get(key(v)))continue;
-  if(v.cost>=winnerCost)break;
+  if(v.f>=winnerCost)break;
   if(v.rail&&ends.has(v.node)){const cost=v.cost+ends.get(v.node)/75;if(cost<winnerCost){winner=v;winnerCost=cost;}}
   for(const e of graph.adj.get(v.node)||[]){const route=e.route&&graph.routes.get(e.route);if(route&&!allowed(route,e,graph))continue;const board=e.route&&e.route!==v.route,boardings=v.boardings+(board?1:0);if(boardings>maxBoardings)continue;if(e.mode==='walk'&&v.walk+e.meters>1800)continue;
    put({node:e.to,route:e.route||v.route,boardings,rail:v.rail||e.mode==='subway',cost:v.cost+e.minutes+(board?(v.boardings?8:5):0)+(board?(penalties.get(e.route)||0):0),walk:v.walk+(e.mode==='walk'?e.meters:0),previous:v,edge:e});
