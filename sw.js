@@ -1,15 +1,15 @@
 // App shell v70: red-to-green prediction and adjacent bus stops.
-const CACHE_NAME='bus-map-shell-v153-20261103-subway-markers';
+const CACHE_NAME='bus-map-shell-v154-20261103-marker-limits';
 const SHELL_FILES=['./audio-settings.json','./audio-library-manager.js','./subway.js','./subway-api.js','./subway-routing.js','./data/subway-network.json','./','./index.html','./audio-library.html','./audio-files.json','./planner.js','./request-guard.js','./mobile-patch.js','./gapless-patch.js','./traffic-map-patch.js','./utic-map-patch.js','./traffic-intersections.js','./cctv-data.json','./ios-touch-patch.js','./gyeonggi-stops-patch.js','./route-shapes.js','./route-geometry.js','./gyeonggi-data.js','./manifest.webmanifest','./icon.png','./apple-touch-icon.png'];
 const SHELL_URLS=new Set(SHELL_FILES.map(f=>new URL(f,self.registration.scope).href));
 const PATCH_URLS=new Set(['audio-settings.json','audio-library-manager.js','subway.js','subway-api.js','subway-routing.js','planner.js','request-guard.js','mobile-patch.js','gapless-patch.js','traffic-map-patch.js','utic-map-patch.js','ios-touch-patch.js','gyeonggi-stops-patch.js','audio-files.json'].map(f=>new URL('./'+f,self.registration.scope).href));
-const PAGE_PATCH='<script src="./request-guard.js?v=47"></script><script src="./mobile-patch.js?v=63"></script><script src="./gapless-patch.js?v=69"></script><script src="./traffic-map-patch.js?v=81"></script><script src="./utic-map-patch.js?v=73"></script><script src="./ios-touch-patch.js?v=54"></script><script src="./gyeonggi-stops-patch.js?v=47"></script>';
+const PAGE_PATCH='<script src="./request-guard.js?v=47"></script><script src="./mobile-patch.js?v=63"></script><script src="./gapless-patch.js?v=69"></script><script src="./traffic-map-patch.js?v=82"></script><script src="./utic-map-patch.js?v=73"></script><script src="./ios-touch-patch.js?v=54"></script><script src="./gyeonggi-stops-patch.js?v=47"></script>';
 async function patchedHtmlResponse(response){
  let text=await response.text();
  // Refresh the planner URL even when the HTML came from an older offline shell.
  text=text.replace(/<script src=["'](?:\.\/)?planner\.js(?:\?[^"']*)?["']><\/script>/g,'<script src="./planner.js?v=20261020-mobile2"></script>');
  text=text.replace(/<script src="\.\/(?:request-guard|mobile-patch|gapless-patch|traffic-map-patch|utic-map-patch|ios-touch-patch|gyeonggi-stops-patch)\.js\?v=\d+"><\/script>/g,'');
- if(!text.includes('traffic-map-patch.js?v=81'))text=/<\/body>/i.test(text)?text.replace(/<\/body>/i,PAGE_PATCH+'</body>'):text+PAGE_PATCH;
+ if(!text.includes('traffic-map-patch.js?v=82'))text=/<\/body>/i.test(text)?text.replace(/<\/body>/i,PAGE_PATCH+'</body>'):text+PAGE_PATCH;
  if(!text.includes('subway.js?'))text=text.replace(/<\/body>/i,'<script src="./subway-routing.js?v=1"></script><script src="./subway-api.js?v=1"></script><script src="./subway.js?v=1"></script></body>');
  const h=new Headers(response.headers);h.set('content-type','text/html; charset=utf-8');h.delete('content-length');
  return new Response(text,{status:response.status,statusText:response.statusText,headers:h});
