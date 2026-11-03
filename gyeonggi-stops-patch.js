@@ -17,7 +17,8 @@
   }
   function shouldRenderStop(s){
     if(!s||s.region!=='gyeonggi')return true;
-    return showGyeonggi&&isAllowedGyeonggi(s);
+    // 경기버스 보기를 켜면 경기 정류소를 모두 표시(예전에는 일부 노선만)
+    return showGyeonggi;
   }
 
   // The stop canvas uses STOPS by fixed numeric index. Temporarily moving hidden
@@ -69,21 +70,30 @@
 
     const block=document.createElement('div');
     block.className='setting-block';
-    block.innerHTML='<div class="setting-row"><div><div class="setting-title">경기버스정류장 보기</div><div class="setting-desc">700, 60·60-1·60-2·60-3, 70·70-1·70-2·70-3 관련 경기 정류소만 표시합니다. 서울버스 공동 정류소는 기존 서울 정류소로 계속 표시됩니다.</div></div><label class="switch"><input type="checkbox" id="showGyeonggiStopsToggle"><span></span></label></div>';
+    block.innerHTML='<div class="setting-row"><div><div class="setting-title">경기버스정류장 보기</div><div class="setting-desc">경기도 정류소를 지도에 표시합니다. 지도 위 ‘경기버스 보기/접기’ 버튼과 같은 설정입니다. 서울버스 공동 정류소는 기존 서울 정류소로 계속 표시됩니다.</div></div><label class="switch"><input type="checkbox" id="showGyeonggiStopsToggle"><span></span></label></div>';
     parent.insertAdjacentElement('afterend',block);
     const t=block.querySelector('#showGyeonggiStopsToggle');
     t.checked=showGyeonggi;
-    t.addEventListener('change',()=>{
-      showGyeonggi=!!t.checked;
-      try{localStorage.setItem(STORE_KEY,showGyeonggi?'1':'0');}catch(e){}
-      redraw();
-      try{
-        const s=document.getElementById('status');
-        if(s)s.textContent=showGyeonggi?'경기버스정류장 보기 ON · 지정 노선 관련 정류소만 표시':'경기버스정류장 보기 OFF';
-      }catch(e){}
-    });
+    t.addEventListener('change',()=>setShowGyeonggi(!!t.checked));
+  }
+  function setShowGyeonggi(on){
+    showGyeonggi=on;
+    try{localStorage.setItem(STORE_KEY,showGyeonggi?'1':'0');}catch(e){}
+    const t=document.getElementById('showGyeonggiStopsToggle');if(t)t.checked=on;
+    syncButton();redraw();
+    try{const s=document.getElementById('status');if(s)s.textContent=on?'경기버스 정류장 표시 중 · 접기를 누르면 숨깁니다':'경기버스 정류장을 접었어요';}catch(e){}
+  }
+  function syncButton(){const b=document.getElementById('gyeonggiStopsBtn');if(!b)return;b.textContent=showGyeonggi?'경기 접기':'경기 보기';b.setAttribute('aria-pressed',String(showGyeonggi));b.classList.toggle('on',showGyeonggi);}
+  function addButton(){
+    if(document.getElementById('gyeonggiStopsBtn'))return;
+    const b=document.createElement('button');b.id='gyeonggiStopsBtn';b.type='button';b.title='경기버스 정류장 보기/접기';
+    b.onclick=()=>setShowGyeonggi(!showGyeonggi);
+    const actions=document.querySelector('.mobile-map-actions'),fav=document.getElementById('favBtn'),planner=document.getElementById('plannerBtn');
+    if(actions&&fav&&fav.parentNode===actions)actions.insertBefore(b,fav);else if(planner)planner.after(b);else return;
+    if(!document.getElementById('gyeonggiStopsBtnStyle')){const st=document.createElement('style');st.id='gyeonggiStopsBtnStyle';st.textContent='#gyeonggiStopsBtn.on{background:#1f6f43!important;border-color:#3fbf7f!important;color:#fff!important}@media(max-width:900px){#top .mobile-map-actions{grid-template-columns:repeat(9,minmax(0,1fr))!important}#top #gyeonggiStopsBtn{font-size:10px;letter-spacing:-.5px}}';document.head.appendChild(st);}
+    syncButton();
   }
 
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{addSetting();redraw();},{once:true});
-  else{addSetting();setTimeout(redraw,0);}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{addSetting();addButton();redraw();},{once:true});
+  else{addSetting();addButton();setTimeout(redraw,0);}
 })();

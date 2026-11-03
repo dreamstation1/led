@@ -489,6 +489,7 @@ body.light-ui .route{color:#fff}
 
 .search-wrap{position:relative;flex:1;min-width:190px}
 .search-wrap input{width:100%}
+.route-kind-tag{display:inline-block;padding:0 6px;margin-left:4px;border-radius:6px;background:#33465c;color:#d9e6f5;font-size:11px;font-weight:600;vertical-align:1px}.route-info-ends{font-weight:600;margin:2px 0 4px}.route-info-row{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:13px}.route-info-row b{color:#ffd36b}
 #routeSearchWrap{max-width:190px}
 #searchResults,#routeSearchResults{
   position:absolute;
@@ -2001,6 +2002,35 @@ function routeMatches(q,limit=30){
   });
   return [...exact,...prefix,...contains].slice(0,limit);
 }
+// 노선의 출발→도착(경기: 기점·종점 자료, 서울: 기점과 가장 먼 회차 정류소)
+function routeEndpoints(r){
+  if(!r)return null;
+  if(r.startStationName||r.endStationName){
+    const fwd=String(r.direction||'F')!=='B',a=fwd?r.startStationName:r.endStationName,b=fwd?r.endStationName:r.startStationName;
+    return {from:String(a||'?'),to:String(b||'?'),kind:String(r.routeTypeName||'').replace(/형?시내버스$|형?버스$/,'').trim(),loop:false};
+  }
+  const ss=(r.nodes||[]).map(n=>STOPS[STOP_BY_NODE.get(String(n))]).filter(Boolean);if(!ss.length)return null;
+  const first=ss[0];let far=ss.at(-1),fd=-1;for(const s of ss){const d=hav(first.lat,first.lng,s.lat,s.lng);if(d>fd){fd=d;far=s;}}
+  return {from:first.name,to:far.name,kind:routeCategory(String(r.name||'')),loop:true};
+}
+function routeEndpointText(r){const e=routeEndpoints(r);return e?(e.loop?`${e.from} ↔ ${e.to}`:`${e.from} → ${e.to}`):'';}
+// 첫차·막차·배차간격: 노선이 지나는 서울 정류소 하나의 도착정보 응답(firstTm·lastTm·term)에서 가져와 하루 캐시
+async function fetchRouteTimes(r){
+  const key='routeTimes:'+r.id+':'+new Date().toISOString().slice(0,10);
+  try{const c=JSON.parse(lsGet(key)||'null');if(c)return c;}catch(e){}
+  const apiId=arrivalApiRouteId(r),plain=String(r.routeName||r.name||'').replace(/^경기\s*/,'').replace(/\s*·.*$/,'');
+  const cands=[];for(const n of r.nodes||[]){const s=STOPS[STOP_BY_NODE.get(String(n))];if(s&&s.region!=='gyeonggi'&&s.ars&&!cands.includes(s.ars))cands.push(s.ars);if(cands.length>=2)break;}
+  // 경기 노선은 경기 정류소 번호로만 되어 있어서, 서울 구간이면 같은 이름의 가까운 서울 정류소를 대신 조회
+  if(!cands.length)for(const n of (r.nodes||[]).slice().reverse()){const g=STOPS[STOP_BY_NODE.get(String(n))];if(!g)continue;const seoul=STOPS.find(x=>x.region!=='gyeonggi'&&x.ars&&x.name===g.name&&Math.abs(x.lat-g.lat)<.0015&&Math.abs(x.lng-g.lng)<.0018);if(seoul&&!cands.includes(seoul.ars))cands.push(seoul.ars);if(cands.length>=2)break;}
+  for(const ars of cands){
+    const items=await fetchStopArrivals(ars);
+    const it=items.find(x=>String(x.busRouteId)===apiId)||items.find(x=>String(x.rtNm)===plain);
+    if(it){const t=v=>{const m=String(v||'').trim().match(/^(\d{2})(\d{2})/);return m?m[1]+':'+m[2]:'';};
+      const out={first:t(it.firstTm),last:t(it.lastTm),term:Number(it.term)>0?Number(it.term):null};
+      try{lsSet(key,JSON.stringify(out));}catch(e){}return out;}
+  }
+  return null;
+}
 function renderRouteSearchResults(rs,forceOpen=true){
   const box=document.getElementById('routeSearchResults');
   box.innerHTML='';
@@ -2012,7 +2042,7 @@ function renderRouteSearchResults(rs,forceOpen=true){
   rs.forEach(r=>{
     const el=document.createElement('div');
     el.className='search-item';
-    el.innerHTML=`<div class="search-name">${esc(r.name)}</div><div class="search-sub">ROUTE_ID ${esc(r.id)} · 경유정류소 ${r.nodes.length}개</div>`;
+    const ep=routeEndpoints(r);el.innerHTML=`<div class="search-name">${esc(String(r.name).replace(/\s*·\s*(정방향|반대방향)$/,''))}${ep?.kind?` <span class="route-kind-tag">${esc(ep.kind)}</span>`:''}</div><div class="search-sub">${ep?esc(routeEndpointText(r))+(ep.loop?'':' 방향')+' · ':''}정류소 ${r.nodes.length}개</div>`;
     el.onclick=()=>{showRoute(r.id);routeQ.value=r.name;box.style.display='none'};
     box.appendChild(el);
   });
@@ -2653,8 +2683,11 @@ function renderRouteSidebar(r){
   const list=document.getElementById('routeStops');
 
   document.getElementById('routeTitle').textContent=r.name;
-  document.getElementById('routeMeta').textContent=
-    `${r.routeName&&String(r.routeName)!==String(r.routeId)?'노선번호 '+esc(r.routeName)+' · ':''}ROUTE_ID ${esc(r.routeId||r.id)} · 경유정류소 ${r.nodes.length}개`;
+  const metaEl=document.getElementById('routeMeta'),ep=routeEndpoints(r);
+  metaEl.innerHTML=`<div class="route-info-ends">${ep?esc(routeEndpointText(r))+(ep.loop?' (왕복)':' 방향'):''}</div><div class="route-info-row">${ep?.kind?`<span class="route-kind-tag">${esc(ep.kind)}</span>`:''}<span>정류소 ${r.nodes.length}개</span><span id="routeTimesInfo">첫차·막차 확인 중…</span></div>`;
+  fetchRouteTimes(r).then(t=>{const el=document.getElementById('routeTimesInfo');if(!el||currentRoute?.id!==r.id&&currentRoute)return;
+    el.innerHTML=t?`<span>첫차 <b>${esc(t.first||'-')}</b></span><span>막차 <b>${esc(t.last||'-')}</b></span><span>배차 <b>${t.term?esc(String(t.term))+'분':'-'}</b></span>`:'<span class="setting-desc">첫차·막차 정보 없음 (서울 버스 정보에 없는 노선)</span>';
+  }).catch(()=>{const el=document.getElementById('routeTimesInfo');if(el)el.textContent='첫차·막차 정보를 불러오지 못했어요';});
   updateRouteBusSummary(r);
   // 배차이력 서비스는 브라우저 CORS를 허용하지 않는다. 확인 불가능한
   // 항목은 표시하지 않고 콘솔 오류도 만들지 않는다. 실시간 운행 대수는
@@ -4882,6 +4915,7 @@ function stopGuide(){
 <script src="./utic-map-patch.js?v=73"></script>
 <script src="./ios-touch-patch.js?v=55"></script>
 <script src="./gapless-patch.js?v=67"></script>
+<script src="./gyeonggi-stops-patch.js?v=48"></script>
 <script src="./subway-routing.js?v=3"></script>
 <script src="./subway-api.js?v=1"></script>
 <script src="./subway.js?v=5"></script>
