@@ -49,6 +49,6 @@ const hittable=async(p,s)=>p.locator(s).evaluate(el=>{const r=el.getBoundingClie
  assert.equal(errors.length,0,errors.join('\n'));
  console.log('PASS WebKit: 393/320px phones and landscape; fixed close hit target; scroll to last result; map taps; keyboard-height resize; detail dismissal; restore data without reopening; settings taps; desktop/mobile reparenting');
  const swContext={self:{registration:{scope:url+'/'},addEventListener(){}},URL,Headers,Response};vm.createContext(swContext);vm.runInContext(fs.readFileSync(path.join(root,'sw.js'),'utf8')+';this.patch=patchedHtmlResponse;',swContext);
- const cached=await swContext.patch(new Response('<html><body><script src="planner.js?v=old"></script></body></html>'));assert.ok((await cached.text()).includes('./planner.js?v=20261103-mixed'));
+ const cached=await swContext.patch(new Response('<html><body><script src="planner.js?v=old"></script></body></html>'));assert.ok((await cached.text()).includes('./planner.js?v=20261103-rail2'));
  await browser.close();server.close();
 })().catch(e=>{console.error(e);server.close();process.exit(1)});

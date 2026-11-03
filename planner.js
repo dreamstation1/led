@@ -223,7 +223,11 @@ function plannerDisplayPaths(){
   // Remove routes that are plainly worse before limiting the visible list.
   // This prevents hundreds of nearby-pole combinations from reaching the UI.
   // 가장 빠른 축(최단+10분)은 역까지 도보가 조금 길어도(2km 이내) 남긴다. 지하철 경로가 도보 때문에 빠지던 문제 방지.
-  const sensible=ranked.filter(path=>path.minutes<=bestMinutes+30&&(path.walk<=Math.max(900,bestWalk+600)||(path.minutes<=bestMinutes+10&&path.walk<=2000)));
+  const ok=(path,best,bw)=>path.minutes<=best+30&&(path.walk<=Math.max(900,bw+600)||(path.minutes<=best+10&&path.walk<=2000));
+  // 지하철이 들어간 경로는 지하철 경로끼리 따로 비교한다(버스 예상시간이 짧게 잡혀도 지하철 경로가 통째로 빠지지 않게).
+  const railOf=path=>path.legs.some(l=>l.data?.route?.mode==='subway'),rails=ranked.filter(railOf);
+  const bestRail=rails.length?Math.min(...rails.map(p=>p.minutes)):0,bestRailWalk=rails.length?Math.min(...rails.map(p=>p.walk)):0;
+  const sensible=ranked.filter(path=>railOf(path)?ok(path,bestRail,bestRailWalk):ok(path,bestMinutes,bestWalk));
   return (sensible.length?sensible:ranked).slice(0,20);
 }
 

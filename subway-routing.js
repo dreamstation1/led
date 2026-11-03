@@ -7,6 +7,9 @@ class Heap{
  pop(){const a=this.a,v=a[0],last=a.pop();if(a.length){let i=0;while(i*2+1<a.length){let j=i*2+1;if(j+1<a.length&&a[j+1].f<a[j].f)j++;if(a[j].f>=last.f)break;a[i]=a[j];i=j;}a[i]=last;}return v;}
 }
 function distance(a,b){const rad=Math.PI/180,x=(b.lat-a.lat)*rad,y=(b.lng-a.lng)*rad;return 6371000*2*Math.asin(Math.sqrt(Math.sin(x/2)**2+Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(y/2)**2));}
+// 같은 역 노선 간 환승 도보 시간(분). 실제로 통로가 긴 역은 따로 지정, 나머지는 거리 기반 최소 4분.
+const LONG_TRANSFERS={'당산':{'2호선|9호선':7},'고속터미널':{'3호선|7호선':6,'7호선|9호선':6,'3호선|9호선':6},'김포공항':{'*':7},'종로3가':{'1호선|5호선':7,'3호선|5호선':5},'동대문역사문화공원':{'2호선|5호선':6,'4호선|5호선':5},'서울역':{'*':8,'1호선|4호선':4},'홍대입구':{'*':8},'공덕':{'*':6},'디지털미디어시티':{'*':7},'노량진':{'1호선|9호선':9},'왕십리':{'*':5},'노원':{'4호선|7호선':7},'청량리':{'*':5},'신도림':{'*':4},'교대':{'2호선|3호선':5},'건대입구':{'2호선|7호선':6},'선릉':{'*':5},'여의도':{'5호선|9호선':5},'사당':{'2호선|4호선':5},'충무로':{'3호선|4호선':3},'금정':{'1호선|4호선':2},'석남':{'*':6},'대곡':{'*':6},'김포공항역':{'*':7}};
+function transferMinutes(a,b,meters){const name=a.name==='서울'||a.name==='서울역'?'서울역':a.name,table=LONG_TRANSFERS[name]||LONG_TRANSFERS[b.name];const key=[a.line,b.line].sort().join('|');const known=table&&(table[key]??table['*']);return known!=null?known:Math.max(4,meters*1.4/75+3);}
 function build(network,busStops,busRoutes){
  const nodes=new Map(),adj=new Map(),routes=new Map();
  function add(a,b,route,mode,meters,minutes){if(!adj.has(a))adj.set(a,[]);adj.get(a).push({from:a,to:b,route,mode,meters,minutes});}
@@ -16,21 +19,26 @@ function build(network,busStops,busRoutes){
  for(const r of busRoutes){routes.set(String(r.id),r);for(let i=1;i<r.nodes.length;i++){const a=String(r.nodes[i-1]),b=String(r.nodes[i]),sa=nodes.get(a),sb=nodes.get(b);if(!sa||!sb)continue;const meters=distance(sa,sb)*1.25;if(meters>8000)continue;add(a,b,String(r.id),'bus',meters,meters/1000/22*60+.28);}}
  const grid=new Map(),cell=s=>[Math.floor(s.lat*200),Math.floor(s.lng*200)];
  for(const [id,s] of nodes){if(s.mode!=='subway'&&!s.routes?.length)continue;const k=cell(s).join(',');if(!grid.has(k))grid.set(k,[]);grid.get(k).push(id);}
- for(const [id,s] of nodes){if(s.mode!=='subway')continue;const [x,y]=cell(s);for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(const other of grid.get([x+dx,y+dy].join(','))||[]){if(id===other)continue;const t=nodes.get(other),meters=distance(s,t);const canonical=n=>n==='서울'||n==='서울역'?'서울역':n==='총신대입구(이수)'?'이수':n;const sameStation=t.mode==='subway'&&canonical(s.name)===canonical(t.name);if(meters>(sameStation?900:300))continue;if(t.mode==='subway'&&!sameStation)continue;add(id,other,null,'walk',meters,meters/75+(sameStation?4:1));if(t.mode!=='subway')add(other,id,null,'walk',meters,meters/75+1);}}
+ for(const [id,s] of nodes){if(s.mode!=='subway')continue;const [x,y]=cell(s);for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(const other of grid.get([x+dx,y+dy].join(','))||[]){if(id===other)continue;const t=nodes.get(other),meters=distance(s,t);const canonical=n=>n==='서울'||n==='서울역'?'서울역':n==='총신대입구(이수)'?'이수':n;const sameStation=t.mode==='subway'&&canonical(s.name)===canonical(t.name);if(meters>(sameStation?900:300))continue;if(t.mode==='subway'&&!sameStation)continue;if(sameStation){add(id,other,null,'walk',meters,transferMinutes(s,t,meters));}else{
+   // 버스정류장↔승강장: 출구·계단·개찰구를 지나야 해서 직선거리보다 길다(우회 1.3배 + 역 출입 3분)
+   const m=meters*1.3/75;add(id,other,null,'walk',meters,m+3);add(other,id,null,'walk',meters,m+3);}}}
  return {nodes,adj,routes};
 }
 function nearby(graph,point){return [...graph.nodes].filter(([,s])=>s.mode==='subway'||s.routes?.length).map(([node,s])=>({node,meters:distance(point,s),rail:s.mode==='subway'})).filter(s=>s.meters<=(s.rail?1000:650)).sort((a,b)=>a.meters-b.meters).filter((s,i,a)=>a.slice(0,i).filter(p=>p.rail===s.rail).length<(s.rail?8:14));}
-function search(graph,from,to,{allowed=()=>true,maxBoardings=4,maxVisits=600000,penalties=new Map(),startNode=null,endNode=null}={}){
- const starts=startNode?[{node:startNode,meters:0}]:nearby(graph,from),ends=new Map((endNode?[{node:endNode,meters:0}]:nearby(graph,to)).map(x=>[x.node,x.meters]));if(!starts.length||!ends.size)return null;
+function search(graph,from,to,{allowed=()=>true,maxBoardings=4,maxVisits=600000,penalties=new Map(),startNode=null,endNode=null,weight=1}={}){
+ const starts=startNode?[{node:startNode,meters:0}]:nearby(graph,from),ends=new Map((endNode?[{node:endNode,meters:0}]:nearby(graph,to)).map(x=>[x.node,x.meters]));const exitMin=n=>!endNode&&String(n).startsWith('rail:')?2:0;if(!starts.length||!ends.size)return null;
  const heap=new Heap(),best=new Map(),target=endNode?graph.nodes.get(endNode)||to:to;
  // A* heuristic: straight-line distance at 100 km/h (faster than any train here) keeps the search aimed at the destination.
- const h=n=>{const s=graph.nodes.get(n);return s&&target?distance(s,target)/1000/35*60:0;};let visits=0,winner=null,winnerCost=Infinity;
- const key=v=>`${v.node}|${v.route||''}|${+v.rail}`;
+ const h=n=>{let x=hCache.get(n);if(x===undefined){const s=graph.nodes.get(n);x=s&&target?weight*distance(s,target)/1000/35*60:0;hCache.set(n,x);}return x;};let visits=0,winner=null,winnerCost=Infinity;
+ // 숫자 키(노드번호·노선번호·지하철탑승여부)로 상태를 구분 - 문자열 키보다 훨씬 빠름
+ const ids=graph._ids||(graph._ids={node:new Map(),route:new Map()});const idOf=(m,k)=>{let i=m.get(k);if(i===undefined){i=m.size;m.set(k,i);}return i;};
+ const hCache=new Map(),key=v=>(idOf(ids.node,v.node)*65536+idOf(ids.route,v.route||''))*2+(v.rail?1:0);
  function put(v){const k=key(v);if(v.cost>=(best.get(k)??Infinity))return;best.set(k,v.cost);v.f=v.cost+h(v.node);heap.push(v);}
- for(const s of starts)put({node:s.node,route:null,boardings:0,rail:false,cost:s.meters/75,walk:s.meters,previous:null,edge:null});
+ // 출발지→역은 개찰구·승강장까지 3분, 역→도착지는 출구까지 2분 추가
+ for(const s of starts)put({node:s.node,route:null,boardings:0,rail:false,cost:s.meters/75+(s.rail&&!startNode?3:0),walk:s.meters,previous:null,edge:null});
  while(heap.a.length&&visits++<maxVisits){const v=heap.pop();if(v.cost!==best.get(key(v)))continue;
   if(v.f>=winnerCost)break;
-  if(v.rail&&ends.has(v.node)){const cost=v.cost+ends.get(v.node)/75;if(cost<winnerCost){winner=v;winnerCost=cost;}}
+  if(v.rail&&ends.has(v.node)){const cost=v.cost+ends.get(v.node)/75+exitMin(v.node);if(cost<winnerCost){winner=v;winnerCost=cost;}}
   for(const e of graph.adj.get(v.node)||[]){const route=e.route&&graph.routes.get(e.route);if(route&&!allowed(route,e,graph))continue;const board=e.route&&e.route!==v.route,boardings=v.boardings+(board?1:0);if(boardings>maxBoardings)continue;if(e.mode==='walk'&&v.walk+e.meters>1800)continue;
    put({node:e.to,route:e.route||v.route,boardings,rail:v.rail||e.mode==='subway',cost:v.cost+e.minutes+(board?(v.boardings?8:5):0)+(board?(penalties.get(e.route)||0):0),walk:v.walk+(e.mode==='walk'?e.meters:0),previous:v,edge:e});
   }
@@ -38,5 +46,5 @@ function search(graph,from,to,{allowed=()=>true,maxBoardings=4,maxVisits=600000,
  if(winner){const endWalk=ends.get(winner.node),edges=[];let cur=winner;while(cur.previous){edges.push(cur.edge);cur=cur.previous;}edges.reverse();return {edges,walk:winner.walk+endWalk,minutes:winnerCost,boardings:winner.boardings,start:cur.node,end:winner.node};}
  return null;
 }
-const api={build,search,distance,nearby};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.SubwayRouting=api;
+const api={build,search,distance,nearby,transferMinutes};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.SubwayRouting=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
