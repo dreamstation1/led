@@ -1768,12 +1768,43 @@ function orderedArrivalVehicles(routeName,it){
   const timed=all.filter(v=>!v.depot);
   return timed.length?timed:all;
 }
-function showArrivalDetails(routeName,it){
+function showArrivalDetails(routeName,it,routeId,arsId){
   document.querySelector('.arrival-detail-panel')?.remove();
   const vehicles=orderedArrivalVehicles(routeName,it);
   const panel=document.createElement('div');panel.className='arrival-detail-panel';
   panel.innerHTML=`<section class="arrival-detail-card" role="dialog" aria-modal="true" aria-label="${esc(routeName)} 도착 차량"><div class="arrival-detail-head"><div><b>${esc(routeName)}번</b><div class="setting-desc">이 정류장에 도착할 차량</div></div><button type="button" aria-label="닫기">×</button></div>${vehicles.length?vehicles.map((v,i)=>`<div class="arrival-vehicle"><strong>${i+1}번째 차량 · ${esc(v.msg)}</strong><div class="arrival-vehicle-meta">${seatBadgeHtml(v.seats)}${!isVillageRouteName(routeName)&&v.crowd?`<span class="route-live-badge ${congestionBadgeClass(v.crowd)}">${esc(congestionLabel(v.crowd))}</span>`:''}${v.type?`<span class="route-live-badge ${v.type==='저상'?'type-low':''}">${v.type==='저상'?'♿ ':''}${esc(v.type)}</span>`:''}${v.reserve?'<span class="route-live-badge reserve-badge">예비차</span>':''}</div></div>`).join(''):'<div class="search-empty">현재 제공되는 후속 차량 정보가 없습니다.</div>'}</section>`;
   const close=()=>panel.remove();panel.onclick=e=>{if(e.target===panel)close()};panel.querySelector('button').onclick=close;document.body.appendChild(panel);
+  appendLaterVehicles(panel,routeName,it,routeId,arsId,vehicles.length);
+}
+// 도착정보 API는 차량 2대(arrmsg1·2)까지만 준다. 그 뒤 차량은 노선 전체 버스 위치(getBusPosByRtid)를
+// 이 정류장 순서와 비교해 "N정류장 전"과 예상 시간을 추정해서 이어 붙인다.
+async function appendLaterVehicles(panel,routeName,it,routeId,arsId,shownCount){
+  const route=ROUTE_BY_ID.get(String(routeId||''));if(!route?.nodes?.length)return;
+  const card=panel.querySelector('.arrival-detail-card');if(!card)return;
+  const box=document.createElement('div');box.className='arrival-later';box.innerHTML='<div class="setting-desc">뒤따라오는 차량 위치 확인 중…</div>';card.appendChild(box);
+  try{
+    const nodes=route.nodes.map(String),stId=String(it?.stId||'');
+    const stopNodes=new Set(stId?[stId]:STOPS.filter(s=>String(s.ars)===String(arsId)).map(s=>String(s.node)));
+    const hits=[];nodes.forEach((n,i)=>{if(stopNodes.has(n))hits.push(i);});
+    if(!hits.length){box.remove();return;}
+    const ord=parseInt(it?.staOrd,10),stopIdx=Number.isInteger(ord)?hits.reduce((a,b)=>Math.abs(b-(ord-1))<Math.abs(a-(ord-1))?b:a):hits[0];
+    const items=await fetchBusPositions(route.id);
+    if(!panel.isConnected)return;
+    const shownPlates=new Set([1,2,3,4,5].map(n=>String(it?.['plainNo'+n]||'')).filter(Boolean));
+    // 정류장당 소요시간: 첫 차량의 남은 시간 ÷ 남은 정류장 수, 없으면 정류장당 1분 40초
+    const rates=[1,2].map(n=>{const sec=Number(it?.['traTime'+n]),stops=Number((String(it?.['arrmsg'+n]||'').match(/(\d+)번째 전/)||[])[1]);return sec>0&&stops>0?sec/stops:null;}).filter(x=>x!=null);
+    const perStop=rates.length?Math.min(240,Math.max(50,rates.reduce((a,b)=>a+b,0)/rates.length)):100;
+    const later=[];
+    for(const v of items){
+      if(shownPlates.has(String(v.plainNo||'')))continue;
+      const sec=busSectionFor(v,nodes);if(!sec||sec.reverse)continue;
+      const away=stopIdx-sec.fromIndex;if(away<=0||away>nodes.length)continue;
+      later.push({v,away,min:Math.max(1,Math.round(away*perStop/60))});
+    }
+    later.sort((a,b)=>a.away-b.away);
+    if(!later.length){box.innerHTML='<div class="setting-desc">그 뒤로 이 정류장 쪽으로 오는 차량이 아직 없습니다.</div>';return;}
+    box.innerHTML='<div class="setting-desc" style="margin:8px 0 4px">뒤따라오는 차량 · 버스 위치 기준 예상 시간</div>'+later.map((x,i)=>{const type=busTypeLabel(x.v.busType);return `<div class="arrival-vehicle"><strong>${shownCount+i+1}번째 차량 · 약 ${x.min}분 후 (${x.away}정류장 전)</strong><div class="arrival-vehicle-meta">${type?`<span class="route-live-badge ${type==='저상'?'type-low':''}">${type==='저상'?'♿ ':''}${esc(type)}</span>`:''}${!isVillageRouteName(routeName)&&x.v.congetion&&['3','4','5','6'].includes(String(x.v.congetion))?`<span class="route-live-badge ${congestionBadgeClass(String(x.v.congetion))}">${esc(congestionLabel(String(x.v.congetion)))}</span>`:''}${x.v.islastyn==='1'?'<span class="route-live-badge">막차</span>':''}<span class="route-live-badge">${esc(String(x.v.plainNo||'').slice(-4))}</span></div></div>`;}).join('');
+  }catch(e){if(box.isConnected)box.innerHTML='<div class="setting-desc">뒤따라오는 차량 위치를 불러오지 못했어요. '+esc(e.message||'')+'</div>';}
 }
 // Seoul arrivals name Gyeonggi buses like "700부천" but carry the same route id
 // (busRouteId) as the Gyeonggi route data ("G210000039F" -> routeId 210000039),
@@ -1812,7 +1843,7 @@ function annotateArrivalTimes(arsId){
       }
        if(!compactPopup){
          if(!more){more=document.createElement('button');more.type='button';more.className='route-arrival-more';more.textContent='다음차들';el.appendChild(more);}
-         more.onclick=e=>{e.preventDefault();e.stopPropagation();showArrivalDetails(name,it);};
+         more.onclick=e=>{e.preventDefault();e.stopPropagation();showArrivalDetails(name,it,String(el.dataset.route||el.dataset.r||''),arsId);};
        }else if(more)more.remove();
     });
   }).catch(()=>{});
@@ -2067,8 +2098,8 @@ function prevStopNameFor(nextStId){
 // 차량 API의 sectOrd는 회차/반대편 운행에서 그대로 현재 방향 정류소
 // 순서라고 가정할 수 없다. lastStnId→nextStId를 우리 노선의 실제 node
 // 순서로 다시 대조해 양방향 차량을 분리한다.
-function busSectionFor(it){
-  const nodes=currentRoute?.nodes||[];
+function busSectionFor(it,routeNodes){
+  const nodes=routeNodes||currentRoute?.nodes||[];
   if(!nodes.length)return null;
   const last=String(it.lastStnId||''),reportedNext=String(it.nextStId||''),ord=parseInt(it.sectOrd,10);
   // 같은 NODE가 회차 전후에 다시 나올 수 있으므로 첫 항목만 고르지 않고,
@@ -4845,7 +4876,7 @@ function stopGuide(){
 }
 
 </script>
-<script src="planner.js?v=20261018-4"></script>
+<script src="planner.js?v=20261103-mixed"></script>
 <script src="./mobile-patch.js?v=64"></script>
 <script src="./traffic-map-patch.js?v=82"></script>
 <script src="./utic-map-patch.js?v=73"></script>

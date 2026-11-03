@@ -222,7 +222,8 @@ function plannerDisplayPaths(){
   const bestWalk=Math.min(...ranked.map(path=>path.walk));
   // Remove routes that are plainly worse before limiting the visible list.
   // This prevents hundreds of nearby-pole combinations from reaching the UI.
-  const sensible=ranked.filter(path=>path.minutes<=bestMinutes+30&&path.walk<=Math.max(900,bestWalk+600));
+  // 가장 빠른 축(최단+10분)은 역까지 도보가 조금 길어도(2km 이내) 남긴다. 지하철 경로가 도보 때문에 빠지던 문제 방지.
+  const sensible=ranked.filter(path=>path.minutes<=bestMinutes+30&&(path.walk<=Math.max(900,bestWalk+600)||(path.minutes<=bestMinutes+10&&path.walk<=2000)));
   return (sensible.length?sensible:ranked).slice(0,20);
 }
 
