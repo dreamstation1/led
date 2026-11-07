@@ -324,7 +324,7 @@ $("#f").addEventListener("submit", async e=>{
   const s = state(), q = quote(s), msg = validate(s);
   $("#err").hidden = !msg; $("#err").textContent = msg;
   if(msg) return;
-  const id = "LED-" + new Date().toISOString().slice(2,10).replace(/-/g,"") + "-" + Math.random().toString(36).slice(2,6).toUpperCase();
+  const id = "LED-" + new Date(Date.now() + 9*3600*1000).toISOString().slice(2,10).replace(/-/g,"") + "-" + Math.random().toString(36).slice(2,6).toUpperCase();
   const text = orderText(s,q,id);
   const btn = $("#submit"); btn.disabled = true; btn.textContent = "만드는 중…";
   let sent = false;
