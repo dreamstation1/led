@@ -169,7 +169,7 @@ footer{font-size:12px;color:var(--muted);text-align:center}
               <option value="full">한 번에 입금</option>
               <option value="weekly">나눠서 입금 (매주 월요일)</option>
             </select></div>
-          <div class="field"><label for="recv">받는 방법</label>
+          <div class="field"><label for="recv">받는 방법 <span class="small muted" id="shipNote"></span></label>
             <select id="recv" name="recv">
               <option value="ship">택배</option>
               <option value="meet">직거래</option>
@@ -177,6 +177,8 @@ footer{font-size:12px;color:var(--muted);text-align:center}
         </div>
         <div class="field" id="addrField"><label for="addr">받을 주소 <span class="req">*</span></label><input type="text" id="addr" name="addr" autocomplete="street-address"></div>
         <div class="field"><label for="memo">요청사항</label><textarea id="memo" name="memo" placeholder="원하는 폰트, 희망 시기 등"></textarea></div>
+        <div class="field"><label for="coupon">쿠폰 코드 (선택)</label><input type="text" id="coupon" name="coupon" autocapitalize="characters" autocomplete="off" spellcheck="false">
+          <p class="small" id="couponMsg" hidden></p></div>
       </fieldset>
     </form>
 
@@ -227,7 +229,10 @@ const CONFIG = {
   sheetUrl: "",                           // 주문 저장·조회용 구글 Apps Script 웹 앱 주소 (…/exec)
   kakaoLink: "",                          // 판매자 오픈채팅 링크 (비우면 버튼 숨김)
   earlyBird: true,                        // 선착 3명 할인 진행 중이면 true
-  price: { parts:150000, custom:50000, earlyDiscount:30000, control:70000, case:30000, ai:80000, wifi:80000 },
+  price: { parts:150000, custom:50000, earlyDiscount:30000, control:70000, case:30000, ai:80000, wifi:80000, ship:5000 },
+  // 쿠폰: 코드 자체는 페이지 소스에 안 보이게 SHA-256 해시로 저장 → { "해시": 할인금액 }
+  // 새 쿠폰은 Claude한테 "코드 ○○○ 를 ○원 할인으로 추가해줘" 하면 됩니다.
+  coupons: {},
   // 형식별 연식. 연식이 없으면 빈 배열
   makers: { "싸인텔레콤":["구형","신형"], "컴텔싸인":["신형"], "마을버스":[] }
 };
@@ -276,6 +281,25 @@ function state(){
   };
 }
 
+let coupon = null; // {code, amount}
+async function sha256hex(t){
+  const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t));
+  return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
+}
+let couponSeq = 0;
+async function checkCoupon(){
+  const code = $("#coupon").value.trim().toUpperCase(), msg = $("#couponMsg"), my = ++couponSeq;
+  let found = null;
+  if(code){ try{ const h = await sha256hex(code); if(CONFIG.coupons[h] > 0) found = {code, amount:CONFIG.coupons[h]}; }catch(_){} }
+  if(my !== couponSeq) return;
+  coupon = found;
+  msg.hidden = !code;
+  msg.textContent = found ? "쿠폰 적용: −" + won(found.amount) : "없는 쿠폰 코드예요.";
+  msg.style.color = found ? "var(--ok)" : "var(--accent)";
+  render();
+}
+$("#coupon").addEventListener("input", checkCoupon);
+
 function quote(s){
   const L = [["전광판 본체 (부품)", P.parts]];
   if(s.control) L.push(["제어 사이트 이용권", P.control]);
@@ -286,6 +310,11 @@ function quote(s){
   if(s.hasCase) L.push(["케이스 · " + s.maker, P.case]);
   if(s.voice==="ai") L.push(["AI 안내방송 (1년)", P.ai]);
   if(s.conn==="wifi") L.push(["와이파이 연결 (실시간 위치)", P.wifi]);
+  if(s.recv==="ship") L.push(["택배비", P.ship]);
+  if(coupon){
+    const sub = L.reduce((a,[,v])=>a+v,0);
+    L.push(["쿠폰 " + coupon.code, -Math.min(coupon.amount, sub)]);
+  }
   return {L, total: L.reduce((a,[,v])=>a+v,0), wifi: false};
 }
 
@@ -303,6 +332,7 @@ function render(){
   $("#routeField").hidden = s.control;
   $("#caseDesc").textContent = s.control ? "원하는 형식의 틀을 씌워 드립니다." : s.maker + " 형식에 맞는 틀을 씌워 드립니다.";
   $("#addrField").hidden = s.recv!=="ship";
+  $("#shipNote").textContent = s.recv==="ship" ? "택배비 " + won(P.ship) + " 포함" : "";
   $("#lines").innerHTML = q.L.map(([k,v])=>`<div class="line${v<0?" minus":""}"><span>${k}</span><span>${v<0?"−"+won(-v):won(v)}</span></div>`).join("")
     + (q.wifi ? `<div class="line"><span>와이파이 연결</span><span>별도 견적</span></div>` : "");
   $("#total").textContent = won(q.total) + (q.wifi ? " +α" : "");
@@ -320,9 +350,10 @@ function orderText(s,q,id){
     `케이스: ${s.hasCase?"추가":"없음"}`,
     s.control ? `안내방송: ${s.voice==="ai"?"AI 안내방송":"없음"}` : null,
     s.control ? `연결: ${s.conn==="wifi"?"와이파이 (실시간 위치)":"컴퓨터 C타입-USB"}` : null,
+    coupon ? `쿠폰: ${coupon.code} (−${won(-q.L[q.L.length-1][1])})` : null,
     `합계: ${won(q.total)}${q.wifi?" + 와이파이 견적":""}`,
     `입금: ${s.pay==="weekly"?"매주 월요일 분할":"한 번에"}`,
-    `받는 방법: ${s.recv==="ship"?"택배 / "+s.addr:"직거래"}`,
+    `받는 방법: ${s.recv==="ship"?"택배 (택배비 "+won(P.ship)+") / "+s.addr:"직거래"}`,
     `이름: ${s.name}`, `카톡: ${s.kakao}`, `연락처: ${s.phone||"-"}`,
     `요청사항: ${s.memo||"-"}`
   ].filter(Boolean).join("\n");
