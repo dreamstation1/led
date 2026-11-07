@@ -87,6 +87,10 @@ input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-vis
 pre.ordertext{white-space:pre-wrap;word-break:break-all;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:14px;font-family:var(--f-mono);font-size:12.5px;margin:0;max-height:360px;overflow:auto}
 .row{display:flex;gap:10px;flex-wrap:wrap}
 .row .btn{width:auto}
+a.qlink{color:var(--accent);font-weight:700;font-size:14px;text-decoration:none}
+.qrow{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
+.qrow .field{flex:1 1 180px}
+.qrow .btn{width:auto}
 footer{font-size:12px;color:var(--muted);text-align:center}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 </style>
@@ -97,6 +101,7 @@ footer{font-size:12px;color:var(--muted);text-align:center}
     <div class="eyebrow">주문 제작 · 선입금 후 제작</div>
     <h1>버스 실내 전광판 주문</h1>
     <p class="notice">실제 버스에서 뗀 납품품이 아닙니다. 버스회사에서 실물을 보고 길이를 재고, 같은 납품업체 부품으로 1년 반 동안 코드를 직접 짜서 만든 재현품입니다. <b>입금이 확인된 뒤 제작을 시작합니다.</b></p>
+    <a class="qlink" href="#lookup">이미 주문했어요 · 주문 조회 →</a>
   </header>
 
   <div class="cols">
@@ -197,6 +202,21 @@ footer{font-size:12px;color:var(--muted);text-align:center}
     </div>
   </section>
 
+  <section class="done" id="lookup">
+    <h2>주문 조회</h2>
+    <p class="small muted">주문번호와 주문할 때 적은 카톡 닉네임을 넣어 주세요.</p>
+    <div class="qrow">
+      <div class="field"><label for="qId">주문번호</label><input type="text" id="qId" placeholder="LED-261108-AB12" autocapitalize="characters" autocomplete="off"></div>
+      <div class="field"><label for="qKakao">카톡 닉네임</label><input type="text" id="qKakao" autocomplete="off"></div>
+      <button class="btn" type="button" id="qBtn">조회</button>
+    </div>
+    <p class="err" id="qErr" hidden></p>
+    <div id="qResult" hidden>
+      <p>상태 <b id="qStatus"></b> <span class="small muted" id="qWhen"></span></p>
+      <pre class="ordertext" id="qText"></pre>
+    </div>
+  </section>
+
   <footer>입금 계좌, 이용권, 제작 일정은 주문 확인 후 카톡으로 안내드립니다.</footer>
 </div>
 
@@ -204,6 +224,7 @@ footer{font-size:12px;color:var(--muted);text-align:center}
 /* ===== 판매자 설정: 여기만 고치면 됩니다 ===== */
 const CONFIG = {
   notifyEmail: "oseungjae0417@gmail.com", // 주문 알림 받을 Gmail (GitHub에 올렸을 때만 작동)
+  sheetUrl: "",                           // 주문 저장·조회용 구글 Apps Script 웹 앱 주소 (…/exec)
   kakaoLink: "",                          // 판매자 오픈채팅 링크 (비우면 버튼 숨김)
   earlyBird: true,                        // 선착 3명 할인 진행 중이면 true
   price: { parts:150000, custom:50000, earlyDiscount:30000, control:70000, case:30000, ai:80000, wifi:80000 },
@@ -327,8 +348,20 @@ $("#f").addEventListener("submit", async e=>{
   const id = "LED-" + new Date(Date.now() + 9*3600*1000).toISOString().slice(2,10).replace(/-/g,"") + "-" + Math.random().toString(36).slice(2,6).toUpperCase();
   const text = orderText(s,q,id);
   const btn = $("#submit"); btn.disabled = true; btn.textContent = "만드는 중…";
-  let sent = false;
-  if(CONFIG.notifyEmail && /github\.io$/.test(location.hostname)){
+  saveLocal({id, kakao:s.kakao, text, at:Date.now(), status:"주문 접수"});
+  const toSheet = async ()=>{
+    if(!CONFIG.sheetUrl) return false;
+    try{
+      const ctrl = new AbortController(); setTimeout(()=>ctrl.abort(), 15000);
+      const r = await fetch(CONFIG.sheetUrl, { method:"POST", signal:ctrl.signal,
+        body: JSON.stringify({ id, name:s.name, kakao:s.kakao, phone:s.phone, total:won(q.total), text }) });
+      const j = await r.json().catch(()=>({}));
+      return j.ok === true;
+    }catch(_){ return false; }
+  };
+  const toForm = async ()=>{
+    let sent = false;
+    if(!(CONFIG.notifyEmail && /github\.io$/.test(location.hostname))) return false;
     try{
       const ctrl = new AbortController(); const t = setTimeout(()=>ctrl.abort(), 12000);
       const r = await fetch("https://formsubmit.co/ajax/" + encodeURIComponent(CONFIG.notifyEmail), {
@@ -341,7 +374,10 @@ $("#f").addEventListener("submit", async e=>{
       const j = await r.json().catch(()=>({}));
       sent = r.ok && String(j.success)!=="false";
     }catch(_){ sent = false; }
-  }
+    return sent;
+  };
+  const [a, b] = await Promise.all([toSheet(), toForm()]);
+  const sent = a || b;
   btn.disabled = false; btn.textContent = "주문서 만들기";
   $("#oid").textContent = id;
   $("#ordertext").textContent = text;
@@ -350,6 +386,7 @@ $("#f").addEventListener("submit", async e=>{
     ? "판매자에게 주문 알림이 갔어요. 혹시 모르니 아래 주문서도 복사해서 카톡으로 보내 주세요."
     : "마지막 단계예요. 아래 '주문서 복사'를 누르고 판매자 카톡에 붙여넣어 보내 주시면 주문 완료입니다.";
   if(CONFIG.kakaoLink){ $("#kakaoLink").href = CONFIG.kakaoLink; $("#kakaoLink").hidden = false; }
+  $("#qId").value = id; $("#qKakao").value = s.kakao;
   $("#done").hidden = false;
   $("#done").scrollIntoView({behavior:"smooth", block:"start"});
 });
@@ -361,6 +398,46 @@ $("#copy").addEventListener("click", async ()=>{
   setTimeout(()=>$("#copy").textContent="주문서 복사", 2500);
 });
 $("#again").addEventListener("click", ()=>{ $("#done").hidden = true; window.scrollTo({top:0}); });
+
+function saveLocal(rec){
+  try{ const all = JSON.parse(localStorage.getItem("ledOrders")||"{}"); all[rec.id] = rec; localStorage.setItem("ledOrders", JSON.stringify(all)); }catch(_){}
+}
+function loadLocal(id){
+  try{ return (JSON.parse(localStorage.getItem("ledOrders")||"{}"))[id] || null; }catch(_){ return null; }
+}
+const normK = v => String(v||"").replace(/\s+/g,"").toLowerCase();
+const fmtKST = t => new Date(t + 9*3600*1000).toISOString().slice(0,16).replace("T"," ");
+
+async function lookup(){
+  const id = $("#qId").value.trim().toUpperCase(), k = $("#qKakao").value.trim();
+  const showErr = m => { $("#qErr").textContent = m; $("#qErr").hidden = !m; };
+  $("#qResult").hidden = true; showErr("");
+  if(!id || !k) return showErr("주문번호와 카톡 닉네임을 둘 다 넣어 주세요.");
+  const btn = $("#qBtn"); btn.disabled = true; btn.textContent = "조회 중…";
+  let hit = null;
+  if(CONFIG.sheetUrl){
+    try{
+      const ctrl = new AbortController(); const t = setTimeout(()=>ctrl.abort(), 12000);
+      const r = await fetch(CONFIG.sheetUrl + "?id=" + encodeURIComponent(id) + "&kakao=" + encodeURIComponent(k), {signal:ctrl.signal});
+      clearTimeout(t);
+      const j = await r.json();
+      if(j.found) hit = {status:j.status, when:j.at, text:j.text};
+    }catch(_){}
+  }
+  if(!hit){
+    const L = loadLocal(id);
+    if(L && normK(L.kakao) === normK(k)) hit = {status:L.status + " (이 기기에 저장된 주문서)", when:fmtKST(L.at), text:L.text};
+  }
+  btn.disabled = false; btn.textContent = "조회";
+  if(!hit) return showErr("주문을 찾지 못했어요. 주문번호와 카톡 닉네임을 다시 확인하거나 판매자에게 카톡으로 물어봐 주세요.");
+  $("#qStatus").textContent = hit.status;
+  $("#qWhen").textContent = hit.when ? "· 접수 " + hit.when : "";
+  $("#qText").textContent = hit.text;
+  $("#qResult").hidden = false;
+}
+$("#qBtn").addEventListener("click", lookup);
+["#qId","#qKakao"].forEach(sel => $(sel).addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); lookup(); } }));
+{ const o = new URLSearchParams(location.search).get("order"); if(o){ $("#qId").value = o; } }
 
 render();
 </script>

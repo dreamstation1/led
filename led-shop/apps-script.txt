@@ -1,0 +1,60 @@
+// 전광판 주문 저장 · 조회용 Google Apps Script
+// 구글 시트 → 확장 프로그램 → Apps Script 에 이 내용을 통째로 붙여넣고 "웹 앱"으로 배포하세요.
+// 주문이 들어오면 "주문" 시트에 한 줄씩 쌓이고, 아래 주소로 알림 메일이 갑니다.
+// "상태" 칸을 고치면(예: 입금 확인 / 제작 중 / 발송 완료) 주문 조회 화면에 그대로 보입니다.
+
+const OWNER_EMAIL = "oseungjae0417@gmail.com";
+const SHEET_NAME = "주문";
+const HEAD = ["접수 시각", "주문번호", "상태", "이름", "카톡", "연락처", "합계", "주문서"];
+
+function sheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(SHEET_NAME);
+  if (!sh) { sh = ss.insertSheet(SHEET_NAME); sh.appendRow(HEAD); sh.setFrozenRows(1); }
+  return sh;
+}
+function out_(o) {
+  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}
+function clip_(v, n) {
+  const s = String(v == null ? "" : v).slice(0, n);
+  return /^[=+\-@]/.test(s) ? "'" + s : s; // 수식으로 해석되지 않게
+}
+function norm_(v) { return String(v || "").replace(/\s+/g, "").toLowerCase(); }
+
+function doPost(e) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const d = JSON.parse(e.postData.contents);
+    const id = String(d.id || "").trim().toUpperCase();
+    if (!/^LED-\d{6}-[A-Z0-9]{4}$/.test(id)) return out_({ ok: false, error: "bad id" });
+    sheet_().appendRow([new Date(), id, "주문 접수", clip_(d.name, 100), clip_(d.kakao, 100),
+      clip_(d.phone, 50), clip_(d.total, 50), clip_(d.text, 5000)]);
+    MailApp.sendEmail({
+      to: OWNER_EMAIL,
+      subject: "[전광판 주문] " + String(d.name || "").slice(0, 50) + " · " + String(d.total || "").slice(0, 30),
+      body: String(d.text || "").slice(0, 5000)
+    });
+    return out_({ ok: true });
+  } catch (err) {
+    return out_({ ok: false, error: String(err) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function doGet(e) {
+  const id = String(e.parameter.id || "").trim().toUpperCase();
+  const k = norm_(e.parameter.kakao);
+  if (!id || !k) return out_({ found: false });
+  const rows = sheet_().getDataRange().getValues();
+  for (let i = rows.length - 1; i >= 1; i--) {
+    const r = rows[i];
+    if (String(r[1]).toUpperCase() === id && norm_(String(r[4]).replace(/^'/, "")) === k) {
+      const at = r[0] instanceof Date ? Utilities.formatDate(r[0], "Asia/Seoul", "yyyy-MM-dd HH:mm") : String(r[0]);
+      return out_({ found: true, at: at, status: String(r[2]), text: String(r[7]).replace(/^'/, "") });
+    }
+  }
+  return out_({ found: false });
+}
