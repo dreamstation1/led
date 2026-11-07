@@ -91,6 +91,10 @@ a.qlink{color:var(--accent);font-weight:700;font-size:14px;text-decoration:none}
 .qrow{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
 .qrow .field{flex:1 1 180px}
 .qrow .btn{width:auto}
+.addon{display:grid;gap:6px}
+.colors{display:flex;gap:16px;align-items:center;padding:2px 14px 0;flex-wrap:wrap}
+.colors label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.colors input{accent-color:var(--accent);width:18px;height:18px;margin:0}
 footer{font-size:12px;color:var(--muted);text-align:center}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 </style>
@@ -129,9 +133,25 @@ footer{font-size:12px;color:var(--muted);text-align:center}
           <label for="route">노선 <span class="req">*</span></label>
           <input type="text" id="route" name="route" placeholder="예: 서울 700">
         </div>
-        <label class="opt"><input type="checkbox" name="case" id="case">
-          <span class="t">케이스(껍데기) 추가</span><span class="p" id="casePrice"></span>
-          <span class="d" id="caseDesc"></span></label>
+        <div class="field"><label>추가 구매상품 (케이스) <span class="small muted">필요한 것만 고르세요</span></label>
+          <div class="opts">
+            <div class="addon">
+              <label class="opt"><input type="checkbox" id="frame">
+                <span class="t">틀</span><span class="p" id="framePrice"></span>
+                <span class="d">전광판에 씌우는 틀입니다.</span></label>
+              <div class="colors" id="frameColors" hidden><span class="small muted">색상</span>
+                <label><input type="radio" name="frameColor" value="하양" checked> 하양</label>
+                <label><input type="radio" name="frameColor" value="검정"> 검정</label></div>
+            </div>
+            <div class="addon">
+              <label class="opt"><input type="checkbox" id="stand">
+                <span class="t">받침대</span><span class="p" id="standPrice"></span>
+                <span class="d">전광판을 세워 두는 받침대입니다.</span></label>
+              <div class="colors" id="standColors" hidden><span class="small muted">색상</span>
+                <label><input type="radio" name="standColor" value="하양" checked> 하양</label>
+                <label><input type="radio" name="standColor" value="검정"> 검정</label></div>
+            </div>
+          </div></div>
       </fieldset>
 
       <fieldset id="siteSet">
@@ -229,7 +249,7 @@ const CONFIG = {
   sheetUrl: "https://script.google.com/macros/s/AKfycbxPh64fFz7fXmm4d0nSqC6D3sd57Jg_8BHr97uWcF0cLEHkJh5oOr5FSBQ65XEV7S67iQ/exec",                           // 주문 저장·조회용 구글 Apps Script 웹 앱 주소 (…/exec)
   kakaoLink: "",                          // 판매자 오픈채팅 링크 (비우면 버튼 숨김)
   earlyBird: true,                        // 선착 3명 할인 진행 중이면 true
-  price: { parts:150000, custom:50000, earlyDiscount:30000, control:70000, case:30000, ai:80000, wifi:80000, ship:5000 },
+  price: { parts:150000, custom:50000, earlyDiscount:30000, control:70000, frame:10000, stand:4000, ai:80000, wifi:80000, ship:5000 },
   // 쿠폰: 코드 자체는 페이지 소스에 안 보이게 SHA-256 해시로 저장 → { "해시": 할인금액 }
   // 새 쿠폰은 Claude한테 "코드 ○○○ 를 ○원 할인으로 추가해줘" 하면 됩니다.
   coupons: {
@@ -251,7 +271,8 @@ $("#makerOpts").innerHTML = makers.map((m,i)=>
 $("#fixedPrice").innerHTML = CONFIG.earlyBird ? `<s>${won(P.parts+P.custom)}</s> ${won(P.parts+P.custom-P.earlyDiscount)}` : won(P.parts+P.custom);
 $("#ebTag").hidden = !CONFIG.earlyBird;
 $("#controlPrice").textContent = won(P.parts+P.control);
-$("#casePrice").textContent = "+" + won(P.case);
+$("#framePrice").textContent = "+" + won(P.frame);
+$("#standPrice").textContent = "+" + won(P.stand);
 $("#aiPrice").textContent = "+" + won(P.ai);
 $("#wifiPrice").textContent = "+" + won(P.wifi);
 
@@ -274,7 +295,8 @@ function state(){
     mode, control, maker,
     year: (!control && years.length) ? (yearEl ? yearEl.value : "") : "",
     needYear: !control && years.length > 0,
-    hasCase: $("#case").checked,
+    frame: $("#frame").checked ? f.frameColor.value : "",
+    stand: $("#stand").checked ? f.standColor.value : "",
     voice: control ? f.voice.value : "none",
     conn: control ? f.conn.value : "usb",
     route: control ? "" : $("#route").value.trim(),
@@ -309,7 +331,8 @@ function quote(s){
     L.push(["주문 제작비 (폰트·노선)", P.custom]);
     if(CONFIG.earlyBird) L.push(["선착 3명 할인", -P.earlyDiscount]);
   }
-  if(s.hasCase) L.push(["케이스 · " + s.maker, P.case]);
+  if(s.frame) L.push(["틀 · " + s.frame, P.frame]);
+  if(s.stand) L.push(["받침대 · " + s.stand, P.stand]);
   if(s.voice==="ai") L.push(["AI 안내방송 (1년)", P.ai]);
   if(s.conn==="wifi") L.push(["와이파이 연결 (실시간 위치)", P.wifi]);
   if(s.recv==="ship") L.push(["택배비", P.ship]);
@@ -329,10 +352,10 @@ function render(){
   $("#infoStep").textContent = s.control ? "STEP 4" : "STEP 3";
   $("#yearField").hidden = s.control || years.length === 0;
   $("#yearNote").hidden = !s.control;
-  $("#makerField").hidden = s.control && !s.hasCase;
-  $("#makerLabel").innerHTML = s.control ? '케이스 형식 <span class="req">*</span>' : '형식 <span class="req">*</span>';
+  $("#makerField").hidden = s.control;
+  $("#frameColors").hidden = !s.frame;
+  $("#standColors").hidden = !s.stand;
   $("#routeField").hidden = s.control;
-  $("#caseDesc").textContent = s.control ? "원하는 형식의 틀을 씌워 드립니다." : s.maker + " 형식에 맞는 틀을 씌워 드립니다.";
   $("#addrField").hidden = s.recv!=="ship";
   $("#shipNote").textContent = s.recv==="ship" ? "택배비 " + won(P.ship) + " 포함" : "";
   $("#lines").innerHTML = q.L.map(([k,v])=>`<div class="line${v<0?" minus":""}"><span>${k}</span><span>${v<0?"−"+won(-v):won(v)}</span></div>`).join("")
@@ -347,9 +370,10 @@ function orderText(s,q,id){
   return [
     `[전광판 주문] ${id}`,
     `제작 방식: ${s.control ? "제어 사이트 이용권 포함" : "고정 제작"}`,
-    (!s.control || s.hasCase) ? `${s.control ? "케이스 형식" : "형식"}: ${s.maker}${s.year ? " / 연식: "+s.year : ""}` : null,
+    !s.control ? `형식: ${s.maker}${s.year ? " / 연식: "+s.year : ""}` : null,
     !s.control ? `노선: ${s.route}` : null,
-    `케이스: ${s.hasCase?"추가":"없음"}`,
+    `틀: ${s.frame ? s.frame : "없음"}`,
+    `받침대: ${s.stand ? s.stand : "없음"}`,
     s.control ? `안내방송: ${s.voice==="ai"?"AI 안내방송":"없음"}` : null,
     s.control ? `연결: ${s.conn==="wifi"?"와이파이 (실시간 위치)":"컴퓨터 C타입-USB"}` : null,
     coupon ? `쿠폰: ${coupon.code} (−${won(-q.L[q.L.length-1][1])})` : null,
