@@ -1,0 +1,368 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>버스 실내 전광판 주문</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: 상단 LED 전광판 히어로 → 왼쪽 옵션 선택 / 오른쪽 고정 견적 영수증 (좁으면 한 줄) */
+:root{
+  --bg:#eef0ec; --surface:#ffffff; --fg:#1b1f1d; --muted:#5d6661; --line:#d3d8d3;
+  --accent:#d9480f; --accent-ink:#ffffff; --sel:#fff3ea; --ok:#2b8a3e; --warn:#b35c00;
+  --panel:#0f1110; --led:#ff9f1a; --led-off:#2a1d0c;
+  --f-display:"Do Hyeon","IBM Plex Sans KR",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141716; --surface:#1d2120; --fg:#e8ebe8; --muted:#9aa39e; --line:#333a37;
+  --accent:#ff7a3d; --accent-ink:#1a0d05; --sel:#2c1f17; --ok:#69db7c; --warn:#ffb057;
+  --panel:#080908; --led:#ffa52b; --led-off:#241a0b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141716; --surface:#1d2120; --fg:#e8ebe8; --muted:#9aa39e; --line:#333a37;
+  --accent:#ff7a3d; --accent-ink:#1a0d05; --sel:#2c1f17; --ok:#69db7c; --warn:#ffb057;
+  --panel:#080908; --led:#ffa52b; --led-off:#241a0b; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.6;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 64px}
+.wrap{max-width:1040px;margin:0 auto;display:grid;gap:28px}
+h1,h2{font-family:var(--f-display);font-weight:400;text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:clamp(30px,6vw,44px)}
+h2{font-size:22px}
+p{margin:0}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+
+/* hero */
+.hero{display:grid;gap:14px}
+.eyebrow{font-size:12px;letter-spacing:.12em;color:var(--accent);font-weight:700}
+.notice{border-left:3px solid var(--warn);padding:10px 14px;background:var(--surface);font-size:14px}
+
+/* layout */
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:28px;align-items:start}
+@media (max-width:860px){.cols{grid-template-columns:minmax(0,1fr)}}
+form{display:grid;gap:30px;min-width:0}
+fieldset{border:0;padding:0;margin:0;display:grid;gap:12px;min-width:0}
+legend{padding:0;margin-bottom:4px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+legend .step{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.opts{display:grid;gap:10px}
+.opts.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.opts.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:520px){.opts.two,.opts.three{grid-template-columns:minmax(0,1fr)}}
+.opt{display:grid;grid-template-columns:auto 1fr auto;gap:4px 12px;align-items:start;padding:14px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);cursor:pointer}
+.opt:has(input:checked){border-color:var(--accent);background:var(--sel)}
+.opt:has(input:disabled){opacity:.45;cursor:not-allowed}
+.opt input{margin:4px 0 0;accent-color:var(--accent);width:18px;height:18px}
+.opt .t{font-weight:700}
+.opt .p{font-family:var(--f-mono);font-size:14px;white-space:nowrap;text-align:right}
+.opt .d{grid-column:2/4;font-size:13px;color:var(--muted)}
+.opt .tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:99px;background:var(--accent);color:var(--accent-ink);margin-left:6px;vertical-align:2px}
+s{color:var(--muted)}
+.field{display:grid;gap:6px}
+.field label{font-weight:500;font-size:14px}
+.field .req{color:var(--accent)}
+input[type=text],input[type=tel],textarea,select{font:inherit;color:var(--fg);background:var(--surface);border:1.5px solid var(--line);border-radius:8px;padding:10px 12px;width:100%}
+textarea{min-height:84px;resize:vertical}
+input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-visible,.opt:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:520px){.grid2{grid-template-columns:minmax(0,1fr)}}
+
+/* receipt */
+.receipt{position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px);background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:18px;display:grid;gap:12px;min-width:0}
+.receipt h2{font-size:20px}
+.lines{display:grid;gap:6px;font-size:14px}
+.line{display:flex;justify-content:space-between;gap:12px}
+.line span:last-child{font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.line.minus span:last-child{color:var(--ok)}
+.total{border-top:1.5px dashed var(--line);padding-top:10px;display:flex;justify-content:space-between;align-items:baseline}
+.total b{font-family:var(--f-mono);font-size:26px;font-variant-numeric:tabular-nums}
+.btn{font:inherit;font-weight:700;border:0;border-radius:8px;padding:13px 16px;background:var(--accent);color:var(--accent-ink);cursor:pointer;width:100%}
+.btn.ghost{background:transparent;color:var(--fg);border:1.5px solid var(--line)}
+.btn:disabled{opacity:.6;cursor:wait}
+.err{color:var(--accent);font-size:13px;font-weight:500}
+
+/* done */
+.done{background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:22px;display:grid;gap:14px}
+.done .oid{font-family:var(--f-mono);font-size:20px}
+pre.ordertext{white-space:pre-wrap;word-break:break-all;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:14px;font-family:var(--f-mono);font-size:12.5px;margin:0;max-height:360px;overflow:auto}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row .btn{width:auto}
+footer{font-size:12px;color:var(--muted);text-align:center}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+
+
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">주문 제작 · 선입금 후 제작</div>
+    <h1>버스 실내 전광판 주문</h1>
+    <p class="notice">실제 버스에서 뗀 납품품이 아닙니다. 버스회사에서 실물을 보고 길이를 재고, 같은 납품업체 부품으로 1년 반 동안 코드를 직접 짜서 만든 재현품입니다. <b>입금이 확인된 뒤 제작을 시작합니다.</b></p>
+  </header>
+
+  <div class="cols">
+    <form id="f" novalidate>
+      <fieldset>
+        <legend><span class="step">STEP 1</span><h2>제작 방식</h2></legend>
+        <div class="opts">
+          <label class="opt"><input type="radio" name="mode" value="fixed">
+            <span class="t">고정 제작 <span class="tag" id="ebTag">선착 3명</span></span><span class="p" id="fixedPrice"></span>
+            <span class="d">고른 형식·연식·노선 그대로 만들어 드립니다. 제어 사이트가 없어서 나중에 노선이나 연식을 바꿀 수 없습니다.</span></label>
+          <label class="opt"><input type="radio" name="mode" value="control" checked>
+            <span class="t">제어 사이트 이용권 포함</span><span class="p" id="controlPrice"></span>
+            <span class="d">직접 개발한 전광판 제어 사이트 이용권이 함께 갑니다. 노선과 연식을 원할 때마다 바꾸고, 실시간 위치 확인과 시뮬레이션도 됩니다. 이용권은 입금 확인 후 따로 전달드립니다.</span></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend><span class="step">STEP 2</span><h2>전광판</h2></legend>
+        <div class="field" id="makerField"><label id="makerLabel">형식 <span class="req">*</span></label>
+          <div class="opts three" id="makerOpts"></div></div>
+        <div class="field" id="yearField"><label>연식 <span class="req">*</span></label>
+          <div class="opts two" id="yearOpts"></div></div>
+        <p class="small muted" id="yearNote" hidden>형식·연식·노선은 제어 사이트에서 언제든 바꿀 수 있어서 여기서 고르지 않아도 됩니다.</p>
+        <div class="field" id="routeField">
+          <label for="route">노선 <span class="req">*</span></label>
+          <input type="text" id="route" name="route" placeholder="예: 서울 700">
+        </div>
+        <label class="opt"><input type="checkbox" name="case" id="case">
+          <span class="t">케이스(껍데기) 추가</span><span class="p" id="casePrice"></span>
+          <span class="d" id="caseDesc"></span></label>
+      </fieldset>
+
+      <fieldset id="siteSet">
+        <legend><span class="step">STEP 3</span><h2>제어 사이트 옵션</h2></legend>
+        <div class="field"><label>안내방송</label>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="voice" value="none" checked>
+              <span class="t">안내방송 없음</span><span class="p">+0원</span>
+              <span class="d">전광판 표시만 사용합니다.</span></label>
+            <label class="opt"><input type="radio" name="voice" value="ai">
+              <span class="t">AI 안내방송</span><span class="p" id="aiPrice"></span>
+              <span class="d">직접 녹음한 서울 시내 정류장 약 3,000개 + 그 녹음으로 학습시킨 AI로, 녹음 안 된 정류장도 실제 방송처럼 나옵니다. 1년 이용 포함.</span></label>
+          </div></div>
+        <div class="field"><label>연결 방식 <span class="small muted">전광판은 C타입으로만 작동해요</span></label>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="conn" value="usb" checked>
+              <span class="t">컴퓨터 연결 (C타입-USB)</span><span class="p">기본</span>
+              <span class="d">전광판을 컴퓨터에 C타입-USB로 연결하고, 제어 사이트에서 USB 연결을 눌러 사용합니다. 노선 선택, 연식 변경, 시뮬레이션 다 됩니다.</span></label>
+            <label class="opt"><input type="radio" name="conn" value="wifi">
+              <span class="t">와이파이 연결 (돌아다니면서 실시간 위치)</span><span class="p" id="wifiPrice"></span>
+              <span class="d">보조배터리를 C타입으로 연결해 전원을 넣고, 휴대폰이나 다른 기기에서 와이파이로 조작합니다. 승용차 등으로 돌아다니면서 실시간 위치를 보고, 위치에 맞춰 안내가 나옵니다. 위치 인식·GPS 부품을 보드에 납땜해 붙여 드립니다. <b>아이폰은 지원하지 않습니다.</b></span></label>
+          </div></div>
+      </fieldset>
+
+      <fieldset>
+        <legend><span class="step" id="infoStep">STEP 4</span><h2>주문자 정보</h2></legend>
+        <div class="grid2">
+          <div class="field"><label for="name">이름 또는 닉네임 <span class="req">*</span></label><input type="text" id="name" name="name" autocomplete="nickname"></div>
+          <div class="field"><label for="kakao">카톡 닉네임 <span class="req">*</span></label><input type="text" id="kakao" name="kakao" placeholder="연락받을 카톡 이름"></div>
+        </div>
+        <div class="field"><label for="phone">연락처 (선택)</label><input type="tel" id="phone" name="phone" autocomplete="tel"></div>
+        <div class="grid2">
+          <div class="field"><label for="pay">입금 방식</label>
+            <select id="pay" name="pay">
+              <option value="full">한 번에 입금</option>
+              <option value="weekly">나눠서 입금 (매주 월요일)</option>
+            </select></div>
+          <div class="field"><label for="recv">받는 방법</label>
+            <select id="recv" name="recv">
+              <option value="ship">택배</option>
+              <option value="meet">직거래</option>
+            </select></div>
+        </div>
+        <div class="field" id="addrField"><label for="addr">받을 주소 <span class="req">*</span></label><input type="text" id="addr" name="addr" autocomplete="street-address"></div>
+        <div class="field"><label for="memo">요청사항</label><textarea id="memo" name="memo" placeholder="원하는 폰트, 희망 시기 등"></textarea></div>
+      </fieldset>
+    </form>
+
+    <aside class="receipt" aria-live="polite">
+      <h2>견적</h2>
+      <div class="lines" id="lines"></div>
+      <div class="total"><span>합계</span><b id="total">0원</b></div>
+      <p class="small muted" id="payNote"></p>
+      <p class="err" id="err" hidden></p>
+      <button class="btn" type="submit" form="f" id="submit">주문서 만들기</button>
+    </aside>
+  </div>
+
+  <section class="done" id="done" hidden>
+    <h2 id="doneTitle">주문서가 만들어졌어요</h2>
+    <p>주문번호 <span class="oid" id="oid"></span></p>
+    <p id="doneMsg"></p>
+    <pre class="ordertext" id="ordertext"></pre>
+    <div class="row">
+      <button class="btn" type="button" id="copy">주문서 복사</button>
+      <a class="btn ghost" id="kakaoLink" href="#" target="_blank" rel="noopener" hidden>오픈채팅 열기</a>
+      <button class="btn ghost" type="button" id="again">새 주문</button>
+    </div>
+  </section>
+
+  <footer>입금 계좌, 이용권, 제작 일정은 주문 확인 후 카톡으로 안내드립니다.</footer>
+</div>
+
+<script>
+/* ===== 판매자 설정: 여기만 고치면 됩니다 ===== */
+const CONFIG = {
+  notifyEmail: "oseungjae0417@gmail.com", // 주문 알림 받을 Gmail (GitHub에 올렸을 때만 작동)
+  kakaoLink: "",                          // 판매자 오픈채팅 링크 (비우면 버튼 숨김)
+  earlyBird: true,                        // 선착 3명 할인 진행 중이면 true
+  price: { parts:150000, custom:50000, earlyDiscount:30000, control:70000, case:30000, ai:80000, wifi:80000 },
+  // 형식별 연식. 연식이 없으면 빈 배열
+  makers: { "싸인텔레콤":["구형","신형"], "컴텔싸인":["신형"], "마을버스":[] }
+};
+/* ============================================ */
+
+const $ = s => document.querySelector(s);
+const won = n => n.toLocaleString("ko-KR") + "원";
+const P = CONFIG.price;
+const makers = Object.keys(CONFIG.makers);
+
+$("#makerOpts").innerHTML = makers.map((m,i)=>
+  `<label class="opt"><input type="radio" name="maker" value="${m}" ${i===0?"checked":""}><span class="t">${m}</span><span class="p"></span></label>`).join("");
+
+$("#fixedPrice").innerHTML = CONFIG.earlyBird ? `<s>${won(P.parts+P.custom)}</s> ${won(P.parts+P.custom-P.earlyDiscount)}` : won(P.parts+P.custom);
+$("#ebTag").hidden = !CONFIG.earlyBird;
+$("#controlPrice").textContent = won(P.parts+P.control);
+$("#casePrice").textContent = "+" + won(P.case);
+$("#aiPrice").textContent = "+" + won(P.ai);
+$("#wifiPrice").textContent = "+" + won(P.wifi);
+
+let lastMaker = null;
+function syncYears(maker){
+  if(maker === lastMaker) return;
+  lastMaker = maker;
+  const ys = CONFIG.makers[maker];
+  $("#yearOpts").innerHTML = ys.map((y,i)=>
+    `<label class="opt"><input type="radio" name="year" value="${y}" ${i===0?"checked":""}><span class="t">${y}</span><span class="p"></span></label>`).join("");
+}
+
+function state(){
+  const f = $("#f");
+  const mode = f.mode.value, control = mode==="control";
+  const maker = f.maker.value;
+  const years = CONFIG.makers[maker];
+  const yearEl = f.querySelector('input[name=year]:checked');
+  return {
+    mode, control, maker,
+    year: (!control && years.length) ? (yearEl ? yearEl.value : "") : "",
+    needYear: !control && years.length > 0,
+    hasCase: $("#case").checked,
+    voice: control ? f.voice.value : "none",
+    conn: control ? f.conn.value : "usb",
+    route: control ? "" : $("#route").value.trim(),
+    name: $("#name").value.trim(), kakao: $("#kakao").value.trim(), phone: $("#phone").value.trim(),
+    pay: $("#pay").value, recv: $("#recv").value, addr: $("#addr").value.trim(), memo: $("#memo").value.trim()
+  };
+}
+
+function quote(s){
+  const L = [["전광판 본체 (부품)", P.parts]];
+  if(s.control) L.push(["제어 사이트 이용권", P.control]);
+  else {
+    L.push(["주문 제작비 (폰트·노선)", P.custom]);
+    if(CONFIG.earlyBird) L.push(["선착 3명 할인", -P.earlyDiscount]);
+  }
+  if(s.hasCase) L.push(["케이스 · " + s.maker, P.case]);
+  if(s.voice==="ai") L.push(["AI 안내방송 (1년)", P.ai]);
+  if(s.conn==="wifi") L.push(["와이파이 연결 (실시간 위치)", P.wifi]);
+  return {L, total: L.reduce((a,[,v])=>a+v,0), wifi: false};
+}
+
+function render(){
+  const f = $("#f");
+  syncYears(f.maker.value);
+  const s = state(), q = quote(s);
+  const years = CONFIG.makers[s.maker];
+  $("#siteSet").hidden = !s.control;
+  $("#infoStep").textContent = s.control ? "STEP 4" : "STEP 3";
+  $("#yearField").hidden = s.control || years.length === 0;
+  $("#yearNote").hidden = !s.control;
+  $("#makerField").hidden = s.control && !s.hasCase;
+  $("#makerLabel").innerHTML = s.control ? '케이스 형식 <span class="req">*</span>' : '형식 <span class="req">*</span>';
+  $("#routeField").hidden = s.control;
+  $("#caseDesc").textContent = s.control ? "원하는 형식의 틀을 씌워 드립니다." : s.maker + " 형식에 맞는 틀을 씌워 드립니다.";
+  $("#addrField").hidden = s.recv!=="ship";
+  $("#lines").innerHTML = q.L.map(([k,v])=>`<div class="line${v<0?" minus":""}"><span>${k}</span><span>${v<0?"−"+won(-v):won(v)}</span></div>`).join("")
+    + (q.wifi ? `<div class="line"><span>와이파이 연결</span><span>별도 견적</span></div>` : "");
+  $("#total").textContent = won(q.total) + (q.wifi ? " +α" : "");
+  $("#payNote").textContent = s.pay==="weekly"
+    ? "매주 월요일 나눠서 입금 · 다 모이면 제작 시작"
+    : "주문 확인 후 입금 안내 · 입금 확인되면 제작 시작";
+}
+
+function orderText(s,q,id){
+  return [
+    `[전광판 주문] ${id}`,
+    `제작 방식: ${s.control ? "제어 사이트 이용권 포함" : "고정 제작"}`,
+    (!s.control || s.hasCase) ? `${s.control ? "케이스 형식" : "형식"}: ${s.maker}${s.year ? " / 연식: "+s.year : ""}` : null,
+    !s.control ? `노선: ${s.route}` : null,
+    `케이스: ${s.hasCase?"추가":"없음"}`,
+    s.control ? `안내방송: ${s.voice==="ai"?"AI 안내방송":"없음"}` : null,
+    s.control ? `연결: ${s.conn==="wifi"?"와이파이 (실시간 위치)":"컴퓨터 C타입-USB"}` : null,
+    `합계: ${won(q.total)}${q.wifi?" + 와이파이 견적":""}`,
+    `입금: ${s.pay==="weekly"?"매주 월요일 분할":"한 번에"}`,
+    `받는 방법: ${s.recv==="ship"?"택배 / "+s.addr:"직거래"}`,
+    `이름: ${s.name}`, `카톡: ${s.kakao}`, `연락처: ${s.phone||"-"}`,
+    `요청사항: ${s.memo||"-"}`
+  ].filter(Boolean).join("\n");
+}
+
+function validate(s){
+  if(s.needYear && !s.year) return "연식을 골라 주세요.";
+  if(!s.control && !s.route) return "노선을 적어 주세요.";
+  if(!s.name) return "이름 또는 닉네임을 적어 주세요.";
+  if(!s.kakao) return "연락받을 카톡 닉네임을 적어 주세요.";
+  if(s.recv==="ship" && !s.addr) return "택배 받을 주소를 적어 주세요.";
+  return "";
+}
+
+$("#f").addEventListener("input", render);
+$("#f").addEventListener("change", render);
+
+$("#f").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const s = state(), q = quote(s), msg = validate(s);
+  $("#err").hidden = !msg; $("#err").textContent = msg;
+  if(msg) return;
+  const id = "LED-" + new Date().toISOString().slice(2,10).replace(/-/g,"") + "-" + Math.random().toString(36).slice(2,6).toUpperCase();
+  const text = orderText(s,q,id);
+  const btn = $("#submit"); btn.disabled = true; btn.textContent = "만드는 중…";
+  let sent = false;
+  if(CONFIG.notifyEmail && /github\.io$/.test(location.hostname)){
+    try{
+      const ctrl = new AbortController(); const t = setTimeout(()=>ctrl.abort(), 12000);
+      const r = await fetch("https://formsubmit.co/ajax/" + encodeURIComponent(CONFIG.notifyEmail), {
+        method:"POST", signal:ctrl.signal,
+        headers:{"Content-Type":"application/json","Accept":"application/json"},
+        body: JSON.stringify({ _subject:`[전광판 주문] ${s.name} · ${won(q.total)}`, _template:"box", _captcha:"false",
+          주문번호:id, 이름:s.name, 카톡:s.kakao, 합계:won(q.total)+(q.wifi?" + 와이파이 견적":""), 주문서:text })
+      });
+      clearTimeout(t);
+      const j = await r.json().catch(()=>({}));
+      sent = r.ok && String(j.success)!=="false";
+    }catch(_){ sent = false; }
+  }
+  btn.disabled = false; btn.textContent = "주문서 만들기";
+  $("#oid").textContent = id;
+  $("#ordertext").textContent = text;
+  $("#doneTitle").textContent = sent ? "주문이 접수됐어요" : "주문서가 만들어졌어요";
+  $("#doneMsg").textContent = sent
+    ? "판매자에게 주문 알림이 갔어요. 혹시 모르니 아래 주문서도 복사해서 카톡으로 보내 주세요."
+    : "마지막 단계예요. 아래 '주문서 복사'를 누르고 판매자 카톡에 붙여넣어 보내 주시면 주문 완료입니다.";
+  if(CONFIG.kakaoLink){ $("#kakaoLink").href = CONFIG.kakaoLink; $("#kakaoLink").hidden = false; }
+  $("#done").hidden = false;
+  $("#done").scrollIntoView({behavior:"smooth", block:"start"});
+});
+
+$("#copy").addEventListener("click", async ()=>{
+  const txt = $("#ordertext").textContent;
+  try{ await navigator.clipboard.writeText(txt); $("#copy").textContent = "복사됨"; }
+  catch(_){ const r = document.createRange(); r.selectNodeContents($("#ordertext")); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); $("#copy").textContent = "선택됨 · 길게 눌러 복사"; }
+  setTimeout(()=>$("#copy").textContent="주문서 복사", 2500);
+});
+$("#again").addEventListener("click", ()=>{ $("#done").hidden = true; window.scrollTo({top:0}); });
+
+render();
+</script>
+
+</body></html>
