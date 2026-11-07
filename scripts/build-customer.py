@@ -3,7 +3,8 @@
 
 원본 제어 사이트(index.html)를 복사해서
   - API를 쓰는 기능(도착정보, 실시간 버스 위치, 배차 이력, 신호등, CCTV, 돌발정보,
-    길찾기, 지하철, 경기 노선(OSRM), 구글 번역)과 API 키를 빼고
+    길찾기, 지하철, 경기 노선(OSRM))과 API 키를 빼고
+  (구글 번역은 영어 안내방송·전광판 영어 이름에 필요해서 남긴다)
   - 이용권 옵션(안내방송 / 와이파이)에 맞게 기능을 켜고 끈
 app/<폴더>/index.html 을 만든다.
 
@@ -30,7 +31,7 @@ API_FUNCS = [
     "fetchStopArrivals", "annotateArrivalTimes", "refreshSelectedStopArrivals",
     "startStopArrivalPolling", "fetchBusPositions", "busPosTick", "startBusPosPolling",
     "loadRouteDispatchSummary", "fetchRouteTimes", "renderOtherRegionRoutes",
-    "refreshCctvLayer", "startTrafficLightPolling", "fetchGoogleTranslate", "loadSubwayMeta",
+    "refreshCctvLayer", "startTrafficLightPolling", "loadSubwayMeta",
 ]
 STUBS = """
 /* ---------- 손님용: API 기능 제거 (scripts/build-customer.py) ---------- */
@@ -46,7 +47,6 @@ async function fetchRouteTimes(){return null;}
 async function renderOtherRegionRoutes(){}
 async function refreshCctvLayer(){}
 function startTrafficLightPolling(){}
-async function fetchGoogleTranslate(){return null;}
 async function loadSubwayMeta(){}
 """
 NO_WIFI_FUNCS = ["startGuideLive", "ledConnectWifi", "openLedWifiAddress"]

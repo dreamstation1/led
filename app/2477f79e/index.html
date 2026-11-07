@@ -4274,7 +4274,7 @@ function hybridRomanizeFallback(name){
    person is somewhere this endpoint is blocked - so a flaky connection makes
    announcements less polished, never broken. */
 const stationTranslateCache=new Map();
-async function __api_fetchGoogleTranslate(text){
+async function fetchGoogleTranslate(text){
   const ac=new AbortController();
   const timer=setTimeout(()=>ac.abort(),3500);
   try{
@@ -4967,7 +4967,6 @@ async function fetchRouteTimes(){return null;}
 async function renderOtherRegionRoutes(){}
 async function refreshCctvLayer(){}
 function startTrafficLightPolling(){}
-async function fetchGoogleTranslate(){return null;}
 async function loadSubwayMeta(){}
 
 </script>
