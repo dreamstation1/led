@@ -28,12 +28,12 @@ function doPost(e) {
   try {
     const d = JSON.parse(e.postData.contents);
     const id = String(d.id || "").trim().toUpperCase();
-    if (!/^LED-\d{6}-[A-Z0-9]{4}$/.test(id)) return out_({ ok: false, error: "bad id" });
+    if (!/^(LED|BIS)-\d{6}-[A-Z0-9]{4}$/.test(id)) return out_({ ok: false, error: "bad id" });
     sheet_().appendRow([new Date(), id, "주문 접수", clip_(d.name, 100), clip_(d.kakao, 100),
       clip_(d.phone, 50), clip_(d.total, 50), clip_(d.text, 5000)]);
     MailApp.sendEmail({
       to: OWNER_EMAIL,
-      subject: "[전광판 주문] " + String(d.name || "").slice(0, 50) + " · " + String(d.total || "").slice(0, 30),
+      subject: (id.indexOf("BIS-") === 0 ? "[BIS 전광판 주문] " : "[전광판 주문] ") + String(d.name || "").slice(0, 50) + " · " + String(d.total || "").slice(0, 30),
       body: String(d.text || "").slice(0, 5000)
     });
     return out_({ ok: true });
