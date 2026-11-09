@@ -49,9 +49,8 @@ async function refreshCctvLayer(){}
 function startTrafficLightPolling(){}
 async function loadSubwayMeta(){}
 """
-NO_WIFI_FUNCS = ["startGuideLive", "ledConnectWifi", "openLedWifiAddress"]
+NO_WIFI_FUNCS = ["ledConnectWifi", "openLedWifiAddress"]
 NO_WIFI_STUBS = """
-function startGuideLive(){status.textContent='실시간 위치 안내는 와이파이 이용권에서 사용할 수 있어요. 시뮬레이션 재생을 이용해 주세요.';}
 async function ledConnectWifi(){}
 function openLedWifiAddress(){}
 """
@@ -80,7 +79,7 @@ HIDE_CSS = """
 .setting-block:has(a[href="./audio-library.html"]){display:none!important}
 """
 NO_VOICE_CSS = "#guideTtsBtn,.guide-speed:has(#guideVolumeSlider){display:none!important}\n"
-NO_WIFI_CSS = "#guideStartBtn,.guide-speed-row:has(#ledWifiHostInput),.guide-led>div.guide-led-status{display:none!important}\n"
+NO_WIFI_CSS = ".guide-speed-row:has(#ledWifiHostInput),.guide-led>div.guide-led-status{display:none!important}\n"
 
 
 def sub1(text, old, new, label):

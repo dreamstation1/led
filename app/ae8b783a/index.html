@@ -10,7 +10,7 @@
 .setting-block:has(#trafficLightToggle),.setting-block:has(#busPosProxyInput),.setting-block:has(#cctvToggle),
 .setting-block:has(a[href="./audio-library.html"]){display:none!important}
 #guideTtsBtn,.guide-speed:has(#guideVolumeSlider){display:none!important}
-#guideStartBtn,.guide-speed-row:has(#ledWifiHostInput),.guide-led>div.guide-led-status{display:none!important}
+.guide-speed-row:has(#ledWifiHostInput),.guide-led>div.guide-led-status{display:none!important}
 </style>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4704,7 +4704,7 @@ function onGuidePosition(lat,lng){
   }
 }
 
-function __api_startGuideLive(){
+function startGuideLive(){
   if(!currentGuideStops || currentGuideStops.length<2)return;
   if(!('geolocation' in navigator)){
     status.textContent='이 브라우저는 위치 기능을 지원하지 않습니다.';
@@ -4971,7 +4971,6 @@ async function refreshCctvLayer(){}
 function startTrafficLightPolling(){}
 async function loadSubwayMeta(){}
 
-function startGuideLive(){status.textContent='실시간 위치 안내는 와이파이 이용권에서 사용할 수 있어요. 시뮬레이션 재생을 이용해 주세요.';}
 async function ledConnectWifi(){}
 function openLedWifiAddress(){}
 
