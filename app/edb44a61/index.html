@@ -1804,7 +1804,7 @@ function arrivalVehicleInfo(routeName,it,n){
   const reserveFlag=String(it?.['isReserve'+n]??it?.['reserveYn'+n]??it?.['resveYn'+n]??'').toUpperCase();
   const plate=String(it?.['plainNo'+n]||''),short=(plate.match(/(\d{4})\s*$/)||[])[1]||'';
   const wanted=RESERVE_BUS_NUMBERS[String(routeName)]||[];
-  const reserve=reserveFlag==='1'||reserveFlag==='Y'||wanted.includes(short)||(String(routeName)==='5620'&&type==='일반');
+  const reserve=isListedReservePlate(plate)||reserveFlag==='1'||reserveFlag==='Y'||wanted.includes(short)||(String(routeName)==='5620'&&type==='일반');
   // 잔여석: only seat-type buses report it (rerdieDiv=1, e.g. Seoul 9xxx express). Gyeonggi buses
   // send 0 here; their seat counts live in Gyeonggi's own system.
   const seatRaw=it?.['remndrNmpr'+n],seats=String(it?.['rerdieDiv'+n]??'')==='1'&&seatRaw!=null&&seatRaw!==''&&Number(seatRaw)>=0?Number(seatRaw):null;
@@ -2576,6 +2576,13 @@ document.getElementById('busRefreshCountdown').onclick=refreshBusPositionsNow;
 const routeLiveItems=new Map();
 const routeDispatchHistory=new Map();
 const SEOUL_DISPATCH_HISTORY_URL='https://t-data.seoul.go.kr/apig/apiman-gateway/tapi/BisTbisClCaralcVehAdi/1.0';
+// SPARE entries transcribed from the user's three fleet tables (2026-11-10).
+// Match the full plate, independent of the route currently assigned.
+const RESERVE_BUS_PLATES=new Set(["70사7958","71사1458","71사1459","71사1464","71사1469","71사1510","71사1559","74사2433","74사7446","74사9560","74사9934"]);
+function isListedReservePlate(plate){
+  const normalized=String(plate||'').replace(/\s+/g,'').replace(/^서울/,'').replace(/호$/,'');
+  return RESERVE_BUS_PLATES.has(normalized);
+}
 const RESERVE_BUS_NUMBERS={
   '674':['7116'],
   '6620':['1339'],
@@ -2588,9 +2595,7 @@ function isLowFloorItem(it){return String(it?.busType||'')==='1';}
 function reserveItemsForRoute(r,items){
   const name=String(r?.name||'').replace(/^경기\s+/,'').split(' · ')[0];
   let wanted=RESERVE_BUS_NUMBERS[name]||[];
-  if(name==='5620')return (items||[]).filter(it=>!isLowFloorItem(it));
-  if(!wanted.length)return [];
-  return (items||[]).filter(it=>wanted.includes(shortBusNumber(it)));
+  return (items||[]).filter(it=>isListedReservePlate(it.plainNo)||wanted.includes(shortBusNumber(it))||(name==='5620'&&!isLowFloorItem(it)));
 }
 function seoulDateKey(daysAgo=0){
   const d=new Date(Date.now()+9*3600000-daysAgo*86400000);
