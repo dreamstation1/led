@@ -1,0 +1,391 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body style="margin:0">
+<title>ASCII Christmas Tree</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+  /* Layout: one dark night-sky screen, canvas centred, a slim terminal-style control strip below. Single dark theme by choice. */
+  :root {
+    --sky: #080a12;
+    --panel: #10131f;
+    --line: #232840;
+    --dim: #6a7290;
+    --text: #d9dcec;
+    --gold: #ffc45a;
+    --red: #eb3c3c;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "Apple SD Gothic Neo", "Malgun Gothic", monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--sky);
+    color: var(--text);
+    font-family: var(--mono);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 10px;
+    box-sizing: border-box;
+    gap: 10px;
+    overflow: hidden;
+  }
+  .stage { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
+  canvas { display: block; max-width: 100%; touch-action: manipulation; cursor: pointer; }
+  .bar {
+    width: 100%;
+    max-width: 820px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    font-size: 12px;
+    color: var(--dim);
+  }
+  .file { color: var(--text); }
+  .state { color: var(--gold); }
+  .hud { font-variant-numeric: tabular-nums; flex: 1 1 260px; min-width: 0; }
+  .controls { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  button, input {
+    font: inherit;
+    font-size: 12px;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 6px 10px;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--gold); color: var(--gold); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+  input { width: 150px; }
+  input::placeholder { color: var(--dim); }
+</style>
+
+<div class="stage" id="stage"><canvas id="c" aria-label="글자로 그린 회전하는 크리스마스 트리 애니메이션"></canvas></div>
+<div class="bar">
+  <div class="hud"><span class="file">christmas_tree</span> · <span class="state" id="state">running</span> · <span id="hud">rotation 0.00°</span></div>
+  <form class="controls" id="msgForm">
+    <input id="msg" maxlength="18" placeholder="문구 바꾸기" aria-label="트리 아래 문구">
+    <button type="submit">적용</button>
+    <button type="button" id="pauseBtn">일시정지</button>
+    <button type="button" id="restartBtn">다시 시작</button>
+  </form>
+</div>
+
+<script>
+(() => {
+  // ── grid & palette ───────────────────────────────
+  const COLS = 88, ROWS = 68;
+  const CX = COLS >> 1, TOP_Y = 14, BASE_Y = 55, TREE_H = BASE_Y - TOP_Y;
+  const RADIUS_COLS = 29, TIERS = 6;
+  const BG = [8, 10, 18];
+  const GREEN_DARK = [28, 105, 48], GREEN_LIGHT = [120, 235, 120], TRUNK = [120, 72, 36];
+  const RED = [235, 60, 60], GOLD = [255, 200, 60], BLUE = [80, 150, 255], WHITE = [240, 240, 255];
+  const LIGHT_COLORS = [RED, GOLD, BLUE, [255, 120, 200], [120, 255, 200]];
+  const RIB_RED = [[150, 15, 35], [255, 110, 130]], RIB_GOLD = [[150, 105, 20], [255, 235, 140]];
+  const PAL = { r: RED, w: WHITE, s: [250, 200, 170], g: GOLD, b: [150, 95, 50], k: [60, 60, 75],
+                n: [255, 40, 40], o: [255, 140, 40], p: [170, 80, 220], y: [255, 245, 190] };
+  const NEEDLES = "*^/\\vYA", SHADE = "-=+:";
+  let MESSAGE = "MERRY CHRISTMAS";
+
+  const SLEIGH = [
+    ["     /^\\o   ", "     rrrw   "],
+    ["    (o.o)   ", "    sssss   "],
+    [" \\==(WWW)==/", " ggggwwwwggg"],
+    ["  \\=======/ ", "  ggrrrrrgg "],
+    ["   `-----'  ", "   kkkkkkk  "],
+  ];
+  const REINDEER = [[
+    ["    \\/  ", "    bb  "], [" ___/o@ ", " bbbbbn "], ["(____)  ", "bbbbbb  "], [" /\\ /\\ ", " bb bb  "],
+  ], [
+    ["    \\/  ", "    bb  "], [" ___/o@ ", " bbbbbn "], ["(____)  ", "bbbbbb  "], [" |\\ |\\ ", " bb bb  "],
+  ]];
+  const SNOWMAN = [[
+    ["   ___    ", "   kkk    "], ["  _|_|_   ", "  kkkkk   "], ["  (o>o)  /", "  wwoww  b"],
+    [" \\( : )_/ ", " bwwkwwbb "], ["  (  :  ) ", "  wwwkwww "], [" (   :   )", " wwwwkwwww"],
+  ], [
+    ["   ___    ", "   kkk    "], ["  _|_|_   ", "  kkkkk   "], ["  (o>o)   ", "  wwoww   "],
+    [" \\( : )__ ", " bwwkwwbb "], ["  (  :  ) ", "  wwwkwww "], [" (   :   )", " wwwwkwwww"],
+  ]];
+  const MOON = [
+    ["  _..._ ", "  yyyyy "], [".'  .-'`", "yyyyyyyy"], ["|  /    ", "yyy     "], ["|  |    ", "yyy     "],
+    ["'  \\    ", "yyy     "], [" '._'-._", " yyyyyyy"], ["     ``` ", "     yyy "],
+  ];
+
+  const tierR = y => y * (0.55 + 0.45 * ((y * TIERS) % 1));
+  const clamp = v => v < 0 ? 0 : v > 1 ? 1 : v;
+  const lerp = (a, b, t) => { t = clamp(t); return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; };
+  const scale = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const pick = s => s[Math.floor(Math.random() * s.length)];
+
+  // ── scene state ─────────────────────────────────
+  let S;
+  function reset() {
+    const m = 40, k = 150;
+    const orn = Array.from({ length: m }, (_, i) => {
+      const y = 0.12 + 0.85 * Math.random();
+      return { y, r: tierR(y) * 1.02, th: Math.random() * 6.283, c: [RED, GOLD, BLUE][i % 3] };
+    });
+    const lights = Array.from({ length: k }, (_, i) => {
+      const y = 0.04 + 0.94 * i / (k - 1);
+      return { y, r: tierR(y) * 1.04, th: -y * 2 * Math.PI * 5.5, ph: Math.random() * 6.28, c: LIGHT_COLORS[i % 5] };
+    });
+    const rib = Array.from({ length: 700 }, (_, i) => 0.08 + 0.89 * i / 699);
+    S = {
+      t: 0, orn, lights, rib,
+      snow: Array.from({ length: 130 }, () => [rand(0, COLS), rand(0, ROWS), rand(3, 9), pick("*.+")]),
+      stars: Array.from({ length: 45 }, () => [Math.floor(rand(0, COLS)), Math.floor(rand(0, 22)), rand(0, 6.28), pick(".+*'")]),
+      sparkles: [], shooting: null, nextShoot: 4,
+    };
+  }
+
+  // ── buffers ─────────────────────────────────────
+  const N = COLS * ROWS;
+  const chars = new Array(N), cols = new Array(N), zbuf = new Float32Array(N);
+  function put(ch, c, r, color, z) {
+    c = Math.round(c); r = Math.round(r);
+    if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return;
+    const i = r * COLS + c;
+    if (z >= zbuf[i]) { zbuf[i] = z; chars[i] = ch; cols[i] = color; }
+  }
+  function sprite(art, x, y, z) {
+    art.forEach(([s, code], dy) => {
+      for (let dx = 0; dx < s.length; dx++) if (s[dx] !== " ") put(s[dx], x + dx, y + dy, PAL[code[dx]] || WHITE, z);
+    });
+  }
+  function text(s, x, y, color, z) { for (let i = 0; i < s.length; i++) if (s[i] !== " ") put(s[i], x + i, y, color, z); }
+  function proj(y, r, th, rot) {
+    const a = th + rot;
+    return [Math.round(CX + r * Math.cos(a) * RADIUS_COLS), Math.round(TOP_Y + y * TREE_H), r * Math.sin(a)];
+  }
+
+  function update(dt) {
+    S.t += dt;
+    for (const f of S.snow) {
+      f[1] += f[2] * dt; f[0] += Math.sin(S.t * 0.8 + f[2]) * dt * 1.5;
+      if (f[1] >= ROWS - 2) { f[0] = rand(0, COLS); f[1] = 0; }
+    }
+    for (const p of S.sparkles) { p[1] += dt * 3; p[2] -= dt; }
+    S.sparkles = S.sparkles.filter(p => p[2] > 0);
+    if (S.shooting) { S.shooting[2] += dt; if (S.shooting[2] > 1.4) S.shooting = null; }
+    else if (S.t > S.nextShoot) { S.shooting = [rand(10, COLS - 30), rand(1, 8), 0]; S.nextShoot = S.t + rand(5, 10); }
+  }
+
+  function santaPos() {
+    const cycle = 14, fly = 9, k = (S.t - 3) % cycle;
+    if (S.t < 3 || k > fly) return null;
+    return [-40 + k / fly * (COLS + 45), 3 + 1.5 * Math.sin(S.t * 1.6)];
+  }
+
+  function gift(x, y, box, ribbon, w, h, phase, lid) {
+    const lift = lid > 0.5 ? -1 : 0;
+    for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
+      const mid = c === (w >> 1) || r === (h >> 1);
+      put(mid ? "+" : "#", x + c, y + r + (r === 0 ? lift : 0), mid ? ribbon : box, 3);
+    }
+    text(["<o>", "(o)", "<o)", "(o>"][Math.floor(S.t * 4 + phase) % 4], x + (w >> 1) - 1, y - 1 + lift, ribbon, 3.1);
+    if (lid > 0.5) for (let k = 0; k < 3; k++) put(pick("*+."), x + Math.floor(rand(0, w)), y - 2 - k, GOLD, 3.2);
+  }
+
+  const info = { rot: 0, lights: 0, letters: 0, santa: false };
+  function render() {
+    const t = S.t, rot = t * 0.7;
+    chars.fill(" "); cols.fill(BG); zbuf.fill(-99);
+
+    // sky
+    for (const [x, y, ph, c] of S.stars) {
+      const b = 0.5 + 0.5 * Math.sin(t * 2.2 + ph);
+      if (b > 0.2) put(c, x, y, scale([200, 210, 255], 0.3 + 0.6 * b), -60);
+    }
+    sprite(MOON, 3, 1, -55);
+    if (S.shooting) {
+      const [sx, sy, e] = S.shooting, hx = sx + e * 30, hy = sy + e * 9, trail = "*=-~-..";
+      for (let i = 0; i < trail.length; i++) put(trail[i], hx - i * 2, hy - i * 0.6, scale([255, 250, 210], (1 - i / 9) * (1.4 - e)), -52);
+    }
+    for (const [x, y, sp, c] of S.snow) put(c, x, y, scale(WHITE, 0.35 + sp / 15), -50);
+
+    // santa
+    const santa = santaPos();
+    if (santa) {
+      const [sx, sy] = santa, leg = Math.floor(t * 8) % 2;
+      for (let i = 0; i < 3; i++) sprite(REINDEER[(leg + i) % 2], sx + 15 + i * 10, sy + 0.5 * Math.sin(t * 6 + i), -5);
+      text("~~~~", sx + 12, sy + 2, PAL.b, -5.1);
+      sprite(SLEIGH, sx, sy, -5);
+      if (Math.random() < 0.8) S.sparkles.push([sx + rand(-1, 2), sy + rand(2, 5), 1.2, pick("*+.'")]);
+      if (Math.floor(t / 2.2) % 2 === 0) text("HO HO HO!", sx + 1, sy - 2, scale(WHITE, 0.8 + 0.2 * Math.sin(t * 8)), -5);
+    }
+    for (const [x, y, life, ch] of S.sparkles) put(ch, x, y, scale(GOLD, life), -6);
+
+    // ground
+    for (let c = 0; c < COLS; c++) {
+      const h = Math.floor(1.5 + 1.2 * Math.sin(c * 0.21) + 0.8 * Math.sin(c * 0.07 + 1));
+      for (let r = BASE_Y + 4 - h; r < BASE_Y + 6; r++) put(r === BASE_Y + 4 - h ? "~" : ".", c, r, scale(WHITE, 0.55), -40);
+    }
+    for (let r = BASE_Y - 1; r < BASE_Y + 4; r++) for (let dc = -3; dc <= 3; dc++)
+      put("|#|"[(dc + 3) % 3], CX + dc, r, scale(TRUNK, dc === 0 ? 1 : 0.8), -2);
+
+    // foliage: fill every cell of the silhouette with the cone's front surface
+    for (let row = TOP_Y; row < BASE_Y; row++) {
+      const y = (row - TOP_Y) / TREE_H, frac = (y * TIERS) % 1;
+      const R = tierR(y) * RADIUS_COLS + 0.8 * Math.sin(row * 1.7 + t * 0.5);
+      if (R < 0.5) continue;
+      for (let c = Math.floor(CX - R); c <= Math.floor(CX + R); c++) {
+        const u = (c - CX) / R;
+        if (Math.abs(u) > 1) continue;
+        const zf = Math.sqrt(1 - u * u);
+        let local = (Math.atan2(zf, u) - rot) % (2 * Math.PI); if (local < 0) local += 2 * Math.PI;
+        const h = ((Math.imul(Math.floor(local * 9), 73856093) ^ Math.imul(row, 19349663)) >>> 0) & 0xffff;
+        let lv = 0.4 + 0.6 * (0.5 + 0.5 * (zf * 0.8 - u * 0.5));
+        lv *= (0.8 + 0.05 * ((h >> 4) % 5)) * (1 - 0.15 * frac);
+        const ch = Math.abs(u) > 0.93 ? (u < 0 ? "/" : "\\") : (lv > 0.45 ? NEEDLES[h % NEEDLES.length] : SHADE[h % SHADE.length]);
+        put(ch, c, row, lerp(GREEN_DARK, GREEN_LIGHT, lv), zf * R / RADIUS_COLS - 0.05);
+      }
+    }
+
+    // ribbons
+    for (const [off, [dark, bright]] of [[0, RIB_RED], [Math.PI, RIB_GOLD]]) {
+      for (const s of S.rib) {
+        const r = tierR(s) * 1.07 + 0.025 * Math.sin(s * 35 - t * 4);
+        const [c, row, z] = proj(s, r, s * 2 * Math.PI * 2.6 + off, rot);
+        if (z < 0) continue;
+        const flow = Math.sin(s * 90 - t * 7);
+        put(flow > 0.3 ? "~" : flow > -0.4 ? "=" : "-", c, row, lerp(dark, bright, 0.35 + 0.45 * flow + 0.4 * z), z + 0.03);
+      }
+    }
+
+    // lights
+    let on = 0;
+    for (const L of S.lights) {
+      const [c, row, z] = proj(L.y, L.r, L.th, rot);
+      if (z < 0) continue;
+      const b = 0.5 + 0.5 * Math.sin(t * 4 + L.ph);
+      if (b > 0.35) on++;
+      put(b > 0.6 ? "o" : ".", c, row, scale(L.c, 0.4 + 0.8 * b), z + 0.05);
+    }
+    // ornaments
+    for (const o of S.orn) {
+      const [c, row, z] = proj(o.y, o.r, o.th, rot);
+      if (z < 0) continue;
+      const sh = 0.75 + 0.35 * z;
+      put("@", c, row, scale(o.c, sh), z + 0.1);
+      put("(", c - 1, row, scale(o.c, sh * 0.7), z + 0.09);
+      put(")", c + 1, row, scale(o.c, sh * 0.7), z + 0.09);
+    }
+
+    // star, bow and streaming tails
+    const pulse = 0.75 + 0.25 * Math.sin(t * 3);
+    ["  .  ", " \\|/ ", "--*--", " /|\\ ", "  '  "].forEach((line, dy) => {
+      for (let dx = 0; dx < 5; dx++) if (line[dx] !== " ")
+        put(line[dx], CX - 2 + dx, TOP_Y - 6 + dy, scale(GOLD, pulse * (line[dx] === "*" ? 1.3 : 1)), 5);
+    });
+    const bowY = TOP_Y - 1, wob = Math.round(Math.sin(t * 3));
+    text(wob >= 0 ? "<<(@)>>" : "<(@)>", CX - (wob >= 0 ? 3 : 2), bowY, RIB_RED[1], 6);
+    for (const side of [-1, 1]) for (let k = 1; k <= 6; k++) {
+      const a = t * 3.5 - k * 0.7 + side;
+      put(Math.cos(a) > 0 ? "(" : ")", CX + side * (1 + k * 0.6) + Math.sin(a) * (0.4 + k * 0.35), bowY + k,
+          lerp(RIB_RED[0], RIB_RED[1], 0.9 - k * 0.08), 6);
+    }
+
+    // gifts & snowman
+    gift(CX - 27, BASE_Y + 1, BLUE, GOLD, 8, 4, 0, 0);
+    gift(CX + 17, BASE_Y + 1, RED, WHITE, 8, 4, 1.7, 0);
+    const hop = Math.max(0, Math.sin(t * 5)) * (Math.floor(t / 3) % 2);
+    gift(CX - 13, BASE_Y + 2, PAL.p, GOLD, 6, 3, 3.1, hop);
+    sprite(SNOWMAN[Math.floor(t * 3) % 2], COLS - 12, BASE_Y - 2, 2);
+
+    // message (2 cells per letter, so Korean fits too)
+    const msg = [...MESSAGE];
+    const shown = Math.min(msg.length, Math.floor(t * 3));
+    const x0 = CX - msg.length;
+    for (let i = 0; i < shown; i++) if (msg[i] !== " ") {
+      const tint = [RED, GOLD, GREEN_LIGHT][(Math.floor(i / 2) + Math.floor(t * 1.5)) % 3];
+      put(msg[i], x0 + i * 2, BASE_Y + 10, scale(tint, 0.85 + 0.25 * Math.sin(t * 5 + i)), 9);
+    }
+
+    info.rot = (rot * 180 / Math.PI) % 360;
+    info.lights = on;
+    info.letters = msg.slice(0, shown).filter(c => c !== " ").length;
+    info.total = msg.filter(c => c !== " ").length;
+    info.santa = !!santa;
+  }
+
+  // ── drawing ─────────────────────────────────────
+  const canvas = document.getElementById("c"), ctx = canvas.getContext("2d"), stage = document.getElementById("stage");
+  let cw = 9, chh = 14;
+  function fit() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const aw = stage.clientWidth, ah = stage.clientHeight;
+    cw = Math.max(3, Math.min(aw / COLS, ah / ROWS / 1.55));
+    chh = cw * 1.55;
+    const w = Math.floor(cw * COLS), h = Math.floor(chh * ROWS);
+    canvas.style.width = w + "px"; canvas.style.height = h + "px";
+    canvas.width = Math.floor(w * dpr); canvas.height = Math.floor(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = `500 ${(cw * 1.62).toFixed(2)}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  }
+  function draw() {
+    ctx.fillStyle = "rgb(8,10,18)";
+    ctx.fillRect(0, 0, cw * COLS, chh * ROWS);
+    let last = "";
+    for (let i = 0; i < N; i++) {
+      const ch = chars[i];
+      if (ch === " ") continue;
+      const c = cols[i];
+      const style = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+      if (style !== last) { ctx.fillStyle = style; last = style; }
+      ctx.fillText(ch, (i % COLS + 0.5) * cw, (Math.floor(i / COLS) + 0.5) * chh);
+    }
+  }
+
+  // ── loop & controls ─────────────────────────────
+  const hud = document.getElementById("hud"), stateEl = document.getElementById("state"), pauseBtn = document.getElementById("pauseBtn");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let paused = false, prev = performance.now(), fps = 30, acc = 0;
+  function setPaused(p) {
+    paused = p;
+    stateEl.textContent = p ? "paused" : "running";
+    pauseBtn.textContent = p ? "재생" : "일시정지";
+  }
+  function frame(now) {
+    const dt = Math.min(0.1, (now - prev) / 1000); prev = now;
+    acc += dt;
+    if (acc >= 1 / 30) {               // 30 fps
+      if (dt > 0) fps = fps * 0.9 + (1 / Math.max(acc, 1e-3)) * 0.1;
+      if (!paused) update(acc);
+      acc = 0;
+      render(); draw();
+      hud.textContent = `rotation ${info.rot.toFixed(2).padStart(6)}° · lights ${info.lights} · letters ${info.letters}/${info.total} · santa ${info.santa ? "flying" : "-"} · ${fps.toFixed(0)} fps`;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  document.getElementById("restartBtn").onclick = () => reset();
+  pauseBtn.onclick = () => setPaused(!paused);
+  canvas.onclick = () => setPaused(!paused);
+  document.getElementById("msgForm").onsubmit = e => {
+    e.preventDefault();
+    const v = document.getElementById("msg").value.trim();
+    MESSAGE = v || "MERRY CHRISTMAS";
+    reset();
+  };
+  addEventListener("keydown", e => {
+    if (e.target.tagName === "INPUT") return;
+    if (e.code === "Space") { e.preventDefault(); setPaused(!paused); }
+    else if (e.key === "r" || e.key === "R") reset();
+  });
+  addEventListener("resize", fit);
+
+  reset();
+  fit();
+  if (document.fonts) document.fonts.ready.then(fit);
+  if (reduce) { S.t = 8; setPaused(true); }   // still frame with Santa in the sky
+  render(); draw();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

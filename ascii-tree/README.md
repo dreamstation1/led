@@ -14,3 +14,5 @@ python christmas_tree.py
 - `MERRY CHRISTMAS` 글자가 한 글자씩 나타남
 - 조작: `Space` 일시정지 · `R` 다시 시작 · `S` 스크린샷 · `Esc` 종료
 - 문구는 `christmas_tree.py`의 `MESSAGE` 값을 바꾸면 됨
+
+웹 버전: `ascii-tree/index.html` 을 브라우저로 열면 바로 실행 (설치 필요 없음, 폰 가능, 문구 바꾸기 지원)
