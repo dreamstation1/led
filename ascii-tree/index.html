@@ -38,15 +38,14 @@
     width: 100%;
     max-width: 820px;
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 12px;
+    flex-direction: column;
+    gap: 8px;
     font-size: 12px;
     color: var(--dim);
   }
   .file { color: var(--text); }
   .state { color: var(--gold); }
-  .hud { font-variant-numeric: tabular-nums; flex: 1 1 260px; min-width: 0; }
+  .hud { font-variant-numeric: tabular-nums; min-width: 0; line-height: 1.5; }
   .controls { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   button, input {
     font: inherit;
@@ -59,20 +58,25 @@
   }
   button { cursor: pointer; }
   button:hover { border-color: var(--gold); color: var(--gold); }
+  button[aria-pressed="true"] { border-color: var(--gold); color: var(--gold); }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
-  input { width: 150px; }
+  input { width: 140px; }
   input::placeholder { color: var(--dim); }
+  .tip { color: var(--dim); }
 </style>
 
-<div class="stage" id="stage"><canvas id="c" aria-label="글자로 그린 회전하는 크리스마스 트리 애니메이션"></canvas></div>
+<div class="stage" id="stage"><canvas id="c" aria-label="글자로 그린 회전하는 크리스마스 트리 애니메이션. 누르면 트리가 흔들립니다."></canvas></div>
 <div class="bar">
   <div class="hud"><span class="file">christmas_tree</span> · <span class="state" id="state">running</span> · <span id="hud">rotation 0.00°</span></div>
   <form class="controls" id="msgForm">
-    <input id="msg" maxlength="18" placeholder="문구 바꾸기" aria-label="트리 아래 문구">
-    <button type="submit">적용</button>
+    <button type="button" id="musicBtn" aria-pressed="false">♪ 캐롤 켜기</button>
+    <button type="button" id="nextBtn">다음 곡</button>
     <button type="button" id="pauseBtn">일시정지</button>
     <button type="button" id="restartBtn">다시 시작</button>
+    <input id="msg" maxlength="18" placeholder="문구 바꾸기" aria-label="트리 아래 문구">
+    <button type="submit">적용</button>
   </form>
+  <div class="tip">트리를 누르면 흔들려서 쌓인 눈이 떨어져요.</div>
 </div>
 
 <script>
@@ -84,11 +88,15 @@
   const BG = [8, 10, 18];
   const GREEN_DARK = [28, 105, 48], GREEN_LIGHT = [120, 235, 120], TRUNK = [120, 72, 36];
   const RED = [235, 60, 60], GOLD = [255, 200, 60], BLUE = [80, 150, 255], WHITE = [240, 240, 255];
+  const SNOW = [235, 242, 255];
   const LIGHT_COLORS = [RED, GOLD, BLUE, [255, 120, 200], [120, 255, 200]];
   const RIB_RED = [[150, 15, 35], [255, 110, 130]], RIB_GOLD = [[150, 105, 20], [255, 235, 140]];
   const PAL = { r: RED, w: WHITE, s: [250, 200, 170], g: GOLD, b: [150, 95, 50], k: [60, 60, 75],
-                n: [255, 40, 40], o: [255, 140, 40], p: [170, 80, 220], y: [255, 245, 190] };
+                n: [255, 40, 40], o: [255, 140, 40], p: [170, 80, 220], y: [255, 245, 190],
+                R: [150, 50, 45], W: SNOW, L: [255, 200, 90] };
+  const GIFT_COLORS = [[RED, GOLD], [BLUE, WHITE], [PAL.p, GOLD], [[40, 170, 90], RED], [GOLD, RED]];
   const NEEDLES = "*^/\\vYA", SHADE = "-=+:";
+  const LIGHT_MODES = ["twinkle", "chase", "rainbow", "pulse"];
   let MESSAGE = "MERRY CHRISTMAS";
 
   const SLEIGH = [
@@ -110,10 +118,19 @@
     ["   ___    ", "   kkk    "], ["  _|_|_   ", "  kkkkk   "], ["  (o>o)   ", "  wwoww   "],
     [" \\( : )__ ", " bwwkwwbb "], ["  (  :  ) ", "  wwwkwww "], [" (   :   )", " wwwwkwwww"],
   ]];
+  const SNOWMAN_SING = ["  (o>O)  ", "  wwoww  "];  // 입 벌린 얼굴
   const MOON = [
     ["  _..._ ", "  yyyyy "], [".'  .-'`", "yyyyyyyy"], ["|  /    ", "yyy     "], ["|  |    ", "yyy     "],
     ["'  \\    ", "yyy     "], [" '._'-._", " yyyyyyy"], ["     ``` ", "     yyy "],
   ];
+  const CABIN = [
+    ["      _[]_    ", "      WkkW    "],
+    ["    _/____\\_  ", "    WWWWWWWW  "],
+    ["   /________\\ ", "   RRRRRRRRRR "],
+    ["    |[#]  |=| ", "    bLLLbbbbb "],
+    ["    |     |.| ", "    b    bbbb "],
+  ];
+  const CABIN_X = 0, CABIN_Y = BASE_Y - 1;
 
   const tierR = y => y * (0.55 + 0.45 * ((y * TIERS) % 1));
   const clamp = v => v < 0 ? 0 : v > 1 ? 1 : v;
@@ -121,8 +138,32 @@
   const scale = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
   const rand = (a, b) => a + Math.random() * (b - a);
   const pick = s => s[Math.floor(Math.random() * s.length)];
+  const hsv = (h, s, v) => {
+    const f = n => { const k = (n + h * 6) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+    return [f(5) * 255, f(3) * 255, f(1) * 255];
+  };
+  const hillH = c => Math.floor(1.5 + 1.2 * Math.sin(c * 0.21) + 0.8 * Math.sin(c * 0.07 + 1));
+
+  // 크리스마스까지 남은 날
+  function dday() {
+    const now = new Date();
+    let x = new Date(now.getFullYear(), 11, 25);
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (today > x) x = new Date(now.getFullYear() + 1, 11, 25);
+    const d = Math.round((x - today) / 86400000);
+    return d === 0 ? "TODAY IS XMAS!" : `XMAS D-${d}`;
+  }
+  const DDAY = dday();
+
+  // 큰 선물 상자 (바닥에 고정)
+  const BIG_GIFTS = [
+    { x: CX - 27, y: BASE_Y + 1, w: 8, h: 4, box: BLUE, rib: GOLD, ph: 0 },
+    { x: CX + 17, y: BASE_Y + 1, w: 8, h: 4, box: RED, rib: WHITE, ph: 1.7 },
+    { x: CX - 13, y: BASE_Y + 2, w: 6, h: 3, box: PAL.p, rib: GOLD, ph: 3.1, hop: true },
+  ];
 
   // ── scene state ─────────────────────────────────
+  const N = COLS * ROWS;
   let S;
   function reset() {
     const m = 40, k = 150;
@@ -134,18 +175,28 @@
       const y = 0.04 + 0.94 * i / (k - 1);
       return { y, r: tierR(y) * 1.04, th: -y * 2 * Math.PI * 5.5, ph: Math.random() * 6.28, c: LIGHT_COLORS[i % 5] };
     });
-    const rib = Array.from({ length: 700 }, (_, i) => 0.08 + 0.89 * i / 699);
     S = {
-      t: 0, orn, lights, rib,
-      snow: Array.from({ length: 130 }, () => [rand(0, COLS), rand(0, ROWS), rand(3, 9), pick("*.+")]),
+      t: 0, orn, lights,
+      rib: Array.from({ length: 700 }, (_, i) => 0.08 + 0.89 * i / 699),
+      snow: Array.from({ length: 170 }, () => [rand(0, COLS), rand(0, ROWS), rand(3, 9), pick("*.+")]),
       stars: Array.from({ length: 45 }, () => [Math.floor(rand(0, COLS)), Math.floor(rand(0, 22)), rand(0, 6.28), pick(".+*'")]),
-      sparkles: [], shooting: null, nextShoot: 4,
+      sparkles: [],          // 산타 반짝이 꼬리
+      particles: [],         // 눈 털림 · 선물 착지 눈보라 [x, y, vx, vy, life, ch, color]
+      smoke: [],             // 굴뚝 연기
+      notes: [],             // 눈사람 음표
+      gifts: [],             // 떨어지는 · 쌓인 선물
+      nextDrop: 0,
+      snowAcc: new Float32Array(N),        // 트리 위 쌓인 눈
+      groundExtra: new Float32Array(COLS), // 땅에 쌓인 눈
+      shake: 0,
+      shooting: null, nextShoot: 4,
+      landed: 0,
     };
   }
 
   // ── buffers ─────────────────────────────────────
-  const N = COLS * ROWS;
   const chars = new Array(N), cols = new Array(N), zbuf = new Float32Array(N);
+  const foliage = new Uint8Array(N);   // 마지막 프레임의 트리 잎 칸
   function put(ch, c, r, color, z) {
     c = Math.round(c); r = Math.round(r);
     if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return;
@@ -158,57 +209,141 @@
     });
   }
   function text(s, x, y, color, z) { for (let i = 0; i < s.length; i++) if (s[i] !== " ") put(s[i], x + i, y, color, z); }
+  let shakeDX = 0;
   function proj(y, r, th, rot) {
     const a = th + rot;
-    return [Math.round(CX + r * Math.cos(a) * RADIUS_COLS), Math.round(TOP_Y + y * TREE_H), r * Math.sin(a)];
+    return [Math.round(CX + r * Math.cos(a) * RADIUS_COLS) + shakeDX, Math.round(TOP_Y + y * TREE_H), r * Math.sin(a)];
+  }
+  const groundTop = c => BASE_Y + 4 - hillH(c) - Math.floor(S.groundExtra[Math.max(0, Math.min(COLS - 1, c))]);
+
+  function santaPos(t = S.t) {
+    const cycle = 14, fly = 9, k = (t - 3) % cycle;
+    if (t < 3 || k > fly) return null;
+    return [-40 + k / fly * (COLS + 45), 3 + 1.5 * Math.sin(t * 1.6)];
   }
 
+  // 선물이 내려앉을 바닥 높이 (그 아래 칸 번호)
+  function landingRow(x, w) {
+    let floor = ROWS;
+    for (let c = Math.round(x); c < Math.round(x) + w; c++) floor = Math.min(floor, groundTop(c));
+    const overlaps = (a, aw, b, bw) => a < b + bw && b < a + aw;
+    for (const g of BIG_GIFTS) if (overlaps(Math.round(x), w, g.x, g.w)) floor = Math.min(floor, g.y - 1);
+    for (const g of S.gifts) if (g.landed && overlaps(Math.round(x), w, g.x, 3)) floor = Math.min(floor, g.y);
+    return floor;
+  }
+
+  // ── update ──────────────────────────────────────
   function update(dt) {
     S.t += dt;
+    const t = S.t;
+
+    // 눈송이: 트리 잎에 닿으면 쌓이고, 바닥에 닿으면 땅이 높아짐
     for (const f of S.snow) {
-      f[1] += f[2] * dt; f[0] += Math.sin(S.t * 0.8 + f[2]) * dt * 1.5;
-      if (f[1] >= ROWS - 2) { f[0] = rand(0, COLS); f[1] = 0; }
+      f[1] += f[2] * dt; f[0] += Math.sin(t * 0.8 + f[2]) * dt * 1.5;
+      const c = Math.round(f[0]), r = Math.round(f[1]);
+      let respawn = false;
+      if (c >= 0 && c < COLS && r >= 0 && r < ROWS) {
+        const i = r * COLS + c;
+        const topSurface = foliage[i] && (r === 0 || !foliage[i - COLS]);
+        if (topSurface && Math.random() < 0.9) {
+          if (S.snowAcc[i] < 3) S.snowAcc[i] += 0.5;
+          respawn = true;
+        } else if (r >= groundTop(c)) {
+          if (S.groundExtra[c] < 2.6) S.groundExtra[c] += 0.02;
+          respawn = true;
+        }
+      }
+      if (respawn || f[1] >= ROWS - 1) { f[0] = rand(0, COLS); f[1] = 0; }
     }
+
+    // 산타가 선물 떨어뜨리기
+    const santa = santaPos();
+    if (santa && santa[0] > 12 && santa[0] < 68 && t > S.nextDrop) {
+      const [box, rib] = pick(GIFT_COLORS);
+      S.gifts.push({ x: santa[0] + 5, y: santa[1] + 4, vx: 5, vy: -1.5, landed: false, box, rib, age: 0 });
+      S.nextDrop = t + rand(0.7, 1.5);
+      sfx.drop();
+    }
+    for (const g of S.gifts) {
+      g.age += dt;
+      if (g.landed) continue;
+      g.vy += 14 * dt; g.vx *= 1 - dt * 0.8;
+      g.x = Math.max(14, Math.min(70, g.x + g.vx * dt));
+      g.y += g.vy * dt;
+      const floor = landingRow(g.x, 3);
+      if (g.y + 1 >= floor - 1) {
+        g.y = floor - 2; g.x = Math.round(g.x); g.landed = true; S.landed++;
+        for (let k = 0; k < 10; k++)
+          S.particles.push([g.x + 1, g.y + 1, rand(-6, 6), rand(-6, -1), rand(0.4, 0.9), pick("*.'"), SNOW]);
+        sfx.land();
+      } else if (Math.random() < 0.5) {
+        S.sparkles.push([g.x + 1 + rand(-1, 1), g.y, 0.6, pick(".'")]);
+      }
+    }
+    const landedGifts = S.gifts.filter(g => g.landed);
+    if (landedGifts.length > 16) S.gifts.splice(S.gifts.indexOf(landedGifts[0]), 1);
+
+    // 파티클 · 반짝이 · 연기 · 음표
+    for (const p of S.particles) { p[0] += p[2] * dt; p[1] += p[3] * dt; p[3] += 12 * dt; p[4] -= dt; }
+    S.particles = S.particles.filter(p => p[4] > 0 && p[1] < ROWS);
     for (const p of S.sparkles) { p[1] += dt * 3; p[2] -= dt; }
     S.sparkles = S.sparkles.filter(p => p[2] > 0);
+    if (Math.random() < dt * 5) S.smoke.push([CABIN_X + 7.5, CABIN_Y - 1, 0, pick("o.~")]);
+    for (const s of S.smoke) { s[2] += dt; s[0] += dt * (1.2 + Math.sin(s[2] * 3) * 1.5); s[1] -= dt * 2.2; }
+    S.smoke = S.smoke.filter(s => s[2] < 3.5);
+    for (const n of S.notes) { n[2] += dt; n[0] += Math.sin(n[2] * 4) * dt * 2; n[1] -= dt * 3; }
+    S.notes = S.notes.filter(n => n[2] < 2.2);
+
+    // 흔들기: 쌓인 눈이 우수수
+    S.shake = Math.max(0, S.shake - dt * 1.4);
+
     if (S.shooting) { S.shooting[2] += dt; if (S.shooting[2] > 1.4) S.shooting = null; }
-    else if (S.t > S.nextShoot) { S.shooting = [rand(10, COLS - 30), rand(1, 8), 0]; S.nextShoot = S.t + rand(5, 10); }
+    else if (t > S.nextShoot) { S.shooting = [rand(10, COLS - 30), rand(1, 8), 0]; S.nextShoot = t + rand(5, 10); }
   }
 
-  function santaPos() {
-    const cycle = 14, fly = 9, k = (S.t - 3) % cycle;
-    if (S.t < 3 || k > fly) return null;
-    return [-40 + k / fly * (COLS + 45), 3 + 1.5 * Math.sin(S.t * 1.6)];
-  }
-
-  function gift(x, y, box, ribbon, w, h, phase, lid) {
-    const lift = lid > 0.5 ? -1 : 0;
-    for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
-      const mid = c === (w >> 1) || r === (h >> 1);
-      put(mid ? "+" : "#", x + c, y + r + (r === 0 ? lift : 0), mid ? ribbon : box, 3);
+  function shakeTree() {
+    S.shake = 1;
+    for (let i = 0; i < N; i++) {
+      if (S.snowAcc[i] > 0.3) {
+        const c = i % COLS, r = Math.floor(i / COLS);
+        S.particles.push([c, r, rand(-4, 4), rand(-3, 1), rand(0.8, 1.6), pick("*.o"), SNOW]);
+      }
+      S.snowAcc[i] = 0;
     }
-    text(["<o>", "(o)", "<o)", "(o>"][Math.floor(S.t * 4 + phase) % 4], x + (w >> 1) - 1, y - 1 + lift, ribbon, 3.1);
-    if (lid > 0.5) for (let k = 0; k < 3; k++) put(pick("*+."), x + Math.floor(rand(0, w)), y - 2 - k, GOLD, 3.2);
+    sfx.shake();
   }
 
-  const info = { rot: 0, lights: 0, letters: 0, santa: false };
+  // ── render ──────────────────────────────────────
+  const info = { rot: 0, lights: 0, letters: 0, total: 0, santa: false, mode: "" };
   function render() {
     const t = S.t, rot = t * 0.7;
-    chars.fill(" "); cols.fill(BG); zbuf.fill(-99);
+    chars.fill(" "); cols.fill(BG); zbuf.fill(-99); foliage.fill(0);
+    shakeDX = Math.round(S.shake * 1.6 * Math.sin(t * 45));
 
-    // sky
+    // 오로라
+    for (let c = 0; c < COLS; c++) {
+      const b = 0.5 + 0.25 * Math.sin(c * 0.12 + t * 0.6) + 0.25 * Math.sin(c * 0.05 - t * 0.35);
+      const mid = 7 + 3 * Math.sin(c * 0.08 + t * 0.4);
+      for (let r = Math.floor(mid - 3); r <= mid + 3; r++) {
+        const fall = 1 - Math.abs(r - mid) / 3.5;
+        const k = b * fall * 0.35;
+        if (k > 0.08) put(r < mid ? "'" : ":", c, r, lerp([40, 220, 160], [150, 90, 255], (r - mid + 3) / 6 + 0.2 * Math.sin(t + c * 0.03)).map(v => v * k), -59);
+      }
+    }
+    // 별 · 달 · 별똥별 · 눈
     for (const [x, y, ph, c] of S.stars) {
       const b = 0.5 + 0.5 * Math.sin(t * 2.2 + ph);
-      if (b > 0.2) put(c, x, y, scale([200, 210, 255], 0.3 + 0.6 * b), -60);
+      if (b > 0.2) put(c, x, y, scale([200, 210, 255], 0.3 + 0.6 * b), -58);
     }
     sprite(MOON, 3, 1, -55);
+    text(DDAY, COLS - DDAY.length - 2, 1, scale(GOLD, 0.85 + 0.15 * Math.sin(t * 2)), -54);
     if (S.shooting) {
       const [sx, sy, e] = S.shooting, hx = sx + e * 30, hy = sy + e * 9, trail = "*=-~-..";
       for (let i = 0; i < trail.length; i++) put(trail[i], hx - i * 2, hy - i * 0.6, scale([255, 250, 210], (1 - i / 9) * (1.4 - e)), -52);
     }
     for (const [x, y, sp, c] of S.snow) put(c, x, y, scale(WHITE, 0.35 + sp / 15), -50);
 
-    // santa
+    // 산타
     const santa = santaPos();
     if (santa) {
       const [sx, sy] = santa, leg = Math.floor(t * 8) % 2;
@@ -218,17 +353,26 @@
       if (Math.random() < 0.8) S.sparkles.push([sx + rand(-1, 2), sy + rand(2, 5), 1.2, pick("*+.'")]);
       if (Math.floor(t / 2.2) % 2 === 0) text("HO HO HO!", sx + 1, sy - 2, scale(WHITE, 0.8 + 0.2 * Math.sin(t * 8)), -5);
     }
-    for (const [x, y, life, ch] of S.sparkles) put(ch, x, y, scale(GOLD, life), -6);
+    for (const [x, y, life, ch] of S.sparkles) put(ch, x, y, scale(GOLD, Math.min(1, life * 1.2)), -6);
 
-    // ground
+    // 땅 (쌓인 눈 포함)
     for (let c = 0; c < COLS; c++) {
-      const h = Math.floor(1.5 + 1.2 * Math.sin(c * 0.21) + 0.8 * Math.sin(c * 0.07 + 1));
-      for (let r = BASE_Y + 4 - h; r < BASE_Y + 6; r++) put(r === BASE_Y + 4 - h ? "~" : ".", c, r, scale(WHITE, 0.55), -40);
+      const top = groundTop(c);
+      for (let r = top; r < BASE_Y + 6; r++) put(r === top ? "~" : ".", c, r, scale(WHITE, r === top ? 0.75 : 0.5), -40);
     }
+    // 오두막과 연기
+    const glow = 0.8 + 0.2 * Math.sin(t * 7) * Math.sin(t * 3.1);
+    CABIN.forEach(([s, code], dy) => {
+      for (let dx = 0; dx < s.length; dx++) if (s[dx] !== " ")
+        put(s[dx], CABIN_X + dx, CABIN_Y + dy, code[dx] === "L" ? scale(PAL.L, glow) : (PAL[code[dx]] || WHITE), -3);
+    });
+    for (const [x, y, age, ch] of S.smoke) put(ch, x, y, scale([170, 175, 190], Math.max(0, 0.8 - age / 4)), -4);
+
+    // 줄기
     for (let r = BASE_Y - 1; r < BASE_Y + 4; r++) for (let dc = -3; dc <= 3; dc++)
       put("|#|"[(dc + 3) % 3], CX + dc, r, scale(TRUNK, dc === 0 ? 1 : 0.8), -2);
 
-    // foliage: fill every cell of the silhouette with the cone's front surface
+    // 잎
     for (let row = TOP_Y; row < BASE_Y; row++) {
       const y = (row - TOP_Y) / TREE_H, frac = (y * TIERS) % 1;
       const R = tierR(y) * RADIUS_COLS + 0.8 * Math.sin(row * 1.7 + t * 0.5);
@@ -242,11 +386,13 @@
         let lv = 0.4 + 0.6 * (0.5 + 0.5 * (zf * 0.8 - u * 0.5));
         lv *= (0.8 + 0.05 * ((h >> 4) % 5)) * (1 - 0.15 * frac);
         const ch = Math.abs(u) > 0.93 ? (u < 0 ? "/" : "\\") : (lv > 0.45 ? NEEDLES[h % NEEDLES.length] : SHADE[h % SHADE.length]);
-        put(ch, c, row, lerp(GREEN_DARK, GREEN_LIGHT, lv), zf * R / RADIUS_COLS - 0.05);
+        const cc = c + shakeDX;
+        put(ch, cc, row, lerp(GREEN_DARK, GREEN_LIGHT, lv), zf * R / RADIUS_COLS - 0.05);
+        if (cc >= 0 && cc < COLS) foliage[row * COLS + cc] = 1;
       }
     }
 
-    // ribbons
+    // 리본
     for (const [off, [dark, bright]] of [[0, RIB_RED], [Math.PI, RIB_GOLD]]) {
       for (const s of S.rib) {
         const r = tierR(s) * 1.07 + 0.025 * Math.sin(s * 35 - t * 4);
@@ -257,16 +403,21 @@
       }
     }
 
-    // lights
+    // 전구 (10초마다 패턴 변경)
+    const mode = LIGHT_MODES[Math.floor(t / 10) % LIGHT_MODES.length];
     let on = 0;
-    for (const L of S.lights) {
+    S.lights.forEach((L, i) => {
       const [c, row, z] = proj(L.y, L.r, L.th, rot);
-      if (z < 0) continue;
-      const b = 0.5 + 0.5 * Math.sin(t * 4 + L.ph);
+      if (z < 0) return;
+      let b, col = L.c;
+      if (mode === "twinkle") b = 0.5 + 0.5 * Math.sin(t * 4 + L.ph);
+      else if (mode === "chase") b = Math.pow(0.5 + 0.5 * Math.sin(i * 0.45 - t * 9), 3);
+      else if (mode === "rainbow") { b = 0.85; col = hsv((i * 0.03 + t * 0.25) % 1, 0.75, 1); }
+      else b = 0.5 + 0.5 * Math.sin(t * 3);
       if (b > 0.35) on++;
-      put(b > 0.6 ? "o" : ".", c, row, scale(L.c, 0.4 + 0.8 * b), z + 0.05);
-    }
-    // ornaments
+      put(b > 0.6 ? "o" : ".", c, row, scale(col, 0.4 + 0.8 * b), z + 0.05);
+    });
+    // 장식 공
     for (const o of S.orn) {
       const [c, row, z] = proj(o.y, o.r, o.th, rot);
       if (z < 0) continue;
@@ -276,28 +427,59 @@
       put(")", c + 1, row, scale(o.c, sh * 0.7), z + 0.09);
     }
 
-    // star, bow and streaming tails
+    // 트리 위 쌓인 눈
+    for (let i = 0; i < N; i++) {
+      const a = S.snowAcc[i];
+      if (a > 0.3 && foliage[i]) {
+        put(a < 1 ? "_" : a < 2 ? "=" : "#", i % COLS, Math.floor(i / COLS), scale(SNOW, 0.85 + 0.05 * a), 1.5);
+      }
+      if (a > 0) S.snowAcc[i] = Math.max(0, a - 0.0004);  // 아주 천천히 녹음
+    }
+
+    // 별 · 매듭 · 꼬리
     const pulse = 0.75 + 0.25 * Math.sin(t * 3);
     ["  .  ", " \\|/ ", "--*--", " /|\\ ", "  '  "].forEach((line, dy) => {
       for (let dx = 0; dx < 5; dx++) if (line[dx] !== " ")
-        put(line[dx], CX - 2 + dx, TOP_Y - 6 + dy, scale(GOLD, pulse * (line[dx] === "*" ? 1.3 : 1)), 5);
+        put(line[dx], CX - 2 + dx + shakeDX, TOP_Y - 6 + dy, scale(GOLD, pulse * (line[dx] === "*" ? 1.3 : 1)), 5);
     });
     const bowY = TOP_Y - 1, wob = Math.round(Math.sin(t * 3));
-    text(wob >= 0 ? "<<(@)>>" : "<(@)>", CX - (wob >= 0 ? 3 : 2), bowY, RIB_RED[1], 6);
+    text(wob >= 0 ? "<<(@)>>" : "<(@)>", CX - (wob >= 0 ? 3 : 2) + shakeDX, bowY, RIB_RED[1], 6);
     for (const side of [-1, 1]) for (let k = 1; k <= 6; k++) {
       const a = t * 3.5 - k * 0.7 + side;
-      put(Math.cos(a) > 0 ? "(" : ")", CX + side * (1 + k * 0.6) + Math.sin(a) * (0.4 + k * 0.35), bowY + k,
+      put(Math.cos(a) > 0 ? "(" : ")", CX + side * (1 + k * 0.6) + Math.sin(a) * (0.4 + k * 0.35) + shakeDX, bowY + k,
           lerp(RIB_RED[0], RIB_RED[1], 0.9 - k * 0.08), 6);
     }
 
-    // gifts & snowman
-    gift(CX - 27, BASE_Y + 1, BLUE, GOLD, 8, 4, 0, 0);
-    gift(CX + 17, BASE_Y + 1, RED, WHITE, 8, 4, 1.7, 0);
-    const hop = Math.max(0, Math.sin(t * 5)) * (Math.floor(t / 3) % 2);
-    gift(CX - 13, BASE_Y + 2, PAL.p, GOLD, 6, 3, 3.1, hop);
-    sprite(SNOWMAN[Math.floor(t * 3) % 2], COLS - 12, BASE_Y - 2, 2);
+    // 큰 선물 상자
+    for (const g of BIG_GIFTS) {
+      const hop = g.hop ? Math.max(0, Math.sin(t * 5)) * (Math.floor(t / 3) % 2) : 0;
+      const lift = hop > 0.5 ? -1 : 0;
+      for (let r = 0; r < g.h; r++) for (let c = 0; c < g.w; c++) {
+        const mid = c === (g.w >> 1) || r === (g.h >> 1);
+        put(mid ? "+" : "#", g.x + c, g.y + r + (r === 0 ? lift : 0), mid ? g.rib : g.box, 3);
+      }
+      text(["<o>", "(o)", "<o)", "(o>"][Math.floor(t * 4 + g.ph) % 4], g.x + (g.w >> 1) - 1, g.y - 1 + lift, g.rib, 3.1);
+      if (hop > 0.5) for (let k = 0; k < 3; k++) put(pick("*+."), g.x + Math.floor(rand(0, g.w)), g.y - 2 - k, GOLD, 3.2);
+    }
+    // 산타가 떨어뜨린 선물
+    for (const g of S.gifts) {
+      const x = Math.round(g.x), y = Math.round(g.y);
+      const wob = g.landed ? 0 : Math.round(Math.sin(g.age * 10) * 0.6);
+      text(wob > 0 ? "(o>" : wob < 0 ? "<o)" : "<o>", x, y, g.rib, 4.2);
+      put("[", x, y + 1, g.box, 4.1); put("+", x + 1, y + 1, g.rib, 4.1); put("]", x + 2, y + 1, g.box, 4.1);
+    }
 
-    // message (2 cells per letter, so Korean fits too)
+    // 눈사람 (캐롤 켜면 노래)
+    const singing = audio.on && Math.floor(t * 4) % 2 === 0;
+    const sm = SNOWMAN[Math.floor(t * 3) % 2].slice();
+    if (singing) sm[2] = SNOWMAN_SING;
+    sprite(sm, COLS - 12, BASE_Y - 2, 2);
+    for (const [x, y, age, ch] of S.notes) put(ch, x, y, scale(hsv((age * 0.3 + x * 0.05) % 1, 0.5, 1), Math.max(0, 1 - age / 2.2)), 7);
+
+    // 파티클 (눈보라)
+    for (const [x, y, , , life, ch, c] of S.particles) put(ch, x, y, scale(c, Math.min(1, life + 0.2)), 8);
+
+    // 문구
     const msg = [...MESSAGE];
     const shown = Math.min(msg.length, Math.floor(t * 3));
     const x0 = CX - msg.length;
@@ -311,6 +493,156 @@
     info.letters = msg.slice(0, shown).filter(c => c !== " ").length;
     info.total = msg.filter(c => c !== " ").length;
     info.santa = !!santa;
+    info.mode = mode;
+    let snowCells = 0;
+    for (let i = 0; i < N; i++) if (S.snowAcc[i] > 0.3) snowCells++;
+    info.snow = snowCells;
+  }
+
+  // ── audio: 오르골 캐롤 + 썰매 방울 ─────────────────
+  // 퍼블릭 도메인 캐롤. [음, 박자] / R = 쉼표, roots = 마디별 베이스 음
+  const SONGS = [
+    { name: "Jingle Bells", bpm: 168, bar: 4, pickup: 0, bells: true,
+      notes: "E4 1,E4 1,E4 2,E4 1,E4 1,E4 2,E4 1,G4 1,C4 1.5,D4 .5,E4 4,F4 1,F4 1,F4 1.5,F4 .5,F4 1,E4 1,E4 1,E4 .5,E4 .5,E4 1,D4 1,D4 1,E4 1,D4 2,G4 2," +
+             "E4 1,E4 1,E4 2,E4 1,E4 1,E4 2,E4 1,G4 1,C4 1.5,D4 .5,E4 4,F4 1,F4 1,F4 1,F4 1,F4 1,E4 1,E4 1,E4 .5,E4 .5,G4 1,G4 1,F4 1,D4 1,C4 4",
+      roots: "C C C C F C D G C C C C F C G C" },
+    { name: "We Wish You a Merry Christmas", bpm: 150, bar: 3, pickup: 1, bells: true,
+      notes: "D4 1,G4 1,G4 .5,A4 .5,G4 .5,F#4 .5,E4 1,E4 1,E4 1,A4 1,A4 .5,B4 .5,A4 .5,G4 .5,F#4 1,D4 1,D4 1," +
+             "B4 1,B4 .5,C5 .5,B4 .5,A4 .5,G4 1,E4 1,D4 .5,D4 .5,E4 1,A4 1,F#4 1,G4 3",
+      roots: "G C A D B C D G" },
+    { name: "Silent Night", bpm: 190, bar: 6, pickup: 0, bells: false,
+      notes: "G4 3,A4 1,G4 2,E4 6,G4 3,A4 1,G4 2,E4 6,D5 4,D5 2,B4 6,C5 4,C5 2,G4 6," +
+             "A4 4,A4 2,C5 3,B4 1,A4 2,G4 3,A4 1,G4 2,E4 6,A4 4,A4 2,C5 3,B4 1,A4 2,G4 3,A4 1,G4 2,E4 6," +
+             "D5 4,D5 2,F5 3,D5 1,B4 2,C5 6,E5 6,C5 2,G4 2,E4 2,G4 3,F4 1,D4 2,C4 12",
+      roots: "C C C C G G C C F F C C F F C C G G C C C G C C" },
+  ];
+  const NOTE_IDX = { C: 0, "C#": 1, D: 2, "D#": 3, E: 4, F: 5, "F#": 6, G: 7, "G#": 8, A: 9, "A#": 10, B: 11 };
+  const freqOf = (name, oct) => 440 * Math.pow(2, (NOTE_IDX[name] + (oct + 1) * 12 - 69) / 12);
+  const parseNote = s => { const m = /^([A-G]#?)(\d)$/.exec(s); return m ? freqOf(m[1], +m[2]) : 0; };
+
+  const audio = { ctx: null, on: false, song: 0, events: [], ei: 0, start: 0, end: 0, master: null, noise: null, timer: null, pending: [] };
+  function initAudio() {
+    if (audio.ctx) return;
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    audio.ctx = ctx;
+    const master = ctx.createGain(); master.gain.value = 0.55;
+    const delay = ctx.createDelay(); delay.delayTime.value = 0.27;
+    const fb = ctx.createGain(); fb.gain.value = 0.32;
+    const wet = ctx.createGain(); wet.gain.value = 0.3;
+    master.connect(ctx.destination); master.connect(delay); delay.connect(fb); fb.connect(delay); delay.connect(wet); wet.connect(ctx.destination);
+    audio.master = master;
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.3, ctx.sampleRate);
+    const d = buf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    audio.noise = buf;
+  }
+  function bell(freq, when, vol = 0.22, len = 1.4) {
+    const ctx = audio.ctx;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(vol, when + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0008, when + len);
+    g.connect(audio.master);
+    [[1, 1], [2, 0.35], [3.01, 0.12], [4.2, 0.05]].forEach(([m, v]) => {
+      const o = ctx.createOscillator(), og = ctx.createGain();
+      o.type = "sine"; o.frequency.value = freq * m; og.gain.value = v;
+      o.connect(og); og.connect(g); o.start(when); o.stop(when + len + 0.05);
+    });
+  }
+  function bass(freq, when, len) {
+    const ctx = audio.ctx, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = "triangle"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(0.16, when + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, when + len);
+    o.connect(g); g.connect(audio.master); o.start(when); o.stop(when + len + 0.05);
+  }
+  function jingle(when, vol = 0.08) {
+    const ctx = audio.ctx, src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = audio.noise; f.type = "bandpass"; f.frequency.value = 7500 + Math.random() * 1500; f.Q.value = 1.2;
+    g.gain.setValueAtTime(vol, when); g.gain.exponentialRampToValueAtTime(0.001, when + 0.09);
+    src.connect(f); f.connect(g); g.connect(audio.master); src.start(when); src.stop(when + 0.12);
+  }
+  // 효과음 (캐롤이 켜져 있을 때만)
+  const sfx = {
+    drop() { if (audio.on) bell(1568, audio.ctx.currentTime + 0.01, 0.06, 0.5); },
+    land() { if (audio.on) { const n = audio.ctx.currentTime; bell(1047, n, 0.08, 0.6); bell(1319, n + 0.07, 0.07, 0.6); } },
+    shake() {
+      if (!audio.on) return;
+      const n = audio.ctx.currentTime;
+      for (let i = 0; i < 10; i++) jingle(n + i * 0.04, 0.12);
+      [2093, 1760, 1568, 1319, 1047].forEach((f, i) => bell(f, n + i * 0.05, 0.05, 0.7));
+    },
+  };
+
+  function buildSong(i) {
+    const song = SONGS[i];
+    const ev = [];
+    let beat = 0;
+    for (const part of song.notes.split(",")) {
+      const [n, d] = part.trim().split(" ");
+      const dur = parseFloat(d);
+      if (n !== "R") ev.push({ b: beat, kind: "note", f: parseNote(n), d: dur });
+      beat += dur;
+    }
+    const total = beat;
+    song.roots.split(" ").forEach((r, k) => {
+      const b0 = song.pickup + k * song.bar;
+      if (b0 >= total) return;
+      const f = freqOf(r, 2);
+      ev.push({ b: b0, kind: "bass", f, d: song.bar });
+      if (song.bar >= 4) ev.push({ b: b0 + song.bar / 2, kind: "bass", f: f * 1.5, d: song.bar / 2 });
+      if (song.bar === 3) { ev.push({ b: b0 + 1, kind: "bass", f: f * 1.5, d: 1 }); ev.push({ b: b0 + 2, kind: "bass", f: f * 2, d: 1 }); }
+    });
+    if (song.bells) for (let b = 0; b < total; b += 1) ev.push({ b, kind: "jingle", v: b % 2 ? 0.035 : 0.06 });
+    ev.sort((a, b) => a.b - b.b);
+    audio.events = ev; audio.ei = 0;
+    audio.spb = 60 / song.bpm;
+    audio.start = audio.ctx.currentTime + 0.15;
+    audio.end = audio.start + total * audio.spb;
+  }
+  function tickAudio() {
+    if (!audio.on) return;
+    const ctx = audio.ctx, ahead = ctx.currentTime + 0.25;
+    while (audio.ei < audio.events.length) {
+      const e = audio.events[audio.ei], when = audio.start + e.b * audio.spb;
+      if (when > ahead) break;
+      if (e.kind === "note") { bell(e.f, when, 0.2, Math.max(0.9, e.d * audio.spb * 1.6)); audio.pending.push(when); }
+      else if (e.kind === "bass") bass(e.f, when, Math.max(0.3, e.d * audio.spb * 0.9));
+      else jingle(when, e.v);
+      audio.ei++;
+    }
+    // 산타가 지나가는 동안 썰매 방울
+    if (info.santa && !paused && Math.random() < 0.6) jingle(ctx.currentTime + 0.02, 0.05);
+    if (audio.ei >= audio.events.length && ctx.currentTime > audio.end + 1.2) {
+      audio.song = (audio.song + 1) % SONGS.length;
+      buildSong(audio.song);
+    }
+  }
+  // 음표가 실제로 울릴 때 눈사람 머리 위로 ♪
+  function spawnNotes() {
+    if (!audio.ctx) return;
+    const now = audio.ctx.currentTime;
+    while (audio.pending.length && audio.pending[0] <= now) {
+      audio.pending.shift();
+      S.notes.push([COLS - 6 + rand(-1, 2), BASE_Y - 3, 0, pick("♪♫")]);
+    }
+  }
+  const musicBtn = document.getElementById("musicBtn");
+  function setMusic(on) {
+    initAudio();
+    audio.ctx.resume && audio.ctx.resume();
+    audio.on = on;
+    musicBtn.setAttribute("aria-pressed", String(on));
+    musicBtn.textContent = on ? "♪ 캐롤 끄기" : "♪ 캐롤 켜기";
+    audio.pending = [];
+    if (on) {
+      buildSong(audio.song);
+      audio.master.gain.setTargetAtTime(0.55, audio.ctx.currentTime, 0.05);
+      audio.timer = audio.timer || setInterval(tickAudio, 50);
+    } else {
+      audio.master.gain.setTargetAtTime(0.0001, audio.ctx.currentTime, 0.05);
+      audio.events = [];
+    }
   }
 
   // ── drawing ─────────────────────────────────────
@@ -345,7 +677,7 @@
   // ── loop & controls ─────────────────────────────
   const hud = document.getElementById("hud"), stateEl = document.getElementById("state"), pauseBtn = document.getElementById("pauseBtn");
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let paused = false, prev = performance.now(), fps = 30, acc = 0;
+  let paused = false, prev = performance.now(), acc = 0, fps = 30;
   function setPaused(p) {
     paused = p;
     stateEl.textContent = p ? "paused" : "running";
@@ -354,36 +686,44 @@
   function frame(now) {
     const dt = Math.min(0.1, (now - prev) / 1000); prev = now;
     acc += dt;
-    if (acc >= 1 / 30) {               // 30 fps
-      if (dt > 0) fps = fps * 0.9 + (1 / Math.max(acc, 1e-3)) * 0.1;
-      if (!paused) update(acc);
+    if (acc >= 1 / 30) {
+      fps = fps * 0.9 + (1 / Math.max(acc, 1e-3)) * 0.1;
+      if (!paused) { update(Math.min(acc, 0.1)); spawnNotes(); }
       acc = 0;
       render(); draw();
-      hud.textContent = `rotation ${info.rot.toFixed(2).padStart(6)}° · lights ${info.lights} · letters ${info.letters}/${info.total} · santa ${info.santa ? "flying" : "-"} · ${fps.toFixed(0)} fps`;
+      const song = audio.on ? ` · ♪ ${SONGS[audio.song].name}` : "";
+      hud.textContent = `rotation ${info.rot.toFixed(2).padStart(6)}° · lights ${info.lights} (${info.mode}) · gifts ${S.gifts.filter(g => g.landed).length} · snow ${info.snow} · santa ${info.santa ? "flying" : "-"} · ${fps.toFixed(0)} fps${song}`;
     }
     requestAnimationFrame(frame);
   }
 
   document.getElementById("restartBtn").onclick = () => reset();
   pauseBtn.onclick = () => setPaused(!paused);
-  canvas.onclick = () => setPaused(!paused);
+  musicBtn.onclick = () => setMusic(!audio.on);
+  document.getElementById("nextBtn").onclick = () => {
+    audio.song = (audio.song + 1) % SONGS.length;
+    if (audio.on) { audio.master.gain.cancelScheduledValues(audio.ctx.currentTime); setMusic(true); }
+  };
+  canvas.onclick = () => shakeTree();
   document.getElementById("msgForm").onsubmit = e => {
     e.preventDefault();
-    const v = document.getElementById("msg").value.trim();
-    MESSAGE = v || "MERRY CHRISTMAS";
-    reset();
+    MESSAGE = document.getElementById("msg").value.trim() || "MERRY CHRISTMAS";
+    S.t = 0;   // 문구를 처음부터 다시 타이핑
   };
   addEventListener("keydown", e => {
     if (e.target.tagName === "INPUT") return;
     if (e.code === "Space") { e.preventDefault(); setPaused(!paused); }
     else if (e.key === "r" || e.key === "R") reset();
+    else if (e.key === "m" || e.key === "M") setMusic(!audio.on);
+    else if (e.key === "n" || e.key === "N") document.getElementById("nextBtn").click();
+    else if (e.key === "Enter") shakeTree();
   });
   addEventListener("resize", fit);
 
   reset();
   fit();
   if (document.fonts) document.fonts.ready.then(fit);
-  if (reduce) { S.t = 8; setPaused(true); }   // still frame with Santa in the sky
+  if (reduce) { for (let i = 0; i < 300; i++) update(1 / 30); render(); setPaused(true); }
   render(); draw();
   requestAnimationFrame(frame);
 })();
