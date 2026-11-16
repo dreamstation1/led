@@ -4025,7 +4025,7 @@ function renderGuideBar(){
     <div class="guide-speed">
       <div class="guide-speed-row">
         <span class="guide-speed-label">안내 음량</span>
-        <input type="range" id="guideVolumeSlider" min="0" max="1" step="0.05" value="${guideVolume}">
+        <input type="range" id="guideVolumeSlider" min="0" max="10" step="0.1" value="${guideVolume}">
         <span class="guide-speed-value" id="guideVolumeValue">${Math.round(guideVolume*100)}%</span>
       </div>
       <div class="guide-speed-row">
@@ -4410,11 +4410,11 @@ const audioMissCache=new Set();
 // guide bar controls both, whichever one ends up speaking a given segment.
 // Persisted the same way the other settings (theme, favorites, ...) are.
 let guideVolume=parseFloat(lsGet('guideVolume'));
-if(!(guideVolume>=0 && guideVolume<=1))guideVolume=1;
+if(!(guideVolume>=0 && guideVolume<=10))guideVolume=1; // up to 1000%: above 100% only the WebAudio path can go louder
 let guideRate=parseFloat(lsGet('guideRate'));
 if(!(guideRate>=0.5 && guideRate<=2))guideRate=1;
 function setGuideVolume(v){
-  guideVolume=Math.max(0,Math.min(1,v));
+  guideVolume=Math.max(0,Math.min(10,v));
   lsSet('guideVolume',guideVolume);
 }
 function setGuideRate(v){
@@ -4433,7 +4433,7 @@ function playClip(src){
     };
     try{
       a=new Audio(src);
-      a.volume=guideVolume;
+      a.volume=Math.min(1,guideVolume);
       a.playbackRate=guideRate;
       // Don't let a missing/slow file stall the announcement for seconds -
       // if it hasn't started playing shortly, treat it as missing and skip
@@ -4506,7 +4506,7 @@ function speakText(text,lang){
       const finish=ok=>{if(done)return;done=true;resolve(ok);};
       const u=new SpeechSynthesisUtterance(text);
       u.lang=lang;
-      u.volume=guideVolume;
+      u.volume=Math.min(1,guideVolume);
       u.rate=guideRate;
       u.onend=()=>finish(true);
       u.onerror=()=>finish(false);
@@ -4959,11 +4959,11 @@ function stopGuide(){
 <script src="./traffic-map-patch.js?v=82"></script>
 <script src="./utic-map-patch.js?v=73"></script>
 <script src="./ios-touch-patch.js?v=55"></script>
-<script src="./gapless-patch.js?v=67"></script>
+<script src="./gapless-patch.js?v=68"></script>
 <script src="./gyeonggi-stops-patch.js?v=49"></script>
 <script src="./subway-routing.js?v=3"></script>
 <script src="./subway-api.js?v=1"></script>
 <script src="./subway.js?v=5"></script>
-<script src="./bus-sound.js?v=1"></script>
+<script src="./bus-sound.js?v=2"></script>
 </body>
 </html>

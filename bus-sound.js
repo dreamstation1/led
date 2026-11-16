@@ -34,7 +34,7 @@
   let note = '';
   const say = t => { note = t; const el = document.getElementById('busSoundNote'); if (el) el.textContent = t; };
 
-  function setSession() { try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch (e) { /* older Safari */ } }
+  function setSession() { try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* older Safari */ } }   // same as the announcements: 'ambient' would mute them in silent mode
   function ctxUp() {      // inside a tap: browsers let a page start sound only from one
     setSession();
     if (!A.ctx) {
@@ -123,7 +123,7 @@
   }
 
   // ---------- the bus ----------
-  const R = { run: false, engineOn: false, v: 0, rpm: 0, load: 0, gear: 1, throttle: 0, braking: false, pax: 0, timers: [], belled: {}, squealed: false, lastIdx: -1, fed: 0 };
+  const R = { speaking: 0, run: false, engineOn: false, v: 0, rpm: 0, load: 0, gear: 1, throttle: 0, braking: false, pax: 0, timers: [], belled: {}, squealed: false, lastIdx: -1, fed: 0 };
   const later = (ms, f) => { const t = setTimeout(() => { R.timers = R.timers.filter(x => x !== t); if (R.run) f(); }, ms); R.timers.push(t); };
   const GEARS = [0, 105, 60, 39, 28];   // rpm per km/h in each gear of the automatic box
   let want = { v: 0, dist: Infinity, idx: -1 };
@@ -157,12 +157,16 @@
     if (L.road) { set(L.road.g.gain, Math.min(1, R.v / 45) * 0.9, 0.2); L.road.s.playbackRate.setTargetAtTime(0.75 + R.v / 120, A.ctx.currentTime, 0.2); }
     if (L.vib) set(L.vib.g.gain, Math.min(1, R.v / 50) * 0.5, 0.3);
     if (L.ret) set(L.ret.g.gain, !ev && R.braking && R.v > 12 ? 0.12 : 0, 0.15);
-    // the bell: a passenger presses it on the way to the next stop
-    if (want.idx >= 0 && !R.belled[want.idx] && want.dist < 260 && want.dist > 50 && R.v > 10) {
-      R.belled[want.idx] = (typeof currentGuideStops !== 'undefined' && currentGuideStops && want.idx >= currentGuideStops.length - 1) || Math.random() < 0.7 ? 'yes' : 'no';
-      if (R.belled[want.idx] === 'yes' && R.pax > 0) shot(bellName(), 'fx', 0.9);
-      else R.belled[want.idx] = 'no';
-    }
+    // the bell: like on a real bus, someone presses it once "이번 정류소는 ..." has been said (bell() after the
+    // announcement); if no announcement came by 120 m before the stop, then
+    if (want.idx >= 0 && !R.belled[want.idx] && want.dist < 120 && want.dist > 30 && R.v > 8 && !R.speaking) bell();
+  }
+  function bell() {
+    const idx = want.idx;
+    if (idx < 0 || R.belled[idx]) return;
+    const last = typeof currentGuideStops !== 'undefined' && currentGuideStops && idx >= currentGuideStops.length - 1;
+    R.belled[idx] = R.pax > 0 && (last || Math.random() < 0.7) ? 'yes' : 'no';
+    if (R.belled[idx] === 'yes') shot(bellName(), 'fx', 0.9);
   }
   // a timer, not animation frames: those stop while the page is not on screen
   let lastT = 0, ticker = 0;
@@ -208,7 +212,7 @@
       if (!cfg.on) return;
       this.stop(true);
       ctxUp();
-      R.run = true; R.pax = Math.round(rnd(3, 12)); R.belled = {}; R.v = 0; want = { v: 0, dist: Infinity, idx: -1 };
+      R.run = true; R.speaking = 0; R.pax = Math.round(rnd(3, 12)); R.belled = {}; R.v = 0; want = { v: 0, dist: Infinity, idx: -1 };
       say('버스 소리 불러오는 중...');
       A.loading = loadSounds().then(() => {
         if (!R.run) return;
@@ -266,6 +270,16 @@
       say('');
     }
   };
+  // the site's announcement starts/ends: the bus goes quieter under it (a real bus's speakers are above the engine),
+  // and after the next stop's announcement while driving, a passenger rings the bell
+  busSound.voice = on => {
+    R.speaking = Math.max(0, R.speaking + (on ? 1 : -1));
+    if (A.g.master) A.g.master.gain.setTargetAtTime(cfg.mix.master * (R.speaking ? 0.35 : 1), A.ctx.currentTime, R.speaking ? 0.08 : 0.6);
+    if (!on && !R.speaking && R.run && R.v > 8 && want.idx >= 0 && want.dist > 60 && !R.belled[want.idx]) {
+      const idx = want.idx;
+      later(rnd(1200, 4000), () => { if (want.idx === idx && !R.speaking) bell(); });
+    }
+  };
   busSound.state = () => ({ run: R.run, engineOn: R.engineOn, kmh: Math.round(R.v), rpm: Math.round(R.rpm), gear: R.gear, load: +R.load.toFixed(2), pax: R.pax, loops: Object.keys(A.loops).length, buffers: Object.keys(A.buf).length, ctx: A.ctx && A.ctx.state, timers: R.timers.length });
   window.busSound = busSound;
 
@@ -321,7 +335,7 @@
     document.querySelectorAll('#busSoundBox .mix input').forEach(r => {
       r.oninput = () => {
         const k = r.dataset.k; cfg.mix[k] = r.value / 100; $('bsV_' + k).textContent = r.value + '%'; save();
-        if (A.g[k]) A.g[k].gain.setTargetAtTime(cfg.mix[k], A.ctx.currentTime, 0.05);
+        if (A.g[k]) A.g[k].gain.setTargetAtTime(cfg.mix[k] * (k === 'master' && R.speaking ? 0.35 : 1), A.ctx.currentTime, 0.05);
       };
     });
   }

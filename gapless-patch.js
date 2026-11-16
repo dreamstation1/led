@@ -414,7 +414,9 @@
       src.playbackRate.value=Math.max(.1,rate||1);
       const gain=ctx.createGain();
       gain.gain.value=typeof guideVolume==='number'?guideVolume:1;
-      src.connect(gain);gain.connect(ctx.destination);
+      // 1000%까지: 크게 올려도 찢어지지 않게 리미터를 거친다
+      if(!ctx._guideLimiter){const l=ctx.createDynamicsCompressor();l.threshold.value=-6;l.knee.value=4;l.ratio.value=20;l.attack.value=.002;l.release.value=.2;l.connect(ctx.destination);ctx._guideLimiter=l;}
+      src.connect(gain);gain.connect(ctx._guideLimiter);
       let settled=false,startedAt=0;
       const finish=ok=>{
         if(settled)return;settled=true;clearTimeout(timer);
@@ -422,6 +424,7 @@
         ctx.removeEventListener?.('statechange',stateChanged);
         src.onended=null;
         if(!ok){try{src.stop();}catch(e){}}
+        try{window.busSound?.voice(false);}catch(e){}
         resolve(ok);
       };
       const abort=()=>finish(false);
@@ -436,7 +439,7 @@
       signal.addEventListener('abort',abort,{once:true});
       ctx.addEventListener?.('statechange',stateChanged);
       const timer=setTimeout(()=>finish(true),(out.duration/Math.max(.1,rate||1)+5)*1000);
-      try{startedAt=performance.now();src.start();}catch(e){finish(false);}
+      try{startedAt=performance.now();src.start();try{window.busSound?.voice(true);}catch(e){}}catch(e){finish(false);}
     });
   }
 
@@ -499,11 +502,12 @@
       if(signal.aborted||!window.speechSynthesis){resolve(false);return;}
       let settled=false,timer;
       const u=new SpeechSynthesisUtterance(seg.text);
-      u.lang=seg.lang;u.volume=guideVolume;u.rate=guideRate;
+      u.lang=seg.lang;u.volume=Math.min(1,guideVolume);u.rate=guideRate;
       const finish=ok=>{
         if(settled)return;settled=true;clearTimeout(timer);
         signal.removeEventListener('abort',cancel);
         u.onend=u.onerror=null;
+        try{window.busSound?.voice(false);}catch(e){}
         if(!ok)window.speechSynthesis.cancel();
         resolve(ok);
       };
@@ -511,7 +515,7 @@
       u.onend=()=>finish(true);u.onerror=cancel;
       signal.addEventListener('abort',cancel,{once:true});
       timer=setTimeout(cancel,Math.max(30000,seg.text.length*1000/Math.max(.1,guideRate)));
-      try{window.speechSynthesis.speak(u);}catch(e){cancel();}
+      try{window.busSound?.voice(true);window.speechSynthesis.speak(u);}catch(e){cancel();}
     });
   }
 
@@ -526,7 +530,7 @@
       const a=seg.audio||(primeEl||(primeEl=new Audio()));
       try{
         if(seg.url&&a.src!==seg.url){a.src=seg.url;a.load();}
-        a.playbackRate=rate;a.volume=typeof guideVolume==='number'?guideVolume:1;a.currentTime=0;
+        a.playbackRate=rate;a.volume=Math.min(1,typeof guideVolume==='number'?guideVolume:1);a.currentTime=0;
       }catch(e){resolve(false);return;}
       let settled=false,timer;
       const ended=()=>finish(true),failed=()=>finish(false);
@@ -534,6 +538,7 @@
         if(settled)return;settled=true;clearTimeout(timer);
         a.removeEventListener('ended',ended);a.removeEventListener('error',failed);
         signal.removeEventListener('abort',failed);
+        try{window.busSound?.voice(false);}catch(e){}
         if(!ok)a.pause();
         resolve(ok);
       };
@@ -541,7 +546,7 @@
       a.addEventListener('error',failed,{once:true});
       signal.addEventListener('abort',failed,{once:true});
       timer=setTimeout(failed,Math.max(5000,((Number.isFinite(a.duration)?a.duration/rate:30)+5)*1000));
-      try{const p=a.play();if(p&&p.catch)p.catch(failed);}catch(e){failed();}
+      try{window.busSound?.voice(true);const p=a.play();if(p&&p.catch)p.catch(failed);}catch(e){failed();}
     });
   }
 
