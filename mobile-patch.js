@@ -121,6 +121,7 @@
   try{
     startGuideSim=async function(){
       if(!currentGuideStops || currentGuideStops.length<2)return;
+      try{window.busSound?.prime();}catch(e){}
       if(!currentRoutePath || currentRoutePath.length<2){try{status.textContent='노선 경로를 불러온 뒤 다시 시뮬레이션해 주세요.';}catch(e){}return;}
       if(guideWatchId!=null){try{navigator.geolocation.clearWatch(guideWatchId);}catch(e){}guideWatchId=null;}
       if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}
@@ -141,10 +142,11 @@
       const initialRoadPoint=pointAtDistanceM(path,traveled);
       paintSimulationPosition(initialRoadPoint[0],initialRoadPoint[1]);
       status.textContent='첫 안내방송 완료 · 시뮬레이션을 시작합니다 (속도 '+fmtSpeed(simSpeedMultiplier)+')';
+      try{dwellUntil=performance.now()+(window.busSound?.depart?.(simSpeedMultiplier,startIdx)||0);}catch(e){}
       function tick(now){
         if(!guideActive){if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();guideSimRaf=null;return;}
         let dt=(now-lastTs)/1000;lastTs=now;if(!Number.isFinite(dt)||dt<0)dt=0;dt=Math.min(dt,1);
-        if(now<dwellUntil){currentSpeed=0;return;}
+        if(now<dwellUntil){currentSpeed=0;window.busSound?.feed(0,0,-1);return;}
         const multiplier=Math.max(0.1,simSpeedMultiplier||1),cruise=(typeof SIM_BASE_SPEED_MPS==='number'?SIM_BASE_SPEED_MPS:14)*multiplier;
         const accel=1.8*multiplier,decel=2.5*multiplier;
         const beforeIdx=guideNextIndex,nextArc=stopArcs[Math.min(beforeIdx,stopArcs.length-1)]??totalLen;
@@ -152,6 +154,7 @@
         if(remaining<=Math.max(braking,2))currentSpeed=Math.max(0,currentSpeed-decel*dt);
         else currentSpeed=Math.min(cruise,currentSpeed+accel*dt);
         traveled=Math.min(nextArc,traveled+Math.max(.15,currentSpeed)*dt);
+        window.busSound?.feed(currentSpeed/multiplier,remaining,beforeIdx);
         maybeAdaptiveSimAnnouncement(traveled,stopArcs);
         const pos=smoothSimPoint(path,traveled,stopArcs,beforeIdx);paintSimulationPosition(pos[0],pos[1]);
         if(traveled>=nextArc-.05){
@@ -165,7 +168,8 @@
             paintSimulationPosition(roadStop[0],roadStop[1]);
           }
           currentSpeed=0;
-          if(guideNextIndex<currentGuideStops.length)dwellUntil=now+(GUIDE_DWELL_MS/multiplier);
+          let soundDwell=0;try{soundDwell=window.busSound?.arrive?.(multiplier,beforeIdx>=currentGuideStops.length-1,beforeIdx)||0;}catch(e){}
+          if(guideNextIndex<currentGuideStops.length)dwellUntil=now+Math.max(GUIDE_DWELL_MS/multiplier,soundDwell);
         }
         if(traveled>=totalLen-0.01){const lastStop=currentGuideStops[currentGuideStops.length-1];if(lastStop)simPositionWithoutFixedRadius(lastStop.lat,lastStop.lng);const last=pointAtDistanceM(path,totalLen);paintSimulationPosition(last[0],last[1]);if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();guideSimRaf=null;return;}
       }
@@ -177,7 +181,7 @@
   }catch(e){console.error('simulation patch failed',e);}
   try{
     const baseStopGuide=stopGuide;
-    stopGuide=function(){simPrepareGeneration++;if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();clearTimeout(routeScrollResumeTimer);return baseStopGuide();};
+    stopGuide=function(){try{window.busSound?.stop();}catch(e){}simPrepareGeneration++;if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();clearTimeout(routeScrollResumeTimer);return baseStopGuide();};
   }catch(e){}
 
   /* ---------- audio handled only by gapless-patch.js ---------- */
