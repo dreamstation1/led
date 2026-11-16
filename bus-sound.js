@@ -123,7 +123,7 @@
   }
 
   // ---------- the bus ----------
-  const R = { speaking: 0, run: false, engineOn: false, v: 0, rpm: 0, load: 0, gear: 1, throttle: 0, braking: false, pax: 0, timers: [], belled: {}, squealed: false, lastIdx: -1, fed: 0 };
+  const R = { bellIdx: -1, bellAt: 0, speaking: 0, run: false, engineOn: false, v: 0, rpm: 0, load: 0, gear: 1, throttle: 0, braking: false, pax: 0, timers: [], belled: {}, squealed: false, lastIdx: -1, fed: 0 };
   const later = (ms, f) => { const t = setTimeout(() => { R.timers = R.timers.filter(x => x !== t); if (R.run) f(); }, ms); R.timers.push(t); };
   const GEARS = [0, 105, 60, 39, 28];   // rpm per km/h in each gear of the automatic box
   let want = { v: 0, dist: Infinity, idx: -1 };
@@ -157,9 +157,13 @@
     if (L.road) { set(L.road.g.gain, Math.min(1, R.v / 45) * 0.9, 0.2); L.road.s.playbackRate.setTargetAtTime(0.75 + R.v / 120, A.ctx.currentTime, 0.2); }
     if (L.vib) set(L.vib.g.gain, Math.min(1, R.v / 50) * 0.5, 0.3);
     if (L.ret) set(L.ret.g.gain, !ev && R.braking && R.v > 12 ? 0.12 : 0, 0.15);
-    // the bell: like on a real bus, someone presses it once "이번 정류소는 ..." has been said (bell() after the
-    // announcement); if no announcement came by 120 m before the stop, then
-    if (want.idx >= 0 && !R.belled[want.idx] && want.dist < 120 && want.dist > 30 && R.v > 8 && !R.speaking) bell();
+    // the bell: a passenger presses it at a random spot on the way, before, during or after the announcement.
+    // On pulling away from a stop, pick where: anywhere from just after leaving to 40 m before the next stop
+    if (want.idx >= 0 && R.bellIdx !== want.idx && Number.isFinite(want.dist)) {
+      R.bellIdx = want.idx;
+      R.bellAt = rnd(40, Math.max(60, want.dist * 0.9));
+    }
+    if (want.idx >= 0 && !R.belled[want.idx] && want.dist <= R.bellAt && want.dist > 25 && R.v > 3) bell();
   }
   function bell() {
     const idx = want.idx;
@@ -212,7 +216,7 @@
       if (!cfg.on) return;
       this.stop(true);
       ctxUp();
-      R.run = true; R.speaking = 0; R.pax = Math.round(rnd(3, 12)); R.belled = {}; R.v = 0; want = { v: 0, dist: Infinity, idx: -1 };
+      R.run = true; R.speaking = 0; R.bellIdx = -1; R.pax = Math.round(rnd(3, 12)); R.belled = {}; R.v = 0; want = { v: 0, dist: Infinity, idx: -1 };
       say('버스 소리 불러오는 중...');
       A.loading = loadSounds().then(() => {
         if (!R.run) return;
@@ -276,10 +280,6 @@
     R.speaking = Math.max(0, R.speaking + (on ? 1 : -1));
     // only the engine, AC and road go quieter: the bell, doors, card taps and 하차 sounds stay full
     ['eng', 'ac', 'road'].forEach(k => { if (A.g[k]) A.g[k].gain.setTargetAtTime(cfg.mix[k] * (R.speaking ? 0.35 : 1), A.ctx.currentTime, R.speaking ? 0.08 : 0.6); });
-    if (!on && !R.speaking && R.run && R.v > 8 && want.idx >= 0 && want.dist > 60 && !R.belled[want.idx]) {
-      const idx = want.idx;
-      later(rnd(1200, 4000), () => { if (want.idx === idx && !R.speaking) bell(); });
-    }
   };
   busSound.state = () => ({ run: R.run, engineOn: R.engineOn, kmh: Math.round(R.v), rpm: Math.round(R.rpm), gear: R.gear, load: +R.load.toFixed(2), pax: R.pax, loops: Object.keys(A.loops).length, buffers: Object.keys(A.buf).length, ctx: A.ctx && A.ctx.state, timers: R.timers.length });
   window.busSound = busSound;
