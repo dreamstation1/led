@@ -274,7 +274,8 @@
   // and after the next stop's announcement while driving, a passenger rings the bell
   busSound.voice = on => {
     R.speaking = Math.max(0, R.speaking + (on ? 1 : -1));
-    if (A.g.master) A.g.master.gain.setTargetAtTime(cfg.mix.master * (R.speaking ? 0.35 : 1), A.ctx.currentTime, R.speaking ? 0.08 : 0.6);
+    // only the engine, AC and road go quieter: the bell, doors, card taps and 하차 sounds stay full
+    ['eng', 'ac', 'road'].forEach(k => { if (A.g[k]) A.g[k].gain.setTargetAtTime(cfg.mix[k] * (R.speaking ? 0.35 : 1), A.ctx.currentTime, R.speaking ? 0.08 : 0.6); });
     if (!on && !R.speaking && R.run && R.v > 8 && want.idx >= 0 && want.dist > 60 && !R.belled[want.idx]) {
       const idx = want.idx;
       later(rnd(1200, 4000), () => { if (want.idx === idx && !R.speaking) bell(); });
@@ -335,7 +336,7 @@
     document.querySelectorAll('#busSoundBox .mix input').forEach(r => {
       r.oninput = () => {
         const k = r.dataset.k; cfg.mix[k] = r.value / 100; $('bsV_' + k).textContent = r.value + '%'; save();
-        if (A.g[k]) A.g[k].gain.setTargetAtTime(cfg.mix[k] * (k === 'master' && R.speaking ? 0.35 : 1), A.ctx.currentTime, 0.05);
+        if (A.g[k]) A.g[k].gain.setTargetAtTime(cfg.mix[k] * (['eng', 'ac', 'road'].includes(k) && R.speaking ? 0.35 : 1), A.ctx.currentTime, 0.05);
       };
     });
   }
