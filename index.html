@@ -876,6 +876,8 @@ body.light-ui .route{color:#fff}
   }
   #routeStops{min-height:88px;touch-action:pan-y}
   #guideOptions{max-height:1600px}
+  /* 접으면 높이도 0 - 위 id 규칙이 .collapsed 보다 우선해서, 접어도 안 보이는 빈 공간이 남아 정류소 목록을 가렸음 */
+  #guideOptions.collapsed{max-height:0}
   #plannerPanel,#favoritesPanel,#searchResults,#routeSearchResults,.planner-suggestions{
     -webkit-overflow-scrolling:touch;
     overscroll-behavior:contain;
