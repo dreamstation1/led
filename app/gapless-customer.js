@@ -137,10 +137,14 @@
   // 한국어 목소리 그룹(1/2): 같은 성우가 다른 시기에 녹음한 두 가지 목소리. 녹음이 있는 정류소는
   // 그 녹음의 그룹(voice-groups.json)을 알고 있고, 녹음이 없는 정류소는 노선에서 가장 가까운
   // 녹음 정류소(앞쪽 우선)와 같은 그룹 목소리로 AI 음성을 만들어 방송 중간에 목소리가 바뀌지 않게 한다.
+  // 신형 녹음 그룹(1)은 새로 학습한 신형 목소리(서버 voice=3, bus_jsk)로 읽는다. 화자 임베딩으로 비교하면
+  // 신형 목소리는 그룹 1 녹음에 더 가깝다(유사도 중앙값 0.37 vs 0.27). 주변에 녹음 정류소가 없으면
+  // 가장 흔한 신형으로 읽는다.
+  const NEW_STYLE_GROUP='1',NEW_STYLE_VOICE='3';
   let voiceGroupsPromise=null;
   function loadVoiceGroups(){
     voiceGroupsPromise=voiceGroupsPromise||fetch((window.LED_BASE||'')+'voice-groups.json').then(r=>r.ok?r.json():{})
-      .then(g=>new Map(Object.entries(g).map(([k,v])=>[k.replace(/\s*\(\d+\)$/,''),String(v)]))).catch(()=>new Map());
+      .then(g=>new Map(Object.entries(g).map(([k,v])=>[k.replace(/\s*\(\d+\)$/,''),String(v)===NEW_STYLE_GROUP?NEW_STYLE_VOICE:String(v)]))).catch(()=>new Map());
     return voiceGroupsPromise;
   }
   async function voiceGroupFor(name,stops){
@@ -149,9 +153,9 @@
     const src=stops||(typeof currentGuideStops!=='undefined'?currentGuideStops:[]);
     const list=src.map(s=>typeof s==='string'?s:(s.audioName||s.name));
     const i=list.indexOf(name);
-    if(i<0)return '';
+    if(i<0)return NEW_STYLE_VOICE;
     for(let d=1;d<list.length;d++)for(const j of [i-d,i+d])if(j>=0&&j<list.length&&g.has(list[j]))return g.get(list[j]);
-    return '';
+    return NEW_STYLE_VOICE;
   }
   async function ttsInfo(category,key){
     if(category==='phrases_en')return {text:key==='thisstopis'?'This stop is':key,lang:'en-US'};
@@ -271,7 +275,7 @@
     let say=(textLang==='en'?speakableEnglish(text):String(text||'')).replace(/\s*[.·]\s*/g,', ').replace(/(,\s*)+$/,'').trim();
     if(textLang==='ko')say=koreanizeNumbers(koreanizeLatin(say.split(', ').map(spaceLongKoreanName).join(', ')));
     if(!say||typeof fetch!=='function')return Promise.resolve(null);
-    voice=textLang==='ko'&&/^[12]$/.test(String(voice||''))?String(voice):'';
+    voice=textLang==='ko'&&/^[123]$/.test(String(voice||''))?String(voice):'';
     const k=textLang+'|'+voice+'|'+say;
     if(AiCache.has(k))return AiCache.get(k);
     if(Date.now()<aiDownUntil)return Promise.resolve(null);
