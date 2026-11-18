@@ -34,7 +34,10 @@
   let note = '';
   const say = t => { note = t; const el = document.getElementById('busSoundNote'); if (el) el.textContent = t; };
 
-  function setSession() { try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* older Safari */ } }   // same as the announcements: 'ambient' would mute them in silent mode
+  // iPhone: 'ambient' plays along with Apple Music etc. but the silent switch mutes it; 'playback' ignores the
+  // silent switch but stops the other app's music. The announcements (gapless-patch) read the same switch.
+  const mixMusic = () => { try { return localStorage.getItem('ledMixMusic') !== '0'; } catch (e) { return true; } };
+  function setSession() { try { if (navigator.audioSession) navigator.audioSession.type = mixMusic() ? 'ambient' : 'playback'; } catch (e) { /* older Safari */ } }
   function ctxUp() {      // inside a tap: browsers let a page start sound only from one
     setSession();
     if (!A.ctx) {
@@ -317,6 +320,7 @@
       <div class="row"><b>차량</b><select id="bsVeh">${opt(vehOpts, cfg.veh)}</select></div>
       <div class="row"><b>하차벨</b><select id="bsBell">${opt(bellOpts, cfg.bell)}</select><button type="button" class="guide-btn ghost" id="bsBellTry">▶ 듣기</button></div>
       <label class="row"><input type="checkbox" id="bsTagless"${cfg.tagless ? ' checked' : ''}> <span>태그리스 (타는 손님 5명 중 1명쯤)</span></label>
+      <label class="row"><input type="checkbox" id="bsMix"${mixMusic() ? ' checked' : ''}> <span>노래랑 같이 듣기 (아이폰 애플뮤직 등 안 끊김 · 대신 무음 스위치를 끄고 들어야 함)</span></label>
       <div class="mix">${GROUPS.map(([k, n]) => `<span>${n}</span><input type="range" min="0" max="1000" step="10" value="${Math.round(cfg.mix[k] * 100)}" data-k="${k}"><span id="bsV_${k}">${Math.round(cfg.mix[k] * 100)}%</span>`).join('')}</div>
       <div class="note" id="busSoundNote">${esc(note)}</div>
     </div>`;
@@ -328,6 +332,7 @@
     $('bsVeh').onchange = () => { cfg.veh = $('bsVeh').value; save(); if (R.run) say('차량은 다음 시뮬레이션부터 바뀝니다'); };
     $('bsBell').onchange = () => { cfg.bell = $('bsBell').value; save(); };
     $('bsTagless').onchange = () => { cfg.tagless = $('bsTagless').checked; save(); };
+    $('bsMix').onchange = () => { try { localStorage.setItem('ledMixMusic', $('bsMix').checked ? '1' : '0'); } catch (e) {} setSession(); };
     $('bsBellTry').onclick = async () => {
       ctxUp(); await vehReady;
       if (!A.buf[bellName()]) { say('불러오는 중...'); await getOne(bellName()); say(''); }

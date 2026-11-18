@@ -1,6 +1,10 @@
 (function(){
   if(window.__gaplessQueueV69)return;
   window.__gaplessQueueV69=true;
+  // 아이폰 오디오 모드를 첫 소리(무음 깨우기, 시뮬 유지용 무음 루프 포함)보다 먼저 정해 둔다:
+  // 기본은 애플뮤직 등 다른 앱 노래와 섞기(ambient). '노래랑 같이 듣기'를 끄면 playback.
+  const setLedAudioSession=()=>{try{if(navigator.audioSession)navigator.audioSession.type=localStorage.getItem('ledMixMusic')!=='0'?'ambient':'playback';}catch(e){}};
+  setLedAudioSession();
 
   // Explicit user choices take precedence over recordings, imports and AI fallback.
   const STOP_AUDIO_RULES=Object.assign(Object.create(null),{
@@ -323,8 +327,9 @@
     if(actx)return actx;
     const C=window.AudioContext||window.webkitAudioContext;
     if(!C)return null;
-    // 아이폰 무음 스위치가 켜져 있어도 안내방송이 들리게 (Safari 17+)
-    try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(e){}
+    // 아이폰: '노래랑 같이 듣기'(기본)면 애플뮤직과 섞어서(ambient, 무음 스위치엔 꺼짐),
+    // 끄면 무음 스위치가 켜져 있어도 들리게(playback, 대신 다른 앱 노래는 멈춤). 설정은 bus-sound.js 패널.
+    try{if(navigator.audioSession)navigator.audioSession.type=localStorage.getItem('ledMixMusic')!=='0'?'ambient':'playback';}catch(e){}
     try{actx=new C();}catch(e){actx=null;}
     return actx;
   }
@@ -636,6 +641,7 @@
   }
 
   function unlock(){
+    setLedAudioSession();
     // 사용자가 화면을 만질 때 Web Audio를 깨워둔다 (아이폰은 탭 안에서만 허용)
     const ctx=audioCtx();
     if(ctx){
