@@ -3444,6 +3444,35 @@ async function ledConnectWifi(){
   if(ledConnected)status.textContent=ok?('전광판에 와이파이로 연결됐어요 ('+host+').'):('전광판('+host+')에 연결하지 못했어요 - 같은 와이파이에 붙어있는지, IP가 맞는지 확인해주세요.');
   renderGuideBar();
 }
+// 인터넷 전광판: no hardware - the same sign drawn in the browser (board/web-board.html in a floating window,
+// web-board-float.js). It takes the very same commands (CFG:/R:/I:) over a BroadcastChannel; the last of each is kept
+// so a board opened (or pinned, or reopened) mid-trip asks with 'hello' and gets the route and stop at once.
+let ledWebChannel=null;const ledWebLast={};
+function ledWebSend(line){
+  const k=String(line).slice(0,2);
+  if(k==='R:')delete ledWebLast['I:'];
+  if(k==='CF'||k==='R:'||k==='I:')ledWebLast[k]=String(line);
+  try{ledWebChannel&&ledWebChannel.postMessage({type:'led-line',line:String(line)});}catch(e){return false;}
+  return true;
+}
+window.ledWebBoardWanted=()=>ledConnected&&ledMode==='web';
+async function ledConnectWeb(){
+  if(!('BroadcastChannel' in window)){status.textContent='이 브라우저는 인터넷 전광판을 지원하지 않아요.';return;}
+  if(!ledWebChannel){
+    ledWebChannel=new BroadcastChannel('led-web-board');
+    ledWebChannel.onmessage=e=>{
+      const d=e.data||{};
+      if(d.type==='hello')ledWebChannel.postMessage({type:'led-state',lines:['CF','R:','I:'].map(k=>ledWebLast[k]).filter(Boolean)});
+      else if(d.type==='style'&&/^(1111|2222|3333|4444)$/.test(d.code)){ledStyle=d.code;ledWebLast.CF='CFG:'+d.code;renderGuideBar();}
+    };
+  }
+  ledMode='web';ledConnected=true;
+  if(window.ledWebBoard)window.ledWebBoard.open();
+  await ledSendLine('CFG:'+ledStyle);
+  if(currentGuideStops&&currentGuideStops.length>=2)await ledUploadRoute();
+  status.textContent='인터넷 전광판을 띄웠어요. 안내를 시작하면 정류장이 나와요. 핀을 누르면 다른 창 위에 고정돼요.';
+  renderGuideBar();
+}
 function ledWifiUrl(){
   let value=String(ledWifiHost||'').trim();
   if(!/^https?:\/\//i.test(value))value='http://'+value;
@@ -3463,6 +3492,7 @@ function openLedWifiAddress(){
 }
 async function ledDisconnect(){
   const wasUsb=ledMode==='usb';
+  if(ledMode==='web'&&window.ledWebBoard)window.ledWebBoard.close();
   ledConnected=false;
   ledMode=null;
   if(wasUsb){
@@ -3528,6 +3558,7 @@ function ledSendLine(line){
 }
 async function ledSendLineRaw(line){
   if(!ledConnected)return false;
+  if(ledMode==='web')return ledWebSend(line);
   if(ledMode==='bridge'){
     try{return await ledBridgeSend(line);}catch(e){status.textContent=e.message;ledConnected=false;ledMode=null;renderGuideBar();return false;}
   }
@@ -4043,10 +4074,11 @@ function renderGuideBar(){
     <div class="guide-led">
       <div class="guide-speed-row">
         <span class="guide-speed-label">실물 전광판</span>
-        <span class="guide-led-status">${ledConnected?('● 연결됨 ('+(ledMode==='bridge'?'휴대폰 브리지':ledMode==='wifi'?'WiFi':'USB')+')'):'○ 연결 안 됨'}</span>
+        <span class="guide-led-status">${ledConnected?('● 연결됨 ('+(ledMode==='web'?'인터넷 전광판':ledMode==='bridge'?'휴대폰 브리지':ledMode==='wifi'?'WiFi':'USB')+')'):'○ 연결 안 됨'}</span>
       </div>
       ${ledConnected?`
       <div class="guide-speed-row">
+        ${ledMode==='web'?'<button type="button" id="ledWebShowBtn" class="guide-btn">전광판 창 열기</button>':''}
         <button type="button" id="ledConnectBtn" class="guide-btn ghost">연결 해제</button>
       </div>
       <details class="led-log" ${ledLogOpen?'open':''} ontoggle="ledLogOpen=this.open"><summary>전광판 통신 기록 (→ 보낸 명령 · ← 전광판 응답)</summary><pre id="ledLogBox">${esc(ledLog.join('\n'))}</pre></details>
@@ -4058,6 +4090,10 @@ function renderGuideBar(){
         <input type="text" id="ledWifiHostInput" placeholder="전광판 IP (예: 192.168.0.42)" value="${ledWifiHost}" style="flex:1;min-width:0;">
         <button type="button" id="ledWifiConnectBtn" class="guide-btn">와이파이로 연결</button>
         <button type="button" id="ledWifiOpenBtn" class="guide-btn ghost">전광판 주소 열기</button>
+      </div>
+      <div class="guide-speed-row">
+        <button type="button" id="ledWebConnectBtn" class="guide-btn">인터넷 전광판</button>
+        <span class="guide-led-status">실물 없이 화면에 전광판 띄우기 (핀 · 닫기)</span>
       </div>
       <div class="guide-led-status">iPhone/iPad는 Web Serial USB를 지원하지 않습니다. 같은 Wi‑Fi에서 IP 연결을 사용하세요.</div>
       `}
@@ -4087,6 +4123,10 @@ function renderGuideBar(){
   if(wifiBtn)wifiBtn.onclick=ledConnectWifi;
   const wifiOpenBtn=document.getElementById('ledWifiOpenBtn');
   if(wifiOpenBtn)wifiOpenBtn.onclick=openLedWifiAddress;
+  const webBtn=document.getElementById('ledWebConnectBtn');
+  if(webBtn)webBtn.onclick=ledConnectWeb;
+  const webShowBtn=document.getElementById('ledWebShowBtn');
+  if(webShowBtn)webShowBtn.onclick=()=>window.ledWebBoard&&window.ledWebBoard.open();
   document.getElementById('ledStyleButtons').querySelectorAll('[data-ledstyle]').forEach(btn=>{
     btn.onclick=()=>{
       ledSetStyle(btn.dataset.ledstyle);
@@ -4971,5 +5011,6 @@ function stopGuide(){
 <script src="./subway-api.js?v=1"></script>
 <script src="./subway.js?v=5"></script>
 <script src="./bus-sound.js?v=5"></script>
+<script src="./web-board-float.js?v=1"></script>
 </body>
 </html>
