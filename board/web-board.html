@@ -211,15 +211,26 @@ async function responsiveDelay(ms) {
   }
   return interrupt;
 }
-// n steps of one pixel or one fade level, each msPerStep long; steps are skipped rather than slowed if the browser lags
+// n steps of one pixel or one fade level, each msPerStep long; steps are skipped rather than slowed if the browser lags.
+// Each step lasts a whole number of screen frames (18 ms -> 1 frame at 60 Hz, 35 ms -> 2): a pixel step of 18 ms on a
+// 16.7 ms screen used to land on some frames twice and skip others, so scrolling looked jerky (2026-11-20).
+let frameMs = 1000 / 60;
+(function measureFrames() {
+  let n = 0, t0 = 0;
+  const tick = t => { if (n === 0) t0 = t; if (++n < 31) requestAnimationFrame(tick); else if (t > t0) frameMs = (t - t0) / 30; };
+  requestAnimationFrame(tick);
+})();
+const nextFrame = () => new Promise(r => { requestAnimationFrame(r); setTimeout(r, 100); });   // hidden page: no frames
 async function steps(n, msPerStep, each) {
+  const per = Math.max(1, Math.round(msPerStep / frameMs));    // frames per step
   const t0 = performance.now();
   let done = -1;
   while (done < n - 1) {
     if (interrupt) return true;
-    const i = Math.min(n - 1, Math.floor((performance.now() - t0) / msPerStep));
+    const frames = Math.round((performance.now() - t0) / frameMs);
+    const i = Math.min(n - 1, Math.floor(frames / per));
     if (i !== done) { done = i; each(i); matrixShow(); }
-    await later(Math.max(1, Math.min(16, msPerStep)));
+    if (done < n - 1) await nextFrame();
   }
   return interrupt;
 }

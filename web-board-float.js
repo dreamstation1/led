@@ -3,7 +3,7 @@
 // (games included) where the browser has Document Picture-in-Picture, else in its own popup window. The map page talks to
 // it with the sign's own commands over the BroadcastChannel 'led-web-board' (index.html, ledMode 'web').
 (function () {
-  const KEY = 'ledWebBoardFloat', MIN_W = 200, MIN_H = 74, BAR = 26, SRC = 'board/web-board.html';
+  const KEY = 'ledWebBoardFloat', MIN_W = 200, MIN_H = 74, BAR = 26, SRC = 'board/web-board.html?v=2';
   let box = null, frame = null, pip = null, pop = null;
   let at = { x: 140, y: 64, w: 400, h: 100 + BAR };
   try { at = Object.assign(at, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { /* the default place */ }
