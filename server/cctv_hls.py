@@ -70,6 +70,9 @@ def start_stream(ch, camera_id):
             # Android decoders tolerate but iOS native HLS rejects. Normalize
             # every feed to an iPhone-compatible H.264 transport stream.
             '-map', '0:v:0', '-an',
+            # UTIC feeds report 1000 fps (RTMP time base 1/1000): without vfr ffmpeg filled every 1 ms with a copy
+            # (2000 frames, 6.7 MB per 2 s segment) and browsers showed 0:00 (2026-11-20). Keep the camera's own frames.
+            '-vsync', 'vfr',
             '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency',
             '-profile:v', 'baseline', '-level:v', '3.1', '-pix_fmt', 'yuv420p',
             '-g', '50', '-keyint_min', '50', '-sc_threshold', '0', '-threads', '2',
