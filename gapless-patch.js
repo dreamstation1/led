@@ -228,25 +228,83 @@
     for(const [re,to] of EN_ABBR)s=s.replace(re,to);
     return s.replace(/\s*&\s*/g,' and ').replace(/\s*\/\s*/g,', ').replace(/[()]/g,' ').replace(/\s+/g,' ').trim();
   }
-  // 긴 정류소명을 붙여 보내면 모델이 엉뚱한 곳에서 쉰다 ("서울과학수사연구.소입구").
-  // 끝에 붙은 흔한 단어(입구, 연구소, 사거리...)를 떼어 띄어 보내면 그 경계에서 쉰다.
-  // 짧은 이름은 원래대로 보낸다 (서버에 이미 만들어 둔 음성을 그대로 쓰도록).
-  const KO_TAIL_WORDS=['초등학교','중학교','고등학교','대학교','주민센터','사거리','삼거리','오거리','네거리','교차로','연구소','연구원','정류장','차고지','우체국','경찰서','소방서','아파트','입구','출구','후문','정문','종점','기점','시장','공원','병원','구청','시청','단지','상가','센터','앞'];
+  // 긴 정류소명을 붙여 보내면 모델이 엉뚱한 곳에서 쉰다 ("서울과학수사연구.소입구", "마천이동주민센터").
+  // 실제 AI 음성을 받아쓰기로 채점해 고른 규칙(2026-11): 낱말 경계마다 띄어 보내면 그 자리에서 끊어 읽는다.
+  //  - 숫자와 단위: 마천2동주민센터 -> 마천 2동 주민센터, 가양역1번출구 -> 가양역 1번 출구
+  //  - 앞의 지역명(구, 지하철역 이름): 송파레이크파크 -> 송파 레이크파크
+  //  - 중간의 시설/브랜드 낱말: 효창파크푸르지오아파트 -> 효창파크 푸르지오 아파트
+  //  - 끝의 낱말(입구, 정문, 아파트 브랜드...): 잠실우성 -> 잠실 우성
+  const KO_AREAS='가락시장 강남구청 강동구청 건대입구 걸포북변 검단오류 경기광주 경마공원 경찰병원 공항시장 광교중앙 굽은다리 금천구청 김포공항 남동구청 동대입구 둔촌오륜 마곡나루 마포구청 매탄권선 몽촌토성 버티고개 부천시청 부평구청 부평시장 삼성중앙 상왕십리 서해구청 석촌고분 성균관대 소래포구 솔밭공원 송파나루 수원시청 수지구청 숙대입구 시민공원 시흥능곡 시흥대야 시흥시청 신길온천 양천구청 양천향교 여의나루 예술회관 온양온천 운정중앙 인천가좌 인천논현 인천시청 잠실나루 잠실새내 장승배기 태릉입구 평내호평 평택지제 하남시청 하남풍산 한성백제 홍대입구 가오리 가재울 가천대 강남대 개포동 개화산 검바위 경복궁 고려대 곤지암 관악산 광나루 광운대 광화문 광흥창 구반포 구파발 굴봉산 굴포천 김량장 김유정 까치산 까치울 낙성대 남구로 남위례 남춘천 남태령 노량진 녹사평 답십리 대공원 대성리 대야미 도림천 도봉산 독립문 독바위 돌곶이 동구릉 동대문 동두천 동묘앞 동인천 둔촌동 망월사 명지대 무악재 백양리 보라매 봉은사 봉화산 불암산 사가정 삼각지 상록수 상월곡 상일동 서강대 서대문 서동탄 서빙고 서울숲 서정리 선바위 선유도 선정릉 소새울 소요산 수락산 수리산 신금호 신논현 신대방 신도림 신목동 신반포 신방화 신설동 신연수 신용산 신이문 신중동 아차산 압구정 애오개 여의도 연신내 영등포 오류동 오목교 오목천 오산대 오이도 왕십리 외대앞 용마산 우장산 운길산 원인재 의정부 이태원 인덕원 인하대 임진강 장한평 정발산 제기동 제물포 천마산 청량리 충무로 충정로 킨텍스 퇴계원 학여울 한강진 한대앞 한양대 호구포 화랑대 가능 가양 가정 가좌 가평 간석 갈매 갈산 강남 강동 강매 강변 강북 강서 강일 강촌 개롱 개봉 개화 거여 검암 계산 계양 고덕 고색 고잔 고진 고촌 곡산 곤제 공덕 공릉 과천 관악 광교 광명 광진 교대 구래 구로 구룡 구리 구산 구성 구의 구일 국수 군자 군포 귤현 금곡 금릉 금정 금천 금촌 금호 기흥 길동 길음 남성 남영 내방 노들 노원 녹번 녹양 녹천 논현 능곡 다산 달미 달월 당곡 당산 당정 대곡 대림 대방 대청 대치 대화 대흥 덕계 덕소 덕정 도곡 도농 도봉 도심 도원 도화 독산 독정 동막 동백 동수 동암 동오 동작 동천 동춘 동탄 두정 둔전 등촌 뚝섬 마곡 마두 마들 마산 마석 마장 마전 마천 마포 만수 망우 망원 망포 매교 매봉 먹골 면목 명동 명일 명학 모란 목동 문래 문산 문정 미금 미사 미아 박촌 반월 반포 발곡 발산 방배 방이 방학 방화 배방 백마 백석 백운 범계 범골 별내 병점 보문 보산 보정 보평 복정 봉명 봉천 부개 부발 부천 부평 불광 사당 사릉 사리 사우 사평 산곡 산본 산성 삼가 삼동 삼성 삼송 삼양 삼전 상갈 상계 상도 상동 상봉 상수 상천 상현 새말 새절 샛강 서울 서원 서초 서현 석계 석남 석수 석촌 선릉 선부 선학 성남 성동 성복 성북 성수 성환 세류 세마 소사 솔샘 송내 송도 송산 송정 송탄 송파 수내 수색 수서 수원 수유 수진 숭의 시우 시청 신갈 신길 신내 신답 신당 신림 신사 신원 신정 신창 신천 신촌 신포 신풍 신현 신흥 쌍문 쌍용 아라 아산 아신 아현 안국 안산 안암 안양 암사 야당 야목 야탑 약수 양수 양원 양재 양정 양주 양천 양촌 양평 어룡 어정 어천 언주 여주 역곡 역삼 역촌 연수 연천 염창 영종 영통 오금 오남 오리 오빈 오산 옥수 온수 완정 왕길 용답 용두 용문 용산 운서 운양 운연 운정 운천 원당 원덕 원시 원종 원흥 월계 월곡 월곶 월롱 은평 응봉 응암 의왕 이대 이매 이수 이천 이촌 인천 일산 일원 임학 자양 작전 잠실 잠원 장기 장암 장지 전곡 정릉 정왕 정자 종각 종로 주안 주엽 죽전 중계 중곡 중동 중랑 중앙 중화 증미 증산 지석 지축 지평 지행 직산 진위 진접 창동 창신 천안 천왕 천호 철산 청구 청담 청명 청산 청평 초당 초월 초지 춘의 춘천 탄현 탑석 탕정 태평 파주 판교 팔당 평촌 평택 풍무 풍산 하계 학동 한남 한티 합정 행당 행신 혜화 홍제 화계 화곡 화서 화정 회기 회룡 회현 효자 흑석 흥선'.split(' ');
+  const KO_INFIX=['행정복지센터','종합복지관','사회복지관','공영차고지','힐스테이트','디지털단지','월드컵파크','새마을금고','주민센터','복지센터','체육센터','문화센터','안전센터','치안센터',
+    '어린이집','국민은행','하나은행','신한은행','우리은행','농협은행','근린공원','초등학교','고등학교','래미안','푸르지오','아이파크','롯데캐슬','e편한세상','이편한세상','편한세상','센트레빌',
+    '두산위브','호반써밋','리버파크','복지관','경로당','파출소','주유소','보건소','세무서','백화점','터미널','박물관','주차장','하이츠','프라자','플라자','센트럴',
+    '이마트','수영장','소극장','호텔','자동차','중고교','우체국','경찰서','소방서','도서관','아파트','중학교','대학교','사거리','삼거리','오거리','네거리','교차로','차고지'];
+  const KO_TAIL=['정문','후문','동문','남문','북문','서문','동측','서측','남측','북측','방향','초교','입구','단지','시장','공원','병원','구청','시청','상가','센터','교회','성당','여고','여중','앞','역',
+    '현대','우성','삼성','한신','극동','대림','삼익','벽산','신동아','한양','주공','쌍용','동아','럭키','진로','대우','코오롱','자이'];
+  const KO_NO_SPLIT_AFTER_AREA=/^(역|동|구|시|군|읍|면|로|길|가|리|천|산|교|대|시장|공원|입구|사거리|삼거리|오거리|네거리)/;
+  const KO_DATES={'4~19':'사일구','3~1':'삼일','5~18':'오일팔','6~25':'육이오','8~15':'팔일오'};
+  const hangulCount=s=>(s.match(/[가-힣]/g)||[]).length;
+  function koSplitInfix(tok){
+    if(KO_INFIX.includes(tok))return [tok];
+    for(const w of KO_INFIX){
+      const i=tok.indexOf(w);
+      if(i<0)continue;
+      const a=tok.slice(0,i),b=tok.slice(i+w.length);
+      if(a&&hangulCount(a)<2&&a!=='앞')continue;   // 구로남초등학교 -> 구로 남초등학교
+      if(b==='역')continue;                         // 고속터미널역은 한 낱말
+      return [...(a?koSplitInfix(a):[]),w,...(b?koSplitInfix(b):[])];
+    }
+    return [tok];
+  }
+  function koSplitTail(tok){
+    if(KO_INFIX.includes(tok)||KO_TAIL.includes(tok))return [tok];
+    const words=[];let rest=tok;
+    for(let guard=0;guard<3;guard++){
+      if(hangulCount(rest)<4)break;
+      const w=KO_TAIL.find(t=>rest.endsWith(t)&&hangulCount(rest)-hangulCount(t)>=2);
+      if(!w||w==='역')break;                        // OO역은 한 낱말
+      words.unshift(w);rest=rest.slice(0,-w.length);
+    }
+    return [rest,...words];
+  }
+  function koSplitArea(tok){
+    const a=KO_AREAS.find(x=>tok.startsWith(x));   // 가장 긴 지역명 (양천향교역은 양천+향교역이 아님)
+    if(!a||tok.length-a.length<2)return [tok];
+    const after=tok.slice(a.length);
+    if(/^동[가-힣]{2,}/.test(after)&&!KO_NO_SPLIT_AFTER_AREA.test(after.slice(1)))return [a+'동',after.slice(1)];
+    if(KO_NO_SPLIT_AFTER_AREA.test(after))return [tok];
+    return [a,after];
+  }
   function spaceLongKoreanName(part){
     // '어린이공원'은 붙이든 '금실 어린이공원'으로 띄우든 '어린, 이공원'으로 끊어 읽어서
     // '어린이 공원'으로 나눠 보낸다 (금실어린이공원 -> 금실 어린이 공원; 테스트에서 끊김 위치가 바로잡힘).
     part=part.replace(/(.)어린이공원/g,'$1 어린이 공원').replace(/^어린이공원/,'어린이 공원');
     let tail='',rest=part;
     const m=rest.match(/입니다[.!]?$/);if(m){tail=m[0];rest=rest.slice(0,-m[0].length);}
-    if((rest.match(/[가-힣]/g)||[]).length<8||/\s/.test(rest))return part;
-    const words=[];
-    for(let guard=0;guard<4;guard++){
-      const exit=rest.match(/\d+번출구$/);
-      const w=exit?exit[0]:KO_TAIL_WORDS.find(t=>rest.endsWith(t)&&rest.length-t.length>=2);
-      if(!w)break;
-      words.unshift(w);rest=rest.slice(0,-w.length);
-    }
-    return words.length?[rest,...words].join(' ')+tail:part;
+    rest=rest.replace(/e-편한세상/g,'e편한세상');
+    const spaced=/\s/.test(rest);
+    rest=rest.replace(/(^|[^\d])(4~19|3~1|5~18|6~25|8~15)(?!\d)/g,(m,p,d)=>p+KO_DATES[d]+' ').trim();   // 4.19 -> 사일구
+    rest=rest.replace(/(\d)\s*[-~]\s*(?=\d)/g,'$1, ');                                                  // 8.9단지, 2-9단지 -> 8, 9단지
+    if(hangulCount(rest)<5||spaced)return rest+tail;
+    rest=rest.replace(/(제)?(\d+)(번출구|출구|단지|차|가동|동|가역|가|호선|번지|층|호|번|길|지구|블럭|공구|대학|관|교|거리|통)?/g,(m,j,d,u,off,all)=>{
+      const area=j&&KO_AREAS.some(a=>a.endsWith('제')&&(all.slice(0,off)+'제').endsWith(a));          // 홍제2동 = 홍제 + 2동
+      return (area?'제 ':' '+(j||''))+d+(/출구/.test(u||'')?'번 출구':(u||''))+' ';
+    }).trim();
+    rest=rest.replace(/^([A-Za-z]{2,})(?=[가-힣]{2})/,'$1 ');   // DMC래미안 -> DMC 래미안
+    rest=rest.replace(/^([가-힣]) (?=\d)/,'$1');                 // 창2동은 붙여서
+    let toks=rest.split(/\s+/);
+    toks=toks.flatMap((t,i)=>i===0?koSplitArea(t):[t]);
+    toks=toks.flatMap(t=>/^\d/.test(t)?[t]:koSplitInfix(t));
+    toks=toks.flatMap(t=>/^\d/.test(t)?[t]:koSplitTail(t));
+    toks=toks.flatMap(t=>/^[가-힣]{2,}앞$/.test(t)&&!KO_TAIL.includes(t.slice(0,-1))?[t.slice(0,-1),'앞']:[t]);
+    toks=toks.filter(Boolean).reduce((o,t)=>(t==='역'&&o.length?(o[o.length-1]+=t):o.push(t),o),[]);
+    return toks.join(' ').replace(/ ,/g,',')+tail;
+  }
+  // 정류소명을 AI에 보낼 꼴로: (가상) 같은 표시는 읽지 않고, 나머지 괄호는 따로 끊어 읽고,
+  // 4.19는 '사일구'로, 8.9단지 / 2-9단지는 '팔, 구단지'처럼 쉼표로 끊는다 (띄어쓰기만 하면 잘못 읽었음)
+  function koStopSayPrep(s){
+    return String(s||'').replace(/\s*\((가상|중|임시|미정차|구|마을|주|광역버스)\)\s*/g,'')
+      .replace(/\s*\(([^)]*)\)\s*/g,'.$1.').replace(/[.\s]+(?=입니다$)/,'').replace(/(\d)\.(?=\d)/g,'$1~').replace(/\s*,\s*/g,'.');
   }
   const AiCache=new Map();
   let aiDownUntil=0;
@@ -277,7 +335,7 @@
   function aiSynth(text,lang,source,voice){
     const textLang=/^en/i.test(lang||'')?'en':'ko';
     // '가양역1번출구.우성아파트' 의 점은 읽을 때 쉼표처럼 살짝 끊어 읽게
-    let say=(textLang==='en'?speakableEnglish(text):String(text||'')).replace(/\s*[.·]\s*/g,', ').replace(/(,\s*)+$/,'').trim();
+    let say=(textLang==='en'?speakableEnglish(text):koStopSayPrep(text)).replace(/\s*[.·]\s*/g,', ').replace(/(,\s*)+$/,'').trim();
     if(textLang==='ko')say=koreanizeNumbers(koreanizeLatin(say.split(', ').map(spaceLongKoreanName).join(', ')));
     if(!say||typeof fetch!=='function')return Promise.resolve(null);
     voice=textLang==='ko'&&/^[123]$/.test(String(voice||''))?String(voice):'';
