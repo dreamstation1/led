@@ -10,12 +10,13 @@
   const STOP_AUDIO_RULES=Object.assign(Object.create(null),{
     '선유도역롯데웰푸드':{english:'off'},
     '롯데마트맥스영등포점':{english:'off'},
-    '삼환아파트':{korean:'tts'},
     '영등포시장역4번출구':{korean:'tts',english:'tts'}
   });
   const stopAudioKey=name=>String(name||'').replace(/\s*\(1\)$/, '').replace(/[\s.·ㆍ]/g,'');
   const skipStopEnglish=name=>STOP_AUDIO_RULES[stopAudioKey(name)]?.english==='off';
   const forceStopEnglishTts=name=>['auto','tts'].includes(STOP_AUDIO_RULES[stopAudioKey(name)]?.english);
+  // 'ad': this stop's "(1)" clip is its own ad, played right after the Korean with no "This stop is" (only this stop)
+  const stopEnglishIsAd=name=>STOP_AUDIO_RULES[stopAudioKey(name)]?.english==='ad';
   function suppressStopRecording(category,key){
     if(category!=='stops')return false;
     const rule=STOP_AUDIO_RULES[stopAudioKey(key)];
@@ -28,7 +29,7 @@
       for(const [name,rule] of Object.entries(data.stops)){if(!rule||typeof rule!=='object')continue;
         const target=STOP_AUDIO_RULES[stopAudioKey(name)]||(STOP_AUDIO_RULES[stopAudioKey(name)]={});
         if(['auto','tts'].includes(rule.korean))target.korean=rule.korean;
-        if(['auto','tts','off'].includes(rule.english))target.english=rule.english;
+        if(['auto','tts','off','ad'].includes(rule.english))target.english=rule.english;
       }
     };
     try{apply(JSON.parse(localStorage.getItem('ledAudioSettings.v1')||'null'));}catch(e){}
@@ -684,7 +685,7 @@
     if(!next){
       // 종점: no ads. A recorded English clip longer than a name has its ad/notice built in, so it is left out there;
       // the AI/TTS English (name only) stays and gets no extra after it (2026-11-20).
-      if(!skipEnglish){
+      if(!skipEnglish&&!stopEnglishIsAd(stopKey)){
         const englishStop=await resolveSegment('stops',stopKey+' (1)',false,waitForAi);
         const withAd=englishStop&&englishStop.kind==='audio'&&!englishStop.ai&&englishStop.buf&&englishStop.buf.duration>4.5;
         if(englishStop&&englishStop.kind!=='missing'&&!withAd)resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);
@@ -694,6 +695,11 @@
       return resolved;
     }
     if(skipEnglish)return resolved;
+    if(stopEnglishIsAd(stopKey)){       // the recorded ad straight after the Korean; nothing when it is missing
+      const ad=await resolveSegment('stops',stopKey+' (1)',true);
+      if(ad.kind==='audio')resolved.push(ad);
+      return resolved;
+    }
     const englishStop=await resolveSegment('stops',stopKey+' (1)',true);
     if(englishStop.kind==='audio'){
       resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);

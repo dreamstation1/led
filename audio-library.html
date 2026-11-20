@@ -39,4 +39,4 @@ document.querySelectorAll('.filter').forEach(b=>b.onclick=()=>{document.querySel
 window.AudioLibrary={getFiles:()=>files,setFiles:x=>{resetPlaying();decoded.clear();audioRevision=Date.now();files=x;render();},render,stop:resetPlaying};
 fetch('./audio-files.json',{cache:'no-cache'}).then(r=>r.json()).then(x=>{files=x;render()}).catch(()=>{summary.textContent='목록을 불러오지 못했습니다.'});
 })();
-</script><script src="./audio-library-manager.js?v=1"></script></body></html>
+</script><script src="./audio-library-manager.js?v=2"></script></body></html>

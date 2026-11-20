@@ -12,7 +12,7 @@ function filename(station,language,original){
  if(!['korean','english'].includes(language))throw Error('언어를 선택해 주세요.');
  return name+(language==='english'?' (1)':'')+'.'+ext;
 }
-function settingsCopy(settings){const out={version:1,stops:Object.create(null)};if(settings?.version===1)for(const [name,rule] of Object.entries(settings.stops||{})){const r={};if(['auto','tts'].includes(rule?.korean))r.korean=rule.korean;if(['auto','tts','off'].includes(rule?.english))r.english=rule.english;out.stops[normalize(name)]=r;}return out;}
+function settingsCopy(settings){const out={version:1,stops:Object.create(null)};if(settings?.version===1)for(const [name,rule] of Object.entries(settings.stops||{})){const r={};if(['auto','tts'].includes(rule?.korean))r.korean=rule.korean;if(['auto','tts','off','ad'].includes(rule?.english))r.english=rule.english;out.stops[normalize(name)]=r;}return out;}
 function planChanges(snapshot,{uploads=new Map(),deletes=new Set(),rules=new Map()}){
  const files=new Set(snapshot.files),settings=settingsCopy(snapshot.settings),tree=[];
  for(const name of deletes){if(!EXT.test(name)||/[\\/]/.test(name))throw Error('잘못된 음원 경로입니다.');if(files.has(name)){files.delete(name);tree.push({path:'audio/'+name,mode:'100644',type:'blob',sha:null});}const info=fileInfo(name),key=normalize(info.station),rule=settings.stops[key]||(settings.stops[key]={});if(rule[info.language]!=='off')rule[info.language]='tts';}
@@ -20,7 +20,7 @@ function planChanges(snapshot,{uploads=new Map(),deletes=new Set(),rules=new Map
   for(const old of files){const prior=fileInfo(old);if(old!==name&&prior.station===info.station&&prior.language===info.language){files.delete(old);tree.push({path:'audio/'+old,mode:'100644',type:'blob',sha:null});}}
   files.add(name);
  }
- for(const {station,language,mode} of rules.values()){if(!(language==='korean'?['auto','tts']:['auto','tts','off']).includes(mode))throw Error('잘못된 안내 설정입니다.');const key=normalize(station);(settings.stops[key]||(settings.stops[key]={}))[language]=mode;}
+ for(const {station,language,mode} of rules.values()){if(!(language==='korean'?['auto','tts']:['auto','tts','off','ad']).includes(mode))throw Error('잘못된 안내 설정입니다.');const key=normalize(station);(settings.stops[key]||(settings.stops[key]={}))[language]=mode;}
  return {files:[...files].sort((a,b)=>a.localeCompare(b,'ko')),settings,tree};
 }
 function decodeText(base64){const raw=atob(base64.replace(/\s/g,''));return new TextDecoder().decode(Uint8Array.from(raw,c=>c.charCodeAt(0)));}
@@ -72,18 +72,18 @@ function pending(){
  const item=(text,remove,preview)=>{const li=document.createElement('li'),label=document.createElement('span'),button=document.createElement('button');label.textContent=text;button.type='button';button.textContent='취소';button.disabled=busy;button.onclick=remove;li.append(label,button);if(preview){const audio=document.createElement('audio');audio.controls=true;audio.preload='metadata';audio.src=preview;li.append(audio);}$('pendingList').append(li);};
  for(const [name] of uploads)item('추가·교체: '+name,()=>{uploads.delete(name);URL.revokeObjectURL(previews.get(name));previews.delete(name);pending();},previews.get(name));
  for(const name of deletes)item('녹음 삭제 → TTS: '+name,()=>{deletes.delete(name);pending();});
- for(const [key,r] of rules)item(r.station+' · '+(r.language==='english'?'영어':'한국어')+' → '+({auto:'녹음 우선',tts:'TTS',off:'영어 안내 안 함'})[r.mode],()=>{rules.delete(key);pending();});
+ for(const [key,r] of rules)item(r.station+' · '+(r.language==='english'?'영어':'한국어')+' → '+({auto:'녹음 우선',tts:'TTS',off:'영어 안내 안 함',ad:'광고만 (This stop is 없이)'})[r.mode],()=>{rules.delete(key);pending();});
  $('saveAudioChanges').disabled=busy||!count()||!store.token;$('discardAudioChanges').disabled=busy||!count();library.render();
 }
 function queueDelete(name){if(busy)return;uploads.delete(name);if(previews.has(name)){URL.revokeObjectURL(previews.get(name));previews.delete(name);}deletes.add(name);$('manageDetails').open=true;pending();status('변경 목록에 추가했습니다. 저장하면 이 녹음이 삭제됩니다.');}
 function decorateRow(row,info){
  const x=fileInfo(info.file);row.classList.toggle('pending-delete',deletes.has(info.file));
  const select=document.createElement('select');select.className='manager-mode';select.setAttribute('aria-label',x.station+' '+(x.language==='english'?'영어':'한국어')+' 안내 방식');
- for(const [value,label] of [['auto','녹음 우선'],['tts','TTS로 안내'],...(x.language==='english'?[['off','영어 안내 안 함']]:[])]){const o=document.createElement('option');o.value=value;o.textContent=label;select.append(o);}select.value=mode(x.station,x.language);select.disabled=busy;select.onchange=()=>{setRule(x.station,x.language,select.value);$('manageDetails').open=true;pending();};row.querySelector('.meta').append(select);
+ for(const [value,label] of [['auto','녹음 우선'],['tts','TTS로 안내'],...(x.language==='english'?[['off','영어 안내 안 함'],['ad','광고만 (This stop is 없이)']]:[])]){const o=document.createElement('option');o.value=value;o.textContent=label;select.append(o);}select.value=mode(x.station,x.language);select.disabled=busy;select.onchange=()=>{setRule(x.station,x.language,select.value);$('manageDetails').open=true;pending();};row.querySelector('.meta').append(select);
  const del=document.createElement('button');del.type='button';del.className='action manage-delete';del.textContent=deletes.has(info.file)?'취소':'삭제';del.title='녹음 삭제 · TTS로 대체';del.setAttribute('aria-label',x.station+' '+(x.language==='english'?'영어':'한국어')+' 녹음 '+del.textContent);del.disabled=busy;del.onclick=()=>{if(deletes.has(info.file)){deletes.delete(info.file);pending();}else queueDelete(info.file);};row.append(del);
 }
 root.AudioLibraryManager={decorateRow};
-function fillModes(){const selected=$('manageMode').value;$('manageMode').replaceChildren();for(const [value,label] of [['auto','녹음 우선'],['tts','TTS로 안내'],...($('manageLanguage').value==='english'?[['off','영어 안내 안 함']]:[])]){const o=document.createElement('option');o.value=value;o.textContent=label;$('manageMode').append(o);}$('manageMode').value=mode($('manageStation').value,$('manageLanguage').value)||selected;}
+function fillModes(){const selected=$('manageMode').value;$('manageMode').replaceChildren();for(const [value,label] of [['auto','녹음 우선'],['tts','TTS로 안내'],...($('manageLanguage').value==='english'?[['off','영어 안내 안 함'],['ad','광고만 (This stop is 없이)']]:[])]){const o=document.createElement('option');o.value=value;o.textContent=label;$('manageMode').append(o);}$('manageMode').value=mode($('manageStation').value,$('manageLanguage').value)||selected;}
 $('manageLanguage').onchange=fillModes;$('manageStation').addEventListener('change',fillModes);
 $('manageFile').onchange=()=>{const f=$('manageFile').files[0];if(f&&!$('manageStation').value){const info=fileInfo(f.name);$('manageStation').value=info.station;$('manageLanguage').value=info.language;fillModes();}};
 $('queueMode').onclick=()=>{const station=$('manageStation').value.trim();try{filename(station,$('manageLanguage').value,'check.wav');setRule(station,$('manageLanguage').value,$('manageMode').value);pending();status('안내 설정을 변경 목록에 추가했습니다.');}catch(e){status(e.message,true);}};
