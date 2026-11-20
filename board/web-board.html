@@ -5,502 +5,65 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>인터넷 전광판</title>
 <style>
-/* The inside of the bus: always a black panel, whatever the system theme */
-html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
+/* the sign as a thing: a dark metal case with a bevel and four screws, the lamp board set into it */
+html, body { height: 100%; margin: 0; background: #0b0c0e; overflow: hidden; }
 body { display: flex; align-items: center; justify-content: center; }
+#case { position: relative; box-sizing: border-box; border-radius: 6px;
+  background: linear-gradient(180deg, #34373c 0%, #1d1f23 45%, #16181b 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18), inset 0 -2px 3px rgba(0,0,0,.6), 0 2px 8px rgba(0,0,0,.6); }
+#case::before { content: ""; position: absolute; inset: 0; border-radius: 6px; pointer-events: none;
+  background:
+    radial-gradient(circle at var(--s) var(--s), #6d7178 0 1.6px, #2a2c30 2.4px, transparent 3px),
+    radial-gradient(circle at calc(100% - var(--s)) var(--s), #6d7178 0 1.6px, #2a2c30 2.4px, transparent 3px),
+    radial-gradient(circle at var(--s) calc(100% - var(--s)), #6d7178 0 1.6px, #2a2c30 2.4px, transparent 3px),
+    radial-gradient(circle at calc(100% - var(--s)) calc(100% - var(--s)), #6d7178 0 1.6px, #2a2c30 2.4px, transparent 3px); }
+#well { background: #000; padding: 2px; border-radius: 2px;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.9), 0 0 0 1px #070707, 0 1px 0 1px rgba(255,255,255,.06); }
 canvas { display: block; }
 </style>
 </head>
 <body>
-<canvas id="led" aria-label="버스 실내 전광판" role="img"></canvas>
-<script src="ride_data.js"></script>
+<div id="case"><div id="well"><canvas id="led" aria-label="버스 실내 전광판" role="img"></canvas></div></div>
 <script>
-// Copied from BusLive web/ride.html (2026-11-20) for the LED site's 인터넷 전광판. omsiledcode.ino moved to the browser, styles 1111 to 4444: same fonts, same coordinates, same scene order and waits.
-// Names follow the firmware. What it draws to the 128x32 panel goes to fb here.
-const W = 128, H = 32;
-const COLOR = { white: [255, 255, 255], green: [0, 255, 0], cyan: [0, 180, 255], yellow: [255, 255, 0], red: [255, 0, 0], orange: [255, 120, 0],
-  oldGreen: [35, 110, 0], oldRed: [255, 60, 0], oldYellow: [220, 120, 0] };
-let gStyle = '1111';      // 1111 new, 2222 old, 3333 yellow bottom, 4444 flat
-function mapStyleColor(c) {
-  if (gStyle === '4444') return c === COLOR.white ? COLOR.yellow : c;
-  if (gStyle === '1111') return c;
-  if (c === COLOR.white) return COLOR.orange;
-  if (c === COLOR.yellow) return COLOR.oldYellow;
-  if (c === COLOR.green) return COLOR.oldGreen;
-  if (c === COLOR.red) return COLOR.oldRed;
-  return c;
-}
-function stationBotColor() {
-  if (gStyle === '1111') return COLOR.white;
-  if (gStyle === '3333') return COLOR.oldYellow;
-  if (gStyle === '4444') return COLOR.yellow;
-  return mapStyleColor(COLOR.white);
-}
-const SCROLL_DELAY = 8, AD_FAST_SCROLL_DELAY = 7;
-const DRAW_MS = 10;      // the board also spends time drawing each step; added to every scroll delay
-const AD_SHOW_PCT = 40, AD_COUNT = 6;
-const STATION_TITLE_Y = 12;
-const ADS = window.RIDE_DATA.ads;
-
-/* ---- u8g2 fonts ---- */
-function makeFont(b64) {
-  const f = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-  return { f, bits0: f[2], bits1: f[3], bitsW: f[4], bitsH: f[5], bitsX: f[6], bitsY: f[7], bitsD: f[8],
-    startA: (f[17] << 8) | f[18], startLowerA: (f[19] << 8) | f[20], startUni: (f[21] << 8) | f[22], cache: new Map() };
-}
-let HANGUL_FONT = null, ASCII_FONT = null, fontId = null, enFontId = null;
-const made = {};
-async function loadFont(id) {       // each font is its own file, fetched when chosen
-  if (made[id]) return made[id];
-  if (!window.RIDE_FONTS || !window.RIDE_FONTS[id]) {
-    const ok = await new Promise(done => {
-      const tag = document.createElement('script');
-      tag.src = `ridefont_${id}.js`;
-      tag.onload = () => done(true);
-      tag.onerror = () => done(false);
-      document.head.appendChild(tag);
-    });
-    if (!ok) return null;
+// The drawing runs in web-board-worker.js on its own thread (OffscreenCanvas), so the busy map page next to it cannot
+// make the scrolling stall. Browsers without that run the same file here.
+(function () {
+  const W = 128, H = 32, V = '?v=3';
+  const cv = document.getElementById('led'), box = document.getElementById('case');
+  function measure() {
+    const dpr = devicePixelRatio || 1;
+    const pad = Math.max(5, Math.round(Math.min(innerWidth, innerHeight * 4) * 0.022));
+    box.style.padding = pad + 'px';
+    box.style.setProperty('--s', Math.max(3, pad / 2) + 'px');
+    const aw = innerWidth - 2 * pad - 4, ah = innerHeight - 2 * pad - 4;
+    const k = Math.max(2, Math.floor(Math.min(aw * dpr / W, ah * dpr / H)));
+    cv.style.width = W * k / dpr + 'px'; cv.style.height = H * k / dpr + 'px';
+    return { w: W * k, h: H * k };
   }
-  return made[id] = makeFont(window.RIDE_FONTS[id]);
-}
-async function useFonts(id, en) {
-  const kr = await loadFont(id), latin = await loadFont(en);
-  if (kr) { HANGUL_FONT = kr; fontId = id; }
-  if (latin) { ASCII_FONT = latin; enFontId = en; }
-}
-
-function glyphAt(F, enc) {
-  const font = F.f;
-  let p = 23;
-  if (enc <= 255) {
-    if (enc >= 97) p += F.startLowerA; else if (enc >= 65) p += F.startA;
-    for (;;) {
-      if (font[p + 1] === 0) break;
-      if (font[p] === enc) return p + 2;
-      p += font[p + 1];
-    }
+  let send;
+  const size = measure();
+  if (cv.transferControlToOffscreen && window.Worker) {
+    const worker = new Worker('web-board-worker.js' + V);
+    const off = cv.transferControlToOffscreen();
+    worker.postMessage({ type: 'init', canvas: off, base: '', w: size.w, h: size.h }, [off]);
+    send = m => worker.postMessage(m);
   } else {
-    p += F.startUni;
-    let t = p, e;
-    do {
-      p += (font[t] << 8) | font[t + 1];
-      e = (font[t + 2] << 8) | font[t + 3];
-      t += 4;
-    } while (e < enc);
-    for (;;) {
-      e = (font[p] << 8) | font[p + 1];
-      if (e === 0) break;
-      if (e === enc) return p + 3;
-      p += font[p + 2];
-    }
+    const tag = document.createElement('script');
+    tag.src = 'web-board-worker.js' + V;
+    tag.onload = () => window.webBoard.start(cv, '', size.w, size.h);
+    document.head.appendChild(tag);
+    send = m => { if (!window.webBoard) return; if (m.type === 'size') window.webBoard.fit(m.w, m.h); else if (m.type === 'style') window.webBoard.setStyle(m.code); };
   }
-  return -1;
-}
-
-function glyph(F, enc) {
-  if (F.cache.has(enc)) return F.cache.get(enc);
-  const p0 = glyphAt(F, enc);
-  let g = null;
-  if (p0 >= 0) {
-    const font = F.f;
-    let p = p0, pos = 0;
-    const u = cnt => {
-      let v = font[p] >> pos, n = pos + cnt;
-      if (n >= 8) { p++; v = (v | (font[p] << (8 - pos))) & 0xFF; n -= 8; }
-      pos = n;
-      return v & ((1 << cnt) - 1);
-    };
-    const s = cnt => u(cnt) - (1 << (cnt - 1));
-    const w = u(F.bitsW), h = u(F.bitsH), x = s(F.bitsX), y = s(F.bitsY), d = s(F.bitsD), runs = [];
-    if (w > 0) {
-      let lx = 0, ly = 0;
-      const decode = (len, fg) => {
-        let cnt = len;
-        for (;;) {
-          const rem = w - lx, cur = cnt < rem ? cnt : rem;
-          if (cur > 0 && fg) runs.push([lx, ly, cur]);
-          if (cnt < rem) break;
-          cnt -= rem; lx = 0; ly++;
-        }
-        lx += cnt;
-      };
-      for (;;) {
-        const a = u(F.bits0), c = u(F.bits1);
-        do { decode(a, false); decode(c, true); } while (u(1) !== 0);
-        if (ly >= h) break;
-      }
-    }
-    g = { w, h, x, y, d, runs };
-  }
-  F.cache.set(enc, g);
-  return g;
-}
-
-/* ---- the panel ---- */
-const led = document.getElementById('led'), ctx = led.getContext('2d');
-const small = Object.assign(document.createElement('canvas'), { width: W, height: H }), sctx = small.getContext('2d');
-const img = sctx.createImageData(W, H), fb = img.data;
-let mask = null;
-
-function matrixFillScreen() { for (let i = 0; i < fb.length; i += 4) { fb[i] = fb[i + 1] = fb[i + 2] = 0; fb[i + 3] = 255; } }
-function matrixShow() {
-  sctx.putImageData(img, 0, 0);
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(small, 0, 0, led.width, led.height);
-  if (mask) ctx.drawImage(mask, 0, 0);
-}
-function fit() {
-  const ratio = devicePixelRatio || 1, fitted = Math.min(innerWidth / W, innerHeight / H);
-  const k = Math.max(2, Math.ceil(fitted * ratio));      // whole lamps inside; the page scale makes it fill any window size
-  led.width = W * k; led.height = H * k;
-  led.style.width = W * fitted + 'px'; led.style.height = H * fitted + 'px';
-  mask = document.createElement('canvas');
-  mask.width = led.width; mask.height = led.height;
-  const m = mask.getContext('2d');
-  m.fillStyle = '#000';
-  m.fillRect(0, 0, mask.width, mask.height);
-  m.globalCompositeOperation = 'destination-out';
-  m.beginPath();
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { m.moveTo(x * k + k, y * k + k / 2); m.arc(x * k + k / 2, y * k + k / 2, k * 0.46, 0, 7); }
-  m.fill();
-  matrixShow();
-}
-
-function print(F, str, x, y, col) {
-  for (const ch of String(str)) {
-    const g = glyph(F, ch.codePointAt(0) & 0xFFFF);
-    if (!g) continue;
-    const ox = x + g.x, oy = y - (g.h + g.y);
-    for (const [lx, ly, len] of g.runs) {
-      const py = oy + ly;
-      if (py < 0 || py >= H) continue;
-      for (let i = 0; i < len; i++) {
-        const px = ox + lx + i;
-        if (px < 0 || px >= W) continue;
-        const q = (py * W + px) * 4;
-        fb[q] = col[0]; fb[q + 1] = col[1]; fb[q + 2] = col[2];
-      }
-    }
-    x += g.d;
-  }
-}
-const isAsciiText = s => /^[\x00-\x7f]*$/.test(s);
-function printBold(str, x, y, col) { print(isAsciiText(str) ? ASCII_FONT : HANGUL_FONT, str, x, y, col); }
-function getUTF8Width(str) {         // always in the Hangul font, as printBold leaves it set on the board
-  let w = 0, dx = 0, gw = 0, gx = 0;
-  for (const ch of String(str)) {
-    const g = glyph(HANGUL_FONT, ch.codePointAt(0) & 0xFFFF);
-    dx = 0;
-    if (g) { dx = g.d; gw = g.w; gx = g.x; }
-    w += dx;
-  }
-  if (gw !== 0) { w -= dx; w += gw; w += gx; }
-  return w;
-}
-const dim = (c, f) => [c[0] * f, c[1] * f, c[2] * f];
-
-/* ---- time: everything below stops at once when a new announcement comes ---- */
-let interrupt = false;
-const later = ms => new Promise(r => setTimeout(r, ms));
-async function responsiveDelay(ms) {
-  const end = performance.now() + ms;
-  while (performance.now() < end) {
-    if (interrupt) return true;
-    await later(Math.min(16, end - performance.now()));
-  }
-  return interrupt;
-}
-// n steps of one pixel or one fade level, each msPerStep long; steps are skipped rather than slowed if the browser lags.
-// Each step lasts a whole number of screen frames (18 ms -> 1 frame at 60 Hz, 35 ms -> 2): a pixel step of 18 ms on a
-// 16.7 ms screen used to land on some frames twice and skip others, so scrolling looked jerky (2026-11-20).
-let frameMs = 1000 / 60;
-(function measureFrames() {
-  let n = 0, t0 = 0;
-  const tick = t => { if (n === 0) t0 = t; if (++n < 31) requestAnimationFrame(tick); else if (t > t0) frameMs = (t - t0) / 30; };
-  requestAnimationFrame(tick);
+  addEventListener('resize', () => { const s = measure(); send({ type: 'size', w: s.w, h: s.h }); });
+  // the style as on the real board: type 1111 to 4444 and Enter. It starts with the next stop
+  let typed = '';
+  addEventListener('keydown', e => {
+    if (/^[0-9]$/.test(e.key)) { typed = (typed + e.key).slice(-4); return; }
+    if (e.key !== 'Enter') return;
+    send({ type: 'style', code: typed });
+    typed = '';
+  });
 })();
-const nextFrame = () => new Promise(r => { requestAnimationFrame(r); setTimeout(r, 100); });   // hidden page: no frames
-async function steps(n, msPerStep, each) {
-  const per = Math.max(1, Math.round(msPerStep / frameMs));    // frames per step
-  const t0 = performance.now();
-  let done = -1;
-  while (done < n - 1) {
-    if (interrupt) return true;
-    const frames = Math.round((performance.now() - t0) / frameMs);
-    const i = Math.min(n - 1, Math.floor(frames / per));
-    if (i !== done) { done = i; each(i); matrixShow(); }
-    if (done < n - 1) await nextFrame();
-  }
-  return interrupt;
-}
-
-/* ---- scenes ---- */
-let last = null;      // what is on the panel now, as a function of the vertical offset (for transitionUp)
-const isStationSceneTitle = t => t === '이번정류소' || t === '다음정류소' || t === 'THIS STOP' || t === 'NEXT STOP';
-const stationTitleY = t => isStationSceneTitle(t) ? STATION_TITLE_Y : 13;
-const stationCenterX = w => Math.max(0, Math.floor((W - w) / 2));
-const scrollEndX = w => W - 2 - w;
-const stationPartialLeftX = w => Math.floor((4 + stationCenterX(w)) / 2);
-const stationStaticNameX = w => gStyle === '1111' ? stationCenterX(w) : w >= 120 ? 0 : stationPartialLeftX(w);
-
-function sceneDraw(top, bot, tCol, botCol, x, f = 1, topX = stationCenterX(getUTF8Width(top))) {
-  const topY = stationTitleY(top);
-  return o => {
-    printBold(top, topX, topY + o, dim(tCol, f));
-    printBold(bot, x, 28 + o, dim(botCol, f));
-  };
-}
-function show(draw, o = 0) { matrixFillScreen(); draw(o); matrixShow(); }
-
-async function fadeEffect(top, bot, tCol, botCol, x, out, delayMs = 30) {
-  return steps(16, delayMs, i => {
-    matrixFillScreen();
-    sceneDraw(top, bot, tCol, botCol, x, (out ? 15 - i : i) / 15)(0);
-  });
-}
-
-// the part of showScene after the scene has come in
-async function sceneBody(top, bot, tCol, botCol, moveOut, x0) {
-  const botW = getUTF8Width(bot);
-  let x = x0;
-  last = sceneDraw(top, bot, tCol, botCol, x);
-  if (botW > W) {
-    if (await responsiveDelay(1500)) return true;
-    const end = scrollEndX(botW);
-    if (await steps(4 - end + 1, SCROLL_DELAY + DRAW_MS, i => {
-      x = 4 - i;
-      last = sceneDraw(top, bot, tCol, botCol, x);
-      matrixFillScreen(); last(0);
-    })) return true;
-    if (await responsiveDelay(1500)) return true;
-  } else if (await responsiveDelay(3000)) return true;
-  if (moveOut) {
-    return steps(33, 35, i => { matrixFillScreen(); last(-i); });
-  }
-  return fadeEffect(top, bot, tCol, botCol, x, true);
-}
-
-async function showScene(top, bot, tCol, moveIn, moveOut) {
-  tCol = mapStyleColor(tCol);
-  const botCol = stationBotColor(), botW = getUTF8Width(bot), x0 = botW > W ? 4 : stationStaticNameX(botW);
-  if (moveIn) {
-    const draw = sceneDraw(top, bot, tCol, botCol, x0);
-    last = draw;
-    if (await steps(33, 35, i => { matrixFillScreen(); draw(32 - i); })) return true;
-  } else {
-    last = sceneDraw(top, bot, tCol, botCol, x0);
-    if (await fadeEffect(top, bot, tCol, botCol, x0, false)) return true;
-  }
-  return sceneBody(top, bot, tCol, botCol, moveOut, x0);
-}
-
-async function transitionUp(top, bot, tCol) {
-  tCol = mapStyleColor(tCol);
-  const old = last, botCol = stationBotColor(), botW = getUTF8Width(bot), x0 = botW > W ? 4 : stationStaticNameX(botW);
-  const draw = sceneDraw(top, bot, tCol, botCol, x0);
-  if (await steps(33, 35, i => { matrixFillScreen(); old(-i); draw(32 - i); })) return true;
-  return sceneBody(top, bot, tCol, botCol, false, x0);
-}
-
-// 2222: no fade, no sliding; a long name runs right off the panel
-async function showSceneOldStyle(top, bot) {
-  const tCol = COLOR.oldGreen, botCol = mapStyleColor(COLOR.white), botW = getUTF8Width(bot), topW = getUTF8Width(top);
-  const topX = botW > W ? stationCenterX(topW) : stationPartialLeftX(topW);
-  if (botW <= W) {
-    last = sceneDraw(top, bot, tCol, botCol, stationStaticNameX(botW), 1, topX);
-    show(last);
-    return responsiveDelay(3000);
-  }
-  last = sceneDraw(top, bot, tCol, botCol, 4, 1, topX);
-  show(last);
-  if (await responsiveDelay(1500)) return true;
-  return steps(4 + botW + 1, SCROLL_DELAY + DRAW_MS, i => {
-    last = sceneDraw(top, bot, tCol, botCol, 4 - i, 1, topX);
-    matrixFillScreen(); last(0);
-  });
-}
-
-// 4444: the colours of the style, no fade, no sliding, dark after every scene
-async function showSceneFlat(top, bot, tCol) {
-  tCol = mapStyleColor(tCol);
-  const botCol = stationBotColor(), botW = getUTF8Width(bot);
-  last = sceneDraw(top, bot, tCol, botCol, botW > W ? 4 : stationStaticNameX(botW));
-  show(last);
-  if (botW > W) {
-    if (await responsiveDelay(1500)) return true;
-    if (await steps(4 + botW + 1, SCROLL_DELAY + DRAW_MS, i => {
-      last = sceneDraw(top, bot, tCol, botCol, 4 - i);
-      matrixFillScreen(); last(0);
-    })) return true;
-  } else if (await responsiveDelay(3000)) return true;
-  matrixFillScreen(); matrixShow();
-  return false;
-}
-
-/* ---- ads ---- */
-function segLineWidth(segs) {
-  let x = 0;
-  for (const [t] of segs) x += getUTF8Width(t) + 1;
-  return x > 0 ? x - 1 : 0;
-}
-function drawSegLine(segs, x, y, f = 1) {
-  for (const [t, c] of segs) {
-    printBold(t, x, y, dim(mapStyleColor(COLOR[c]), f));
-    x += getUTF8Width(t) + 1;
-  }
-}
-async function showMultiColorAdEx(top, bot, scrollDelay, holdScrollMs, holdStaticMs, fadeDelayMs, noScroll = false) {
-  const topW = segLineWidth(top), botW = segLineWidth(bot);
-  const topX = top[0][0][0] === '*' ? 0 : topW > W ? 4 : Math.floor((W - topW) / 2);
-  const startX = botW > W ? 4 : Math.floor((W - botW) / 2);
-  let x = startX;
-  const frame = f => o => { drawSegLine(top, topX, 13 + o, f); drawSegLine(bot, x, 28 + o, f); };
-  last = frame(1);
-  if (gStyle === '4444') {
-    show(last);
-    if (botW <= W) return responsiveDelay(holdStaticMs);
-    if (await responsiveDelay(holdScrollMs)) return true;
-    return steps(startX + botW + 1, scrollDelay + DRAW_MS, i => { x = startX - i; matrixFillScreen(); frame(1)(0); });
-  }
-  if (await steps(16, fadeDelayMs, i => { matrixFillScreen(); frame(i / 15)(0); })) return true;
-  if (noScroll) {
-    if (await responsiveDelay(3000)) return true;
-  } else if (botW > W) {
-    if (await responsiveDelay(holdScrollMs)) return true;
-    if (await steps(4 - (W - botW) + 1, scrollDelay + DRAW_MS, i => { x = 4 - i; matrixFillScreen(); frame(1)(0); })) return true;
-    if (await responsiveDelay(holdScrollMs)) return true;
-  } else if (await responsiveDelay(holdStaticMs)) return true;
-  return steps(16, fadeDelayMs, i => { matrixFillScreen(); frame((15 - i) / 15)(0); });
-}
-function showAdPoolIndex(which) {
-  if (which === 0) return showMultiColorAdEx(ADS.AD0_TOP, ADS.AD0_BOT, 4, 1500, 3000, 30);
-  if (which === 1) return showMultiColorAdEx(ADS.AD1_TOP, ADS.AD1_BOT, 3, 250, 500, 10);
-  if (which === 2) return showMultiColorAdEx(ADS.AD2_TOP, ADS.AD2_BOT, 5, 250, 500, 10);
-  if (which === 3) return showMultiColorAdEx(ADS.AD3_TOP, ADS.AD3_BOT, 4, 700, 1400, 18, true);
-  if (which === 4) return showMultiColorAdEx(ADS.AD4_TOP, ADS.AD4_BOT, AD_FAST_SCROLL_DELAY, 700, 1400, 18);
-  return false;
-}
-// 2222: one cut, or one run to the end; its own versions of ads 1 and 4, and ad 5 is shown here
-async function showAdOldOnce(which) {
-  const top = ADS[which === 1 || which === 4 ? `AD${which}_OLD_TOP` : `AD${which}_TOP`];
-  const bot = ADS[which === 1 || which === 4 ? `AD${which}_OLD_BOT` : `AD${which}_BOT`];
-  const topW = segLineWidth(top), botW = segLineWidth(bot);
-  const topX = top[0][0][0] === '*' ? 0 : Math.max(0, Math.floor((W - topW) / 2));
-  const delay = [4, 3, 4, 4][which] ?? AD_FAST_SCROLL_DELAY;
-  let x = botW <= W ? Math.max(0, Math.floor((W - botW) / 2)) : 4;
-  const frame = () => o => { drawSegLine(top, topX, 13 + o); drawSegLine(bot, x, 28 + o); };
-  last = frame();
-  show(last);
-  if (botW <= W) return responsiveDelay(1400);
-  if (await responsiveDelay(700)) return true;
-  return steps(4 + botW + 1, delay + DRAW_MS, i => { x = 4 - i; matrixFillScreen(); frame()(0); });
-}
-
-/* ---- the sequence of one stop, as after a T on the board ---- */
-let isShowing = false, wantStyle = '1111', myStyle = null, wantFont = 'dunggeunmo16', wantEn = 'dkbascii16';
-async function playStop(r, wasShowing) {
-  gStyle = wantStyle;
-  await useFonts(wantFont, wantEn);
-  const isTerminal = !r.next_kr || r.next_kr === '종 점';
-  const finish = () => { isShowing = false; last = null; matrixFillScreen(); matrixShow(); };
-  isShowing = true;
-  if (gStyle === '2222') {
-    const showAd = Math.random() * 100 < AD_SHOW_PCT, which = Math.floor(Math.random() * AD_COUNT);
-    for (let i = 0; i < 2; i++) {
-      if (await showSceneOldStyle('이번정류소', r.kr)) return;
-      if (!isTerminal && await showSceneOldStyle('다음정류소', r.next_kr)) return;
-      if (await showSceneOldStyle('THIS STOP', r.en)) return;
-      if (showAd && await showAdOldOnce(which)) return;
-    }
-    return finish();
-  }
-  if (gStyle === '4444') {
-    const once = async () => {
-      if (await showSceneFlat('이번정류소', r.kr, COLOR.green)) return true;
-      if (!isTerminal && await showSceneFlat('다음정류소', r.next_kr, COLOR.green)) return true;
-      return showSceneFlat('THIS STOP', r.en, COLOR.green);
-    };
-    if (await once()) return;
-    if (Math.random() * 100 < AD_SHOW_PCT && await showAdPoolIndex(Math.floor(Math.random() * AD_COUNT))) return;
-    if (await once()) return;
-    return finish();
-  }
-  if (wasShowing && last) { if (await transitionUp('이번정류소', r.kr, COLOR.green)) return; }
-  else if (await showScene('이번정류소', r.kr, COLOR.green, true, false)) return;
-  if (!isTerminal && await showScene('다음정류소', r.next_kr, COLOR.cyan, false, false)) return;
-  if (await showScene('THIS STOP', r.en, COLOR.green, false, false)) return;
-  if (Math.random() * 100 < AD_SHOW_PCT && await showAdPoolIndex(Math.floor(Math.random() * AD_COUNT))) return;
-  if (await showScene('이번정류소', r.kr, COLOR.green, false, true)) return;
-  finish();
-}
-
-function drawWaiting() {
-  const t = 'LED init. V3.2a';
-  last = null;
-  matrixFillScreen();
-  printBold(t, stationCenterX(getUTF8Width(t)), 19, COLOR.red);
-  matrixShow();
-}
-
-/* ---- the LED site drives this board with the real sign's own commands (R:, I:, CFG:), over a BroadcastChannel ---- */
-// R:<count>|kr1,en1;kr2,en2;...  the whole route     I:<n>  show stop n now     CFG:1111..4444  the style
-let route = [], running = null;
-const channel = new BroadcastChannel('led-web-board');
-
-async function showStop(i) {
-  const s = route[i];
-  if (!s) return;
-  const n = route[i + 1];
-  const r = { kr: s.kr, en: s.en, next_kr: n ? n.kr : '' };
-  const was = isShowing;
-  interrupt = true;
-  if (running) await running;
-  interrupt = false;
-  running = playStop(r, was).then(() => { running = null; });
-}
-
-function onLine(line) {
-  line = String(line || '').trim();
-  let m;
-  if ((m = /^CFG:(1111|2222|3333|4444)$/.exec(line))) { wantStyle = m[1]; return; }     // from the next stop on, as on the sign
-  if (line.startsWith('R:')) {
-    const body = line.slice(2), bar = body.indexOf('|');
-    route = (bar < 0 ? '' : body.slice(bar + 1)).split(';').filter(Boolean).map(p => {
-      const c = p.indexOf(',');
-      return c < 0 ? { kr: p, en: '' } : { kr: p.slice(0, c), en: p.slice(c + 1) };
-    });
-    return;
-  }
-  if ((m = /^I:(\d+)$/.exec(line))) showStop(Number(m[1]));
-}
-
-channel.onmessage = e => {
-  const d = e.data || {};
-  if (d.type === 'led-line') onLine(d.line);
-  else if (d.type === 'led-state') (d.lines || []).forEach(onLine);
-};
-
-// the style as on the real board: type 1111 to 4444 and Enter. It starts with the next stop
-let typed = '';
-addEventListener('keydown', e => {
-  if (/^[0-9]$/.test(e.key)) { typed = (typed + e.key).slice(-4); return; }
-  if (e.key !== 'Enter') return;
-  const code = typed;
-  typed = '';
-  if (/^(1111|2222|3333|4444)$/.test(code)) {
-    wantStyle = code;
-    channel.postMessage({ type: 'style', code });
-  }
-});
-
-addEventListener('resize', fit);
-matrixFillScreen();
-fit();
-useFonts(wantFont, wantEn).then(() => {
-  drawWaiting();
-  channel.postMessage({ type: 'hello' });     // the map page answers with the route and stop it last sent
-});
 </script>
 </body>
 </html>
