@@ -95,15 +95,28 @@
     const ch=clean(row.CH||row.cctvch),id=clean(row.ID||row.id);
     if(!/^\d+$/.test(ch)||!/^\d+$/.test(id)){window.openPersistentCctv?.(cctvPopup(row));return;}
     window.openPersistentCctv?.(`<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">실시간 영상을 준비하는 중…</div></div>`);
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),18000);
-    try{
-      const response=await fetch(`${CCTV_HLS_BASE}/cctv/start?ch=${encodeURIComponent(ch)}&id=${encodeURIComponent(id)}`,{cache:'no-store',signal:controller.signal});
-      if(!response.ok)throw new Error(`영상 중계 오류 (${response.status})`);
-      const data=await response.json(),src=new URL(data.playlist,CCTV_HLS_BASE).href;
-      window.openPersistentCctv?.(`<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><video controls autoplay muted playsinline preload="metadata" data-hls-src="${esc(src)}"></video><div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공 · 실시간 HLS 중계</div></div>`);
-    }catch(error){window.openPersistentCctv?.(cctvPopup(row));}
-    finally{clearTimeout(timer);}
+    // The relay's first start of a camera takes ~10 s and longer when UTIC is slow; 18 s once made cameras fall back to
+    // the VLC address (2026-11-20). Wait up to 30 s, and try a second time before giving up.
+    const mine=++cctvOpenSeq;
+    for(let attempt=1;attempt<=2;attempt++){
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
+      try{
+        const response=await fetch(`${CCTV_HLS_BASE}/cctv/start?ch=${encodeURIComponent(ch)}&id=${encodeURIComponent(id)}`,{cache:'no-store',signal:controller.signal});
+        if(!response.ok)throw new Error(`영상 중계 오류 (${response.status})`);
+        const data=await response.json(),src=new URL(data.playlist,CCTV_HLS_BASE).href;
+        if(mine!==cctvOpenSeq)return;      // another camera was clicked meanwhile
+        window.openPersistentCctv?.(`<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><video controls autoplay muted playsinline preload="metadata" data-hls-src="${esc(src)}"></video><div class="utic-source">경찰청 도시교통정보센터(UTIC) 제공 · 실시간 HLS 중계</div></div>`);
+        return;
+      }catch(error){
+        if(mine!==cctvOpenSeq)return;
+        if(attempt<2){window.openPersistentCctv?.(`<div class="cctv-popup"><div class="popup-name">📹 ${esc(name)}</div><div class="popup-meta">영상 서버가 늦어서 한 번 더 시도하는 중…</div></div>`);continue;}
+        lastCctvRow=row;
+        window.openPersistentCctv?.(cctvPopup(row).replace(/<\/div>$/,'<a class="cctv-popup-link" href="#" onclick="event.preventDefault();event.stopPropagation();window.retryUticCctv&&window.retryUticCctv()">영상 다시 시도</a></div>'));
+      }finally{clearTimeout(timer);}
+    }
   }
+  let cctvOpenSeq=0,lastCctvRow=null;
+  window.retryUticCctv=()=>{if(lastCctvRow)openUticCctv(lastCctvRow);};
   async function drawIncidents(bounds,force){
     if(!incidentOn){clearLayer('incident');return 0;}
     const rows=await cachedRows('incident',force);clearLayer('incident');incidentLayer=L.layerGroup().addTo(map);let count=0;
