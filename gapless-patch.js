@@ -682,8 +682,15 @@
       catch(e){const t=await ttsInfo(s[0],s[1]);return {kind:'tts',text:t.text,lang:t.lang,category:s[0],key:s[1]};}
     }));
     if(!next){
-      if(!skipEnglish){const englishStop=await resolveSegment('stops',stopKey+' (1)',false,waitForAi);resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);}
+      // 종점: no ads. A recorded English clip longer than a name has its ad/notice built in, so it is left out there;
+      // the AI/TTS English (name only) stays and gets no extra after it (2026-11-20).
+      if(!skipEnglish){
+        const englishStop=await resolveSegment('stops',stopKey+' (1)',false,waitForAi);
+        const withAd=englishStop&&englishStop.kind==='audio'&&!englishStop.ai&&englishStop.buf&&englishStop.buf.duration>4.5;
+        if(englishStop&&englishStop.kind!=='missing'&&!withAd)resolved.push(await resolveSegment('phrases_en','thisstopis'),englishStop);
+      }
       resolved.push(await resolveSegment('phrases','종착',false,waitForAi));
+      resolved.terminal=true;
       return resolved;
     }
     if(skipEnglish)return resolved;
@@ -724,7 +731,7 @@
       try{
         const resolved=await resolveAnnouncement(stop,next,!!options.waitForAi);
         if(controller.signal.aborted)return;
-        await appendEnglishTtsExtra(resolved);
+        if(!resolved.terminal)await appendEnglishTtsExtra(resolved);     // 종점: no ad after the English
         if(controller.signal.aborted)return;
         announceSignal(true);
         await playResolvedSequence(resolved,controller.signal);

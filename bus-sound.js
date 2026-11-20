@@ -231,26 +231,26 @@
     feed(mps, dist, idx) { if (R.run) want = { v: Math.max(0, mps || 0), dist: dist ?? Infinity, idx: idx ?? -1 }; },
     // arrived at a stop: plays the stop (brake, doors, people getting off and on, doors shut, off again)
     // and says how long the bus stands there in ms (0: sound off, the simulation keeps its own time)
-    arrive(mult, last, idx, wait0 = 0) {
+    arrive(mult, last, idx, wait0 = 0, departing = false) {
       if (!R.run || !cfg.on || !A.ctx) return 0;
       want = { v: 0, dist: 0, idx: -1 };
       const s = Math.min(1, 1 / Math.max(0.25, mult || 1));      // fast-forward: the same stop, quicker
       const belled = R.belled[idx] === 'yes';
       const hy = !V();
       let t = wait0; const at = (ms, f) => later(t + ms * s, f);
-      at(0, () => shot(S('brkon'), 'fx', 0.7)); t += 700 * s;
+      if (last) return this.terminal(s, hy, t);
+      if (!departing) { at(0, () => shot(S('brkon'), 'fx', 0.7)); t += 700 * s; }     // at the first stop the bus already stands
       const kneel = Math.random() < 0.3;
       if (kneel) at(0, () => shot('kneeldn', 'fx', 0.3));
       at(0, () => shot(S('fdo'), 'fx', 0.8));
-      const off = last ? R.pax : belled ? Math.max(1, Math.min(R.pax, Math.round(rnd(1, 6)))) : 0;
-      const on = last ? 0 : Math.round(rnd(0, 6));
+      const off = belled ? Math.max(1, Math.min(R.pax, Math.round(rnd(1, 6)))) : 0;
+      const on = Math.round(rnd(departing ? 2 : 0, 6));
       if (off) at(250, () => shot(S('bdo'), 'fx', 0.75));
       t += 1750 * s;
       if (Math.random() < 0.3) at(0, () => shot('dryer', 'fx', 0.2));
       let ta = 0; for (let n = 0; n < off; n++) { ta += rnd(700, 1700); at(ta, () => { shot('hacha', 'fx', 0.9); R.pax = Math.max(0, R.pax - 1); }); }
       let tb = rnd(600, 1400); for (let n = 0; n < on; n++) { at(tb, () => { shot(cfg.tagless && Math.random() < 0.2 ? 'tagless' : 'tag', 'fx', 0.9); R.pax++; }); tb += rnd(900, 2200); }
       t += (Math.max(ta, tb) + rnd(1500, 3500)) * s;
-      if (last) { say('종점입니다'); return t; }
       if (off) {
         if (hy) { at(0, () => shot('bdstop', 'fx', 0.6)); t += 900 * s; }
         at(0, () => shot(S('bdc'), 'fx', 0.75));
@@ -262,10 +262,34 @@
       t += 900 * s;
       return t;
     },
-    // the first stop: wait for the engine, then take people on before pulling away
+    // the last stop: nobody gets on. Brake, only the rear door opens, everyone gets off, it shuts, the engine goes off
+    // quietly and that is the end (no front door, no pulling away)
+    terminal(s, hy, t0) {
+      let t = t0; const at = (ms, f) => later(t + ms * s, f);
+      at(0, () => shot(S('brkon'), 'fx', 0.7)); t += 700 * s;
+      at(0, () => shot(S('bdo'), 'fx', 0.75)); t += 1200 * s;
+      const off = Math.max(1, R.pax);
+      let ta = 0; for (let n = 0; n < off; n++) { ta += rnd(600, 1400); at(ta, () => { shot('hacha', 'fx', 0.9); R.pax = Math.max(0, R.pax - 1); }); }
+      t += (ta + rnd(1500, 2500)) * s;
+      if (hy) { at(0, () => shot('bdstop', 'fx', 0.6)); t += 900 * s; }
+      at(0, () => shot(S('bdc'), 'fx', 0.75)); t += 2500 * s;
+      at(0, () => this.engineOff()); t += 2500 * s;
+      at(0, () => say('종점입니다'));
+      return t;
+    },
+    // the engine goes off at the end of the line: its own stop sound, softly, and the loops fade out
+    engineOff() {
+      if (!R.engineOn || !A.ctx) return;
+      const v = V();
+      if (!v) shot('e_aus', 'eng', 0.5); else if (v.one.stop) shot(v.one.stop.replace(/^rs_/, ''), 'eng', 0.5);
+      R.engineOn = false; R.v = 0; want = { v: 0, dist: Infinity, idx: -1 };
+      Object.values(A.loops).forEach(l => { try { l.g.gain.setTargetAtTime(0, A.ctx.currentTime, 0.7); l.s.stop(A.ctx.currentTime + 4); } catch (e) { /* stopped */ } });
+      A.loops = {}; A.gen = null;
+    },
+    // the first stop: start the engine, open the door, take people on, then pull away (no brake, no stop announcement)
     depart(mult, idx) {
       if (!R.run || !cfg.on || !A.ctx) return 0;
-      return this.arrive(mult, false, idx, R.engineOn ? 0 : 4000);
+      return this.arrive(mult, false, idx, R.engineOn ? 0 : 4000, true);
     },
     stop(quiet) {
       const wasOn = R.engineOn;

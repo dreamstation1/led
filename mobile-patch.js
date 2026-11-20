@@ -133,15 +133,15 @@
       guideNextIndex=startIdx+1;guideApproachAnnounced=false;guideMinDistToTarget=Infinity;
       guideLastLat=guideLastLng=guideHeadingDeg=null;
       markGuideProgress();renderGuideBar();updateGuideStatus();
-      status.textContent='첫 안내방송 AI 음성을 준비하고 있습니다… 준비가 끝나면 시뮬레이션이 시작됩니다.';
-      await announceArrival(currentGuideStops[startIdx],currentGuideStops[startIdx+1]||null,{waitForAi:true});
+      // A real bus says nothing at the stop it starts from: engine on, door open, people on, off it goes. The first
+      // announcement is the next stop's, on the way (2026-11-20).
       if(prepareGeneration!==simPrepareGeneration||!guideActive)return;
       try{if(ledConnected)ledUploadRoute().then(()=>ledSetIndex(startIdx));}catch(e){}
       const path=currentRoutePath,totalLen=pathLengthM(path),stopArcs=stopArcLengthsAlongPath(path,currentGuideStops);
       let traveled=Math.max(0,Math.min(totalLen,stopArcs[startIdx]||0)),lastTs=performance.now(),dwellUntil=0,currentSpeed=0;
       const initialRoadPoint=pointAtDistanceM(path,traveled);
       paintSimulationPosition(initialRoadPoint[0],initialRoadPoint[1]);
-      status.textContent='첫 안내방송 완료 · 시뮬레이션을 시작합니다 (속도 '+fmtSpeed(simSpeedMultiplier)+')';
+      status.textContent='시뮬레이션을 시작합니다 (속도 '+fmtSpeed(simSpeedMultiplier)+')';
       try{dwellUntil=performance.now()+(window.busSound?.depart?.(simSpeedMultiplier,startIdx)||0);}catch(e){}
       function tick(now){
         if(!guideActive){if(stopBackgroundSimulation){stopBackgroundSimulation();stopBackgroundSimulation=null;}stopSimulationKeepAlive();guideSimRaf=null;return;}
